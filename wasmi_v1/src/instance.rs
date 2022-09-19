@@ -19,7 +19,7 @@ use core::{iter::FusedIterator, ops::Deref};
 
 /// A raw index to a module instance entity.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct InstanceIdx(u32);
+pub struct InstanceIdx(pub u32);
 
 impl Index for InstanceIdx {
     fn into_usize(self) -> usize {

@@ -21,9 +21,9 @@ impl Index for FuncBody {
 #[derive(Debug, Copy, Clone)]
 pub struct InstructionsRef {
     /// The start index in the instructions array.
-    start: usize,
+    pub(crate) start: usize,
     /// The end index in the instructions array.
-    end: usize,
+    pub(crate) end: usize,
 }
 
 /// Meta information about a compiled function.

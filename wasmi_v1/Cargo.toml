@@ -12,7 +12,9 @@ keywords = ["wasm", "webassembly", "bytecode", "interpreter"]
 exclude = [ "tests/*", "benches/*" ]
 
 [dependencies]
-codec = { package = "parity-scale-codec", version = "3.0", default-features = false }
+sha3 = { version = "0.10.5", default-features = false }
+digest = { version = "0.10.5", default-features = false }
+codec = { package = "parity-scale-codec", version = "3.0", default-features = false, features = ["derive"] }
 wasmparser = { version = "0.90", package = "wasmparser-nostd", default-features = false }
 wasmi_core = { version = "0.4", path = "../core", default-features = false }
 spin = { version = "0.9", default-features = false, features = ["mutex", "spin_mutex"] }

@@ -12,7 +12,7 @@ pub mod stack;
 mod traits;
 
 mod accel_mod;
-mod proof;
+mod state_hash;
 
 pub(crate) use self::func_args::{FuncParams, FuncResults};
 use self::{

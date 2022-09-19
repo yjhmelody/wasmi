@@ -3,8 +3,8 @@ use crate::arena::Index;
 /// A guarded entity.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct GuardedEntity<GuardIdx, EntityIdx> {
-    guard_idx: GuardIdx,
-    entity_idx: EntityIdx,
+    pub(crate) guard_idx: GuardIdx,
+    pub(crate) entity_idx: EntityIdx,
 }
 
 impl<GuardIdx, EntityIdx> GuardedEntity<GuardIdx, EntityIdx> {

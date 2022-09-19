@@ -4,6 +4,11 @@ use super::{err_stack_overflow, DEFAULT_MAX_RECURSION_DEPTH};
 use crate::{core::TrapCode, engine::code_map::InstructionsRef, Instance};
 use alloc::vec::Vec;
 use core::mem::replace;
+use std::io::Write;
+use sha3::Keccak256;
+use digest::Digest;
+use crate::engine::state_hash::Bytes32;
+use crate::engine::traits::{ProofGenerator, ProofKind};
 
 /// A function frame of a function on the call stack.
 #[derive(Debug, Copy, Clone)]
@@ -56,6 +61,14 @@ impl FuncFrame {
     pub fn iref(&self) -> InstructionsRef {
         self.iref
     }
+
+    pub fn state_hash(&self) -> Bytes32 {
+        let mut h = Keccak256::new();
+        h.update(self.iref.start.to_be_bytes());
+        h.update(self.iref.end.to_be_bytes());
+        h.update((self.pc as u32).to_be_bytes());
+        h.finalize().into()
+    }
 }
 
 /// The live function call stack storing the live function activation frames.
@@ -73,7 +86,32 @@ impl Default for CallStack {
     }
 }
 
+impl ProofGenerator for CallStack {
+    fn write_proof(&self, proof_buf: &mut Vec<u8>) {
+        proof_buf.push(ProofKind::CallStack as u8);
+        // TODO: should we record `recursion_limit`?
+        let last_frame = self.frames.last().cloned();
+        match last_frame {
+            None => proof_buf.push(0),
+            Some(frame) => proof_buf.extend(frame.state_hash()),
+        }
+    }
+}
+
 impl CallStack {
+    /// Returns a 32 bytes hash.
+    pub fn state_hash(&self) -> Vec<u8> {
+        if self.frames.is_empty() {
+            vec![0; 32]
+        } else {
+            todo!();
+            let mut hash = Keccak256::default();
+            // hash.update();
+            // hash
+            // self.frames.iter().
+        }
+    }
+
     /// Creates a new [`CallStack`] using the given recursion limit.
     pub fn new(recursion_limit: usize) -> Self {
         Self {

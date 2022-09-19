@@ -4,8 +4,10 @@ use super::{err_stack_overflow, DEFAULT_MAX_VALUE_STACK_HEIGHT, DEFAULT_MIN_VALU
 use crate::{core::TrapCode, engine::DropKeep};
 use alloc::vec::Vec;
 use core::{fmt, fmt::Debug, iter, mem::size_of};
+use core::borrow::Borrow;
 use wasmi_core::UntypedValue;
 use codec::{Encode, Decode};
+use crate::engine::traits::{ProofKind, ProofGenerator};
 
 /// The value stack that is used to execute Wasm bytecode.
 ///
@@ -36,6 +38,13 @@ impl From<UntypedValue> for Value {
         Self(v.to_bits())
     }
 }
+
+impl From<&UntypedValue> for Value {
+    fn from(v: &UntypedValue) -> Self {
+        Self(v.to_bits())
+    }
+}
+
 
 impl Debug for ValueStack {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -87,13 +96,16 @@ impl FromIterator<UntypedValue> for ValueStack {
     }
 }
 
-impl ValueStack {
-    /// Returns the value stack state proof.
-    pub fn generate_proof(&self) -> Vec<u8> {
+impl ProofGenerator for ValueStack {
+    fn write_proof(&self, proof_buf: &mut Vec<u8>) {
         let stack_vals = self.entries[..self.stack_ptr].iter().map(Into::into).collect::<Vec<Value>>();
-        Encode::encode(&stack_vals)
+        proof_buf.push(ProofKind::ValueStack as u8);
+        Encode::encode_to(&stack_vals, proof_buf)
     }
 
+}
+
+impl ValueStack {
     /// Creates a new empty [`ValueStack`].
     ///
     /// # Panics

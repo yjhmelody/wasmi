@@ -22,6 +22,7 @@ use core::{
     mem::size_of,
 };
 use wasmi_core::{Trap, TrapCode};
+use crate::engine::traits::{ProofGenerator, ProofKind};
 
 /// Default value for initial value stack heihgt in bytes.
 const DEFAULT_MIN_VALUE_STACK_HEIGHT: usize = 1024;
@@ -108,6 +109,14 @@ pub struct Stack {
     pub(crate) values: ValueStack,
     /// The frame stack.
     frames: CallStack,
+}
+
+impl ProofGenerator for Stack {
+    fn write_proof(&self, proof_buf: &mut Vec<u8>) {
+        proof_buf.push(ProofKind::Stack as u8);
+        self.values.write_proof(proof_buf);
+        self.frames.write_proof(proof_buf);
+    }
 }
 
 impl Stack {

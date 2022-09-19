@@ -93,3 +93,16 @@ impl<'a> CallResults for &'a mut [Value] {
         self
     }
 }
+
+#[derive(Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ProofKind {
+    Stack = 0,
+    ValueStack = 1,
+    CallStack = 2,
+}
+
+pub trait ProofGenerator {
+    /// Write the part of state proof of executor.
+    fn write_proof(&self, proof_buf: &mut Vec<u8>);
+}
