@@ -38,7 +38,7 @@ pub fn execute_frame<'engine>(
     Executor::new(ctx, frame, cache, insts, value_stack).execute()
 }
 
-/// An execution context for executing a `wasmi` function frame.
+/// An execution context for executing a `accel` function frame.
 #[derive(Debug)]
 struct Executor<'engine, 'func, Ctx> {
     /// The program counter.

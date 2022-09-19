@@ -171,7 +171,7 @@ impl Stack {
         self.frames.pop()
     }
 
-    /// Executes the given host function as root.
+    /// Executes the given host function as root function.
     pub(crate) fn call_host_root<C>(
         &mut self,
         ctx: C,
@@ -205,7 +205,6 @@ impl Stack {
     ///
     /// - If the host function returns a host side error or trap.
     /// - If the value stack overflowed upon pushing parameters or results.
-    #[inline(never)]
     fn call_host_impl<C>(
         &mut self,
         mut ctx: C,

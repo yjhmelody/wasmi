@@ -1,21 +1,7 @@
-//! The `wasmi` interpreter.
+//! The `accel-wasm` interpreter.
 
-pub mod bytecode;
-mod cache;
-pub mod code_map;
-mod config;
-pub mod executor;
-mod func_args;
-mod func_builder;
-mod func_types;
-pub mod stack;
-mod traits;
-
-mod accel_mod;
-mod proof;
-
-pub(crate) use self::func_args::{FuncParams, FuncResults};
-use self::{
+pub(crate) use super::func_args::{FuncParams, FuncResults};
+use super::{
     bytecode::Instruction,
     cache::InstanceCache,
     code_map::CodeMap,
@@ -23,7 +9,7 @@ use self::{
     func_types::FuncTypeRegistry,
     stack::{FuncFrame, Stack, ValueStack},
 };
-pub use self::{
+pub use super::{
     bytecode::{DropKeep, Target},
     code_map::FuncBody,
     config::Config,
@@ -39,7 +25,7 @@ pub use self::{
     stack::StackLimits,
     traits::{CallParams, CallResults},
 };
-use super::{func::FuncEntityInternal, AsContextMut, Func};
+use super::{AsContextMut, Func};
 use crate::{
     arena::{GuardedEntity, Index},
     core::Trap,
@@ -47,53 +33,15 @@ use crate::{
 };
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU32, Ordering};
-pub use func_types::DedupFuncType;
+pub use super::func_types::DedupFuncType;
 use spin::mutex::Mutex;
-
-/// The outcome of a `wasmi` function execution.
-#[derive(Debug, Copy, Clone)]
-pub enum CallOutcome {
-    /// The function has returned.
-    Return,
-    /// The function called another function.
-    NestedCall(Func),
-}
-
-/// A unique engine index.
-///
-/// # Note
-///
-/// Used to protect against invalid entity indices.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct EngineIdx(u32);
-
-impl Index for EngineIdx {
-    fn into_usize(self) -> usize {
-        self.0 as _
-    }
-
-    fn from_usize(value: usize) -> Self {
-        let value = value.try_into().unwrap_or_else(|error| {
-            panic!("index {value} is out of bounds as engine index: {error}")
-        });
-        Self(value)
-    }
-}
-
-impl EngineIdx {
-    /// Returns a new unique [`EngineIdx`].
-    fn new() -> Self {
-        /// A static store index counter.
-        static CURRENT_STORE_IDX: AtomicU32 = AtomicU32::new(0);
-        let next_idx = CURRENT_STORE_IDX.fetch_add(1, Ordering::AcqRel);
-        Self(next_idx)
-    }
-}
+use crate::engine::{CallOutcome, EngineIdx};
+use crate::func::FuncEntityInternal;
 
 /// An entity owned by the [`Engine`].
 type Guarded<Idx> = GuardedEntity<EngineIdx, Idx>;
 
-/// The `wasmi` interpreter.
+/// The `accel` interpreter.
 ///
 /// # Note
 ///
@@ -165,23 +113,23 @@ impl Engine {
             .alloc_func_body(len_locals, max_stack_height, insts)
     }
 
-    /// Resolves the [`FuncBody`] to the underlying `wasmi` bytecode instructions.
-    ///
-    /// # Note
-    ///
-    /// - This API is mainly intended for unit testing purposes and shall not be used
-    ///   outside of this context. The function bodies are intended to be data private
-    ///   to the `wasmi` interpreter.
-    ///
-    /// # Panics
-    ///
-    /// If the [`FuncBody`] is invalid for the [`Engine`].
-    #[cfg(test)]
-    pub(crate) fn resolve_inst(&self, func_body: FuncBody, index: usize) -> Option<Instruction> {
-        let this = self.inner.lock();
-        let iref = this.code_map.header(func_body).iref();
-        this.code_map.insts(iref).get(index).copied()
-    }
+    // /// Resolves the [`FuncBody`] to the underlying `wasmi` bytecode instructions.
+    // ///
+    // /// # Note
+    // ///
+    // /// - This API is mainly intended for unit testing purposes and shall not be used
+    // ///   outside of this context. The function bodies are intended to be data private
+    // ///   to the `wasmi` interpreter.
+    // ///
+    // /// # Panics
+    // ///
+    // /// If the [`FuncBody`] is invalid for the [`Engine`].
+    // #[cfg(test)]
+    // pub(crate) fn resolve_inst(&self, func_body: FuncBody, index: usize) -> Option<Instruction> {
+    //     let this = self.inner.lock();
+    //     let iref = this.code_map.header(func_body).iref();
+    //     this.code_map.insts(iref).get(index).copied()
+    // }
 
     /// Executes the given [`Func`] using the given arguments `params` and stores the result into `results`.
     ///

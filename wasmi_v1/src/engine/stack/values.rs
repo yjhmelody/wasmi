@@ -5,6 +5,7 @@ use crate::{core::TrapCode, engine::DropKeep};
 use alloc::vec::Vec;
 use core::{fmt, fmt::Debug, iter, mem::size_of};
 use wasmi_core::UntypedValue;
+use codec::{Encode, Decode};
 
 /// The value stack that is used to execute Wasm bytecode.
 ///
@@ -25,6 +26,15 @@ pub struct ValueStack {
     /// Extending the value stack beyond this limit during execution
     /// will cause a stack overflow trap.
     maximum_len: usize,
+}
+
+#[derive(Debug, Encode, Decode, Eq, PartialEq)]
+pub struct Value(u64);
+
+impl From<UntypedValue> for Value {
+    fn from(v: UntypedValue) -> Self {
+        Self(v.to_bits())
+    }
 }
 
 impl Debug for ValueStack {
@@ -78,6 +88,12 @@ impl FromIterator<UntypedValue> for ValueStack {
 }
 
 impl ValueStack {
+    /// Returns the value stack state proof.
+    pub fn generate_proof(&self) -> Vec<u8> {
+        let stack_vals = self.entries[..self.stack_ptr].iter().map(Into::into).collect::<Vec<Value>>();
+        Encode::encode(&stack_vals)
+    }
+
     /// Creates a new empty [`ValueStack`].
     ///
     /// # Panics
