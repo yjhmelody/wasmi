@@ -12,6 +12,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::mem::replace;
+use codec::Encode;
 use sha3::{Digest, Keccak256};
 
 /// A function frame of a function on the call stack.
@@ -97,7 +98,7 @@ impl Default for CallStack {
 impl ProofGenerator for CallStack {
     fn write_proof(&self, proof_buf: &mut Vec<u8>) {
         proof_buf.push(ProofKind::CallStack as u8);
-        // TODO: should we record `recursion_limit`?
+        // proof_buf.extend((self.recursion_limit as u32).encode());
         let last_frame = self.frames.last().cloned();
         match last_frame {
             None => proof_buf.push(0),

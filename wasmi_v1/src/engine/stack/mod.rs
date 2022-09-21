@@ -61,7 +61,7 @@ impl Display for LimitsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             LimitsError::InitialValueStackExceedsMaximum => {
-                write!(f, "initial value stack heihgt exceeds maximum stack height")
+                write!(f, "initial value stack height exceeds maximum stack height")
             }
         }
     }

@@ -67,10 +67,6 @@ pub struct CodeMap {
     /// Note:
     /// It ordered by instruction order.
     pub(crate) headers: Vec<FuncHeader>,
-    // /// The first instructions index of all compiled functions.
-    // pub(crate) entrypoints: BTreeMap<usize, FuncBody>,
-    /// The instructions of all allocated function bodies.
-    ///
     /// By storing all `wasmi` bytecode instructions in a single
     /// allocation we avoid an indirection when calling a function
     /// compared to a solution that stores instructions of different
@@ -102,9 +98,7 @@ impl CodeMap {
         };
         let header_index = self.headers.len();
         self.headers.push(header);
-        // println!("{:?}\n\n", self.headers);
         let body = FuncBody(header_index);
-        // self.entrypoints.insert(start, body);
 
         body
     }

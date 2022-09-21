@@ -37,30 +37,9 @@ pub fn execute_frame<'engine>(
 ) -> Result<CallOutcome, Trap> {
     Executor::new(ctx, frame, cache, insts, value_stack).execute()
 }
-pub fn execute_frame2<'engine>(
-    ctx: impl AsContextMut,
-    frame: &mut FuncFrame,
-    cache: &mut InstanceCache,
-    insts: Instructions<'engine>,
-    value_stack: &'engine mut ValueStack,
-) -> Result<CallOutcome, Trap> {
-    Executor::new(ctx, frame, cache, insts, value_stack).execute()
-}
 
 #[inline(always)]
 pub fn execute_frame_step_n<'engine>(
-    ctx: impl AsContextMut,
-    frame: &mut FuncFrame,
-    cache: &mut InstanceCache,
-    insts: Instructions<'engine>,
-    value_stack: &'engine mut ValueStack,
-    n: &mut u64,
-) -> Result<CallOutcome, Trap> {
-    Executor::new(ctx, frame, cache, insts, value_stack).execute_step_n(n)
-}
-
-#[inline(always)]
-pub fn execute_inst_step_n<'engine>(
     ctx: impl AsContextMut,
     frame: &mut FuncFrame,
     cache: &mut InstanceCache,
@@ -97,26 +76,6 @@ where
     /// Creates a new [`Executor`] for executing a `wasmi` function frame.
     #[inline(always)]
     pub fn new(
-        ctx: Ctx,
-        frame: &'func mut FuncFrame,
-        cache: &'engine mut InstanceCache,
-        insts: Instructions<'engine>,
-        value_stack: &'engine mut ValueStack,
-    ) -> Self {
-        // frame.update_pc(frame.iref().start);
-        cache.update_instance(frame.instance());
-        let pc = frame.pc();
-        Self {
-            pc,
-            value_stack,
-            frame,
-            cache,
-            ctx,
-            insts,
-        }
-    }
-
-    pub fn new2(
         ctx: Ctx,
         frame: &'func mut FuncFrame,
         cache: &'engine mut InstanceCache,

@@ -102,6 +102,7 @@ pub enum ProofKind {
     CallStack = 2,
 }
 
+// TODO: design the encode/decode spec.
 pub trait ProofGenerator {
     /// Write the part of state proof of executor.
     fn write_proof(&self, proof_buf: &mut Vec<u8>);

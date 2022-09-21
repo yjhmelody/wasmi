@@ -45,7 +45,6 @@ use crate::{
     core::Trap,
     engine::{
         code_map::{Instructions, InstructionsRef},
-        executor::execute_inst_step_n,
     },
     FuncType,
 };
