@@ -279,6 +279,44 @@ impl EngineInner {
     /// - If the given arguments `args` do not match the expected parameters of `func`.
     /// - If the given `results` do not match the the length of the expected results of `func`.
     /// - When encountering a Wasm trap during the execution of `func`.
+
+    // pub fn execute_func<Params, Results>(
+    //     &mut self,
+    //     mut ctx: impl AsContextMut,
+    //     func: Func,
+    //     params: Params,
+    //     results: Results,
+    // ) -> Result<<Results as CallResults>::Results, Trap>
+    // where
+    //     Params: CallParams,
+    //     Results: CallResults,
+    // {
+    //     self.initialize_args(params);
+    //     let signature = match func.as_internal(ctx.as_context()) {
+    //         FuncEntityInternal::Wasm(wasm_func) => {
+    //             let signature = wasm_func.signature();
+    //             let mut frame = self.stack.call_wasm_root(wasm_func, &self.code_map)?;
+    //             let instance = wasm_func.instance();
+    //             let mut cache = InstanceCache::from(instance);
+    //             self.execute_wasm_func(
+    //                 ctx.as_context_mut(),
+    //                 &mut frame,
+    //                 &mut cache,
+    //             )?;
+    //             signature
+    //         }
+    //         FuncEntityInternal::Host(host_func) => {
+    //             let signature = host_func.signature();
+    //             let host_func = host_func.clone();
+    //             self.stack
+    //                 .call_host_root(ctx.as_context_mut(), host_func, &self.func_types)?;
+    //             signature
+    //         }
+    //     };
+    //     let results = self.write_results_back(signature, results);
+    //     Ok(results)
+    // }
+
     pub fn execute_func<Params, Results>(
         &mut self,
         mut ctx: impl AsContextMut,
@@ -445,7 +483,10 @@ impl EngineInner {
         cache: &mut InstanceCache,
         n: Option<u64>,
     ) -> Result<(), Trap> {
-        let mut n = n.unwrap_or(u64::MAX);
+        let mut n = match n {
+            None => return self.execute_wasm_func(ctx, frame, cache),
+            Some(n) => n,
+        };
 
         // TODO: this is start from a wasm function
         // But we need to start from a wasm instruction
@@ -489,14 +530,13 @@ impl EngineInner {
         cache: &mut InstanceCache,
         n: Option<u64>,
     ) -> Result<(), Trap> {
-        // // Note: we must use the all instruction ref for this func frame here.
-        // let iref = InstructionsRef {
-        //     start: 0,
-        //     end: self.code_map.insts.len(),
-        // };
-
-        let mut iref = InstructionsRef { start: 0, end: 0 };
+        let inst_len = self.code_map.insts.len();
+        let mut iref = InstructionsRef {
+            start: 0,
+            end: inst_len,
+        };
         let mut pc = 0;
+        // Now O(n) is enough.
         for header in self.code_map.headers.iter() {
             // must meet once and only once.
             if header.iref().end > start {
@@ -505,10 +545,13 @@ impl EngineInner {
                 break;
             }
         }
+        assert!(
+            iref.end <= inst_len,
+            "The instruction len must be greater than start position"
+        );
 
         let mut frame = FuncFrame::new(iref, cache.instance());
         frame.update_pc(start - iref.start);
-        // TODO: 仍然使用 函数内的PC，但需要计算偏移量
         let frame = &mut frame;
 
         self.execute_wasm_func_step_n(ctx, frame, cache, n)

@@ -38,11 +38,13 @@ pub struct FuncFrame {
 
 impl FuncFrame {
     /// Returns the program counter.
+    #[inline]
     pub fn pc(&self) -> usize {
         self.pc
     }
 
     /// Updates the program counter.
+    #[inline]
     pub fn update_pc(&mut self, new_pc: usize) {
         self.pc = new_pc;
     }
@@ -57,11 +59,13 @@ impl FuncFrame {
     }
 
     /// Returns the instance of the [`FuncFrame`].
+    #[inline]
     pub fn instance(&self) -> Instance {
         self.instance
     }
 
     /// Returns a reference to the instructions of the [`FuncFrame`].
+    #[inline]
     pub fn iref(&self) -> InstructionsRef {
         self.iref
     }
