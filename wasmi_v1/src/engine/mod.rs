@@ -8,9 +8,9 @@ pub mod executor;
 mod func_args;
 mod func_builder;
 mod func_types;
+mod one_step_executor;
 pub mod stack;
 mod traits;
-mod one_step_executor;
 
 mod state_hash;
 
@@ -43,6 +43,10 @@ use super::{func::FuncEntityInternal, AsContextMut, Func};
 use crate::{
     arena::{GuardedEntity, Index},
     core::Trap,
+    engine::{
+        code_map::{Instructions, InstructionsRef},
+        executor::execute_inst_step_n,
+    },
     FuncType,
 };
 use alloc::sync::Arc;
@@ -50,8 +54,6 @@ use core::sync::atomic::{AtomicU32, Ordering};
 pub use func_types::DedupFuncType;
 use spin::mutex::Mutex;
 use wasmi_core::TrapCode;
-use crate::engine::code_map::{Instructions, InstructionsRef};
-use crate::engine::executor::execute_inst_step_n;
 
 /// The outcome of a `wasmi` function execution.
 #[derive(Debug, Copy, Clone)]
@@ -295,7 +297,12 @@ impl EngineInner {
                 let mut frame = self.stack.call_wasm_root(wasm_func, &self.code_map)?;
                 let instance = wasm_func.instance();
                 let mut cache = InstanceCache::from(instance);
-                self.execute_wasm_func(ctx.as_context_mut(), &mut frame, &mut cache)?;
+                self.execute_instruction_step_n(
+                    ctx.as_context_mut(),
+                    frame.iref().start,
+                    &mut cache,
+                    None,
+                )?;
                 signature
             }
             FuncEntityInternal::Host(host_func) => {
@@ -314,9 +321,8 @@ impl EngineInner {
         &mut self,
         mut ctx: impl AsContextMut,
         func: Func,
-        n: Option<usize>,
-    ) -> Result<DedupFuncType, Trap>
-    {
+        n: Option<u64>,
+    ) -> Result<DedupFuncType, Trap> {
         // TODO: do not init
         // self.initialize_args(params);
         let signature = match func.as_internal(ctx.as_context()) {
@@ -426,7 +432,7 @@ impl EngineInner {
                             )?;
                         }
                     }
-                },
+                }
                 _ => unreachable!("should never meet halt error"),
             }
         }
@@ -437,9 +443,9 @@ impl EngineInner {
         mut ctx: impl AsContextMut,
         frame: &mut FuncFrame,
         cache: &mut InstanceCache,
-        n: Option<usize>,
+        n: Option<u64>,
     ) -> Result<(), Trap> {
-        let mut n = n.unwrap_or(u32::MAX as usize);
+        let mut n = n.unwrap_or(u64::MAX);
 
         // TODO: this is start from a wasm function
         // But we need to start from a wasm instruction
@@ -468,7 +474,7 @@ impl EngineInner {
                             )?;
                         }
                     }
-                },
+                }
                 // Do not destroy any engine state.
                 CallOutcome::Halt => return Err(TrapCode::Halt.into()),
             }
@@ -481,7 +487,7 @@ impl EngineInner {
         mut ctx: impl AsContextMut,
         start: usize,
         cache: &mut InstanceCache,
-        n: Option<usize>,
+        n: Option<u64>,
     ) -> Result<(), Trap> {
         // // Note: we must use the all instruction ref for this func frame here.
         // let iref = InstructionsRef {
@@ -489,10 +495,7 @@ impl EngineInner {
         //     end: self.code_map.insts.len(),
         // };
 
-        let mut iref = InstructionsRef {
-            start: 0,
-            end: 0,
-        };
+        let mut iref = InstructionsRef { start: 0, end: 0 };
         let mut pc = 0;
         for header in self.code_map.headers.iter() {
             // must meet once and only once.
@@ -508,12 +511,7 @@ impl EngineInner {
         // TODO: 仍然使用 函数内的PC，但需要计算偏移量
         let frame = &mut frame;
 
-        self.execute_wasm_func_step_n(
-            ctx,
-            frame,
-            cache,
-            n,
-        )
+        self.execute_wasm_func_step_n(ctx, frame, cache, n)
     }
 
     /// Executes the given function `frame` and returns the result.
@@ -546,7 +544,7 @@ impl EngineInner {
         ctx: impl AsContextMut,
         frame: &mut FuncFrame,
         cache: &mut InstanceCache,
-        n: &mut usize,
+        n: &mut u64,
     ) -> Result<CallOutcome, Trap> {
         // let header_index = self.code_map.headers.binary_search_by(|header| {
         //     header.iref().start.cmp(&frame.iref().start)

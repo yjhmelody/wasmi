@@ -1,6 +1,8 @@
-use core::borrow::Borrow;
-use core::ops::{Deref, DerefMut};
-use core::fmt;
+use core::{
+    borrow::Borrow,
+    fmt,
+    ops::{Deref, DerefMut},
+};
 
 type GenericBytes32 = digest::generic_array::GenericArray<u8, digest::generic_array::typenum::U32>;
 

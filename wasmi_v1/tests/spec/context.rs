@@ -1,10 +1,26 @@
 use super::{TestDescriptor, TestError, TestProfile, TestSpan};
 use anyhow::Result;
 use std::collections::HashMap;
-use wasmi::{Config, Engine, Error, Extern, Func, Global, Instance, Linker, Memory, MemoryType, Module, Mutability, Store, Table, TableType};
-use wasmi_core::{Value, F32, F64, TrapCode};
+use wasmi::{
+    Config,
+    Engine,
+    Error,
+    Error::Trap,
+    Extern,
+    Func,
+    Global,
+    Instance,
+    Linker,
+    Memory,
+    MemoryType,
+    Module,
+    Mutability,
+    Store,
+    Table,
+    TableType,
+};
+use wasmi_core::{TrapCode, Value, F32, F64};
 use wast::token::{Id, Span};
-use wasmi::Error::Trap;
 
 /// The context of a single Wasm test spec suite run.
 #[derive(Debug)]

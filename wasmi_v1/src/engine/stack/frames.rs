@@ -1,12 +1,18 @@
 //! Data structures to represent the Wasm call stack during execution.
 
 use super::{err_stack_overflow, DEFAULT_MAX_RECURSION_DEPTH};
-use crate::{core::TrapCode, engine::code_map::InstructionsRef, Instance};
+use crate::{
+    core::TrapCode,
+    engine::{
+        code_map::InstructionsRef,
+        state_hash::Bytes32,
+        traits::{ProofGenerator, ProofKind},
+    },
+    Instance,
+};
 use alloc::vec::Vec;
 use core::mem::replace;
-use sha3::{Keccak256, Digest};
-use crate::engine::state_hash::Bytes32;
-use crate::engine::traits::{ProofGenerator, ProofKind};
+use sha3::{Digest, Keccak256};
 
 /// A function frame of a function on the call stack.
 #[derive(Debug, Copy, Clone)]

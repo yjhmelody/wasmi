@@ -109,17 +109,18 @@ where
     }
 
     // TODO: we should run code from any instruction not only from a function first instruction.
-    pub fn call_step_n(&self, mut ctx: impl AsContextMut, params: Params, n: Option<usize>) -> Result<Results, Trap> {
+    pub fn call_step_n(
+        &self,
+        mut ctx: impl AsContextMut,
+        params: Params,
+        n: Option<u64>,
+    ) -> Result<Results, Trap> {
         // Note: Cloning an [`Engine`] is intentionally a cheap operation.
         let engine = ctx.as_context().store.engine().clone();
         let mut engine = engine.inner.lock();
         engine.initialize_args(params);
 
-        let signature = engine.execute_func_step_n(
-            ctx.as_context_mut(),
-            self.func,
-            n,
-        )?;
+        let signature = engine.execute_func_step_n(ctx.as_context_mut(), self.func, n)?;
         let results = engine.write_results_back(signature, <CallResultsTuple<Results>>::default());
         Ok(results)
     }

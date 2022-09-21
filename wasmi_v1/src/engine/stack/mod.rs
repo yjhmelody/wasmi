@@ -12,6 +12,7 @@ use super::{
 };
 use crate::{
     core::UntypedValue,
+    engine::traits::{ProofGenerator, ProofKind},
     func::{HostFuncEntity, WasmFuncEntity},
     AsContext,
     AsContextMut,
@@ -22,7 +23,6 @@ use core::{
     mem::size_of,
 };
 use wasmi_core::{Trap, TrapCode};
-use crate::engine::traits::{ProofGenerator, ProofKind};
 
 /// Default value for initial value stack height in bytes.
 const DEFAULT_MIN_VALUE_STACK_HEIGHT: usize = 1024;

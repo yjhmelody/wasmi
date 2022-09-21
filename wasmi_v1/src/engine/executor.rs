@@ -54,7 +54,7 @@ pub fn execute_frame_step_n<'engine>(
     cache: &mut InstanceCache,
     insts: Instructions<'engine>,
     value_stack: &'engine mut ValueStack,
-    n: &mut usize,
+    n: &mut u64,
 ) -> Result<CallOutcome, Trap> {
     Executor::new(ctx, frame, cache, insts, value_stack).execute_step_n(n)
 }
@@ -66,7 +66,7 @@ pub fn execute_inst_step_n<'engine>(
     cache: &mut InstanceCache,
     insts: Instructions<'engine>,
     value_stack: &'engine mut ValueStack,
-    n: &mut usize,
+    n: &mut u64,
 ) -> Result<CallOutcome, Trap> {
     Executor::new(ctx, frame, cache, insts, value_stack).execute_step_n(n)
 }
@@ -137,7 +137,7 @@ where
 
     /// Executes the function frame until it returns or traps.
     #[inline(always)]
-    fn execute_step_n(mut self, n: &mut usize) -> Result<CallOutcome, Trap> {
+    fn execute_step_n(mut self, n: &mut u64) -> Result<CallOutcome, Trap> {
         // TODO: reduce code by macro.
         use Instruction as Instr;
         loop {
