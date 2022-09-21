@@ -2,6 +2,7 @@
 
 use super::{super::Index, Instruction};
 use alloc::vec::Vec;
+use std::collections::BTreeMap;
 
 /// A reference to a Wasm function body stored in the [`CodeMap`].
 #[derive(Debug, Copy, Clone)]
@@ -18,7 +19,7 @@ impl Index for FuncBody {
 }
 
 /// A reference to the [`Instructions`] of a [`FuncBody`].
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct InstructionsRef {
     /// The start index in the instructions array.
     pub(crate) start: usize,
@@ -27,7 +28,7 @@ pub struct InstructionsRef {
 }
 
 /// Meta information about a compiled function.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FuncHeader {
     /// A reference to the instructions of the function.
     iref: InstructionsRef,
@@ -63,7 +64,11 @@ impl FuncHeader {
 #[derive(Debug, Default)]
 pub struct CodeMap {
     /// The headers of all compiled functions.
-    headers: Vec<FuncHeader>,
+    /// Note:
+    /// It ordered by instruction order.
+    pub(crate) headers: Vec<FuncHeader>,
+    // /// The first instructions index of all compiled functions.
+    // pub(crate) entrypoints: BTreeMap<usize, FuncBody>,
     /// The instructions of all allocated function bodies.
     ///
     /// By storing all `wasmi` bytecode instructions in a single
@@ -97,7 +102,11 @@ impl CodeMap {
         };
         let header_index = self.headers.len();
         self.headers.push(header);
-        FuncBody(header_index)
+        // println!("{:?}\n\n", self.headers);
+        let body = FuncBody(header_index);
+        // self.entrypoints.insert(start, body);
+
+        body
     }
 
     /// Resolves the instructions given an [`InstructionsRef`].
@@ -116,7 +125,7 @@ impl CodeMap {
 /// The instructions of a resolved [`FuncBody`].
 #[derive(Debug, Copy, Clone)]
 pub struct Instructions<'a> {
-    insts: &'a [Instruction],
+    pub(crate) insts: &'a [Instruction],
 }
 
 impl<'a> Instructions<'a> {

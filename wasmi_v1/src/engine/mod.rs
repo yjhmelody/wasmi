@@ -50,7 +50,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 pub use func_types::DedupFuncType;
 use spin::mutex::Mutex;
 use wasmi_core::TrapCode;
-use crate::engine::code_map::InstructionsRef;
+use crate::engine::code_map::{Instructions, InstructionsRef};
 use crate::engine::executor::execute_inst_step_n;
 
 /// The outcome of a `wasmi` function execution.
@@ -483,11 +483,29 @@ impl EngineInner {
         cache: &mut InstanceCache,
         n: Option<usize>,
     ) -> Result<(), Trap> {
-        let iref = InstructionsRef {
-            start,
-            end: self.code_map.insts.len(),
+        // // Note: we must use the all instruction ref for this func frame here.
+        // let iref = InstructionsRef {
+        //     start: 0,
+        //     end: self.code_map.insts.len(),
+        // };
+
+        let mut iref = InstructionsRef {
+            start: 0,
+            end: 0,
         };
+        let mut pc = 0;
+        for header in self.code_map.headers.iter() {
+            // must meet once and only once.
+            if header.iref().end > start {
+                iref = header.iref();
+                pc = start - header.iref().start;
+                break;
+            }
+        }
+
         let mut frame = FuncFrame::new(iref, cache.instance());
+        frame.update_pc(start - iref.start);
+        // TODO: 仍然使用 函数内的PC，但需要计算偏移量
         let frame = &mut frame;
 
         self.execute_wasm_func_step_n(
@@ -510,6 +528,14 @@ impl EngineInner {
         frame: &mut FuncFrame,
         cache: &mut InstanceCache,
     ) -> Result<CallOutcome, Trap> {
+        // // Note: we do not use `frame.iref()` here for starting execution in any position feature.
+        // let header_index = self.code_map.headers.binary_search_by(|header| {
+        //     // TODO: fix this
+        //     header.iref().cmp(&frame.iref())
+        // }).expect("The start instruction must be legal; qed");
+        // let iref = self.code_map.headers[header_index].iref();
+        // let insts = self.code_map.insts(iref);
+
         let insts = self.code_map.insts(frame.iref());
         execute_frame(ctx, frame, cache, insts, &mut self.stack.values)
     }
@@ -522,6 +548,12 @@ impl EngineInner {
         cache: &mut InstanceCache,
         n: &mut usize,
     ) -> Result<CallOutcome, Trap> {
+        // let header_index = self.code_map.headers.binary_search_by(|header| {
+        //     header.iref().start.cmp(&frame.iref().start)
+        // }).expect("The start instruction must be legal; qed");
+        // let iref = self.code_map.headers[header_index].iref();
+        //
+        // frame.update_pc();
         let insts = self.code_map.insts(frame.iref());
         execute_frame_step_n(ctx, frame, cache, insts, &mut self.stack.values, n)
     }

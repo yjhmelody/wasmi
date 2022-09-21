@@ -4,9 +4,7 @@ use super::{err_stack_overflow, DEFAULT_MAX_RECURSION_DEPTH};
 use crate::{core::TrapCode, engine::code_map::InstructionsRef, Instance};
 use alloc::vec::Vec;
 use core::mem::replace;
-use std::io::Write;
-use sha3::Keccak256;
-use digest::Digest;
+use sha3::{Keccak256, Digest};
 use crate::engine::state_hash::Bytes32;
 use crate::engine::traits::{ProofGenerator, ProofKind};
 
