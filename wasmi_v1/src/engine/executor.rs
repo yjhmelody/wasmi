@@ -50,6 +50,18 @@ pub fn execute_frame_step_n<'engine>(
     Executor::new(ctx, frame, cache, insts, value_stack).execute_step_n(n)
 }
 
+#[inline(always)]
+pub fn execute_inst_step_n<'engine>(
+    ctx: impl AsContextMut,
+    frame: &mut FuncFrame,
+    cache: &mut InstanceCache,
+    insts: Instructions<'engine>,
+    value_stack: &'engine mut ValueStack,
+    n: &mut usize,
+) -> Result<CallOutcome, Trap> {
+    Executor::new(ctx, frame, cache, insts, value_stack).execute_step_n(n)
+}
+
 /// An execution context for executing a `accel` function frame.
 #[derive(Debug)]
 struct Executor<'engine, 'func, Ctx> {
@@ -690,10 +702,12 @@ where
 
     fn try_next_instr(&mut self) -> Result<(), Trap> {
         self.pc += 1;
+        self.frame.update_pc(self.pc);
         Ok(())
     }
 
     fn next_instr(&mut self) {
+        self.frame.update_pc(self.pc);
         self.pc += 1;
     }
 
@@ -768,6 +782,7 @@ where
         let normalized_index = cmp::min(index as usize, max_index);
         // Update `pc`:
         self.pc += normalized_index + 1;
+        self.frame.update_pc(self.pc);
     }
 
     fn visit_ret(&mut self, drop_keep: DropKeep) -> Result<CallOutcome, Trap> {

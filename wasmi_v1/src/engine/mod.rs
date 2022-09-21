@@ -50,6 +50,8 @@ use core::sync::atomic::{AtomicU32, Ordering};
 pub use func_types::DedupFuncType;
 use spin::mutex::Mutex;
 use wasmi_core::TrapCode;
+use crate::engine::code_map::InstructionsRef;
+use crate::engine::executor::execute_inst_step_n;
 
 /// The outcome of a `wasmi` function execution.
 #[derive(Debug, Copy, Clone)]
@@ -439,6 +441,8 @@ impl EngineInner {
     ) -> Result<(), Trap> {
         let mut n = n.unwrap_or(u32::MAX as usize);
 
+        // TODO: this is start from a wasm function
+        // But we need to start from a wasm instruction
         'outer: loop {
             match self.execute_frame_step_n(ctx.as_context_mut(), frame, cache, &mut n)? {
                 CallOutcome::Return => match self.stack.return_wasm() {
@@ -465,10 +469,61 @@ impl EngineInner {
                         }
                     }
                 },
+                // Do not destroy any engine state.
                 CallOutcome::Halt => return Err(TrapCode::Halt.into()),
             }
         }
     }
+
+    // /// Execution run from a start instruction.
+    // fn execute_instruction_step_n(
+    //     &mut self,
+    //     mut ctx: impl AsContextMut,
+    //     start: usize,
+    //     cache: &mut InstanceCache,
+    //     n: Option<usize>,
+    // ) -> Result<(), Trap> {
+    //     let mut n = n.unwrap_or(u32::MAX as usize);
+    //
+    //     match self.execute_from_pos(ctx.as_context_mut(), cache,  start,&mut n)? {
+    //         CallOutcome::Return => return match self.stack.return_wasm() {
+    //             Some(mut frame) => self.execute_wasm_func_step_n(ctx.as_context_mut(), &mut frame, cache, &mut n),
+    //             None => return Ok(()),
+    //         },
+    //         CallOutcome::NestedCall(func) => {
+    //
+    //         },
+    //
+    //         CallOutcome::Halt => return Err(TrapCode::Halt.into()),
+    //     };
+    //
+    //     'outer: loop {
+    //         match self.execute_from_pos(ctx.as_context_mut(), cache,  start,&mut n)? {
+    //             CallOutcome::Return => return match self.stack.return_wasm() {
+    //                 Some(mut frame) => self.execute_wasm_func_step_n(ctx.as_context_mut(), &mut frame, cache, &mut n),
+    //                 None => Ok(()),
+    //             },
+    //             CallOutcome::NestedCall(called_func) => {
+    //                 match called_func.as_internal(ctx.as_context()) {
+    //                     FuncEntityInternal::Wasm(wasm_func) => {
+    //                         self.stack.call_wasm(frame, wasm_func, &self.code_map)?;
+    //                     }
+    //                     FuncEntityInternal::Host(host_func) => {
+    //                         cache.reset_default_memory_bytes();
+    //                         let host_func = host_func.clone();
+    //                         self.stack.call_host(
+    //                             ctx.as_context_mut(),
+    //                             frame,
+    //                             host_func,
+    //                             &self.func_types,
+    //                         )?;
+    //                     }
+    //                 }
+    //             },
+    //             CallOutcome::Halt => return Err(TrapCode::Halt.into()),
+    //         }
+    //     }
+    // }
 
     /// Executes the given function `frame` and returns the result.
     ///
@@ -496,5 +551,23 @@ impl EngineInner {
     ) -> Result<CallOutcome, Trap> {
         let insts = self.code_map.insts(frame.iref());
         execute_frame_step_n(ctx, frame, cache, insts, &mut self.stack.values, n)
+    }
+
+    /// Executes instruction from given position.
+    #[inline(always)]
+    fn execute_from_pos(
+        &mut self,
+        ctx: impl AsContextMut,
+        cache: &mut InstanceCache,
+        inst_pos: usize,
+        n: &mut usize,
+    ) -> Result<CallOutcome, Trap> {
+        let iref = InstructionsRef {
+            start: inst_pos,
+            end: self.code_map.insts.len(),
+        };
+        let mut frame = FuncFrame::new(iref, cache.instance());
+        let insts = self.code_map.insts(iref);
+        execute_frame_step_n(ctx, &mut frame, cache, insts, &mut self.stack.values, n)
     }
 }

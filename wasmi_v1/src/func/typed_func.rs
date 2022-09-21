@@ -108,6 +108,7 @@ where
         )
     }
 
+    // TODO: we should run code from any instruction not only from a function first instruction.
     pub fn call_step_n(&self, mut ctx: impl AsContextMut, params: Params, n: Option<usize>) -> Result<Results, Trap> {
         // Note: Cloning an [`Engine`] is intentionally a cheap operation.
         let engine = ctx.as_context().store.engine().clone();
