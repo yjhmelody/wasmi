@@ -180,7 +180,7 @@ impl StdError for Trap {
 /// See [`Trap`] for details.
 ///
 /// [`Trap`]: struct.Trap.html
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TrapCode {
     /// Wasm code executed `unreachable` opcode.
     ///
@@ -247,6 +247,9 @@ pub enum TrapCode {
     /// with an index that points to a function with signature different of what is
     /// expected by this indirect call, this trap is raised.
     UnexpectedSignature,
+
+    /// A special case for trap that execution is halted by host.
+    Halt,
 }
 
 impl TrapCode {
@@ -267,6 +270,7 @@ impl TrapCode {
             Self::InvalidConversionToInt => "invalid conversion to integer",
             Self::StackOverflow => "call stack exhausted",
             Self::UnexpectedSignature => "indirect call type mismatch",
+            Self::Halt => "execution is halted by host",
         }
     }
 }

@@ -10,8 +10,8 @@ mod func_builder;
 mod func_types;
 pub mod stack;
 mod traits;
+mod one_step_executor;
 
-mod accel_mod;
 mod state_hash;
 
 pub(crate) use self::func_args::{FuncParams, FuncResults};
@@ -19,7 +19,7 @@ use self::{
     bytecode::Instruction,
     cache::InstanceCache,
     code_map::CodeMap,
-    executor::execute_frame,
+    executor::{execute_frame, execute_frame_step_n},
     func_types::FuncTypeRegistry,
     stack::{FuncFrame, Stack, ValueStack},
 };
@@ -49,6 +49,7 @@ use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU32, Ordering};
 pub use func_types::DedupFuncType;
 use spin::mutex::Mutex;
+use wasmi_core::TrapCode;
 
 /// The outcome of a `wasmi` function execution.
 #[derive(Debug, Copy, Clone)]
@@ -57,6 +58,7 @@ pub enum CallOutcome {
     Return,
     /// The function called another function.
     NestedCall(Func),
+    Halt,
 }
 
 /// A unique engine index.
@@ -102,7 +104,7 @@ type Guarded<Idx> = GuardedEntity<EngineIdx, Idx>;
 ///   Most of its API has a `&self` receiver, so can be shared easily.
 #[derive(Debug, Clone)]
 pub struct Engine {
-    inner: Arc<Mutex<EngineInner>>,
+    pub(crate) inner: Arc<Mutex<EngineInner>>,
 }
 
 impl Default for Engine {
@@ -306,8 +308,40 @@ impl EngineInner {
         Ok(results)
     }
 
+    pub fn execute_func_step_n(
+        &mut self,
+        mut ctx: impl AsContextMut,
+        func: Func,
+        n: Option<usize>,
+    ) -> Result<DedupFuncType, Trap>
+    {
+        // TODO: do not init
+        // self.initialize_args(params);
+        let signature = match func.as_internal(ctx.as_context()) {
+            FuncEntityInternal::Wasm(wasm_func) => {
+                let signature = wasm_func.signature();
+                let mut frame = self.stack.call_wasm_root(wasm_func, &self.code_map)?;
+                let instance = wasm_func.instance();
+                let mut cache = InstanceCache::from(instance);
+                self.execute_wasm_func_step_n(ctx.as_context_mut(), &mut frame, &mut cache, n)?;
+                signature
+            }
+            // TODO: should `n` being used by host function?
+            FuncEntityInternal::Host(host_func) => {
+                let signature = host_func.signature();
+                let host_func = host_func.clone();
+                self.stack
+                    .call_host_root(ctx.as_context_mut(), host_func, &self.func_types)?;
+                signature
+            }
+        };
+        // TODO: do not write result
+        // let results = self.write_results_back(signature, results);
+        Ok(signature)
+    }
+
     /// Initializes the value stack with the given arguments `params`.
-    fn initialize_args<Params>(&mut self, params: Params)
+    pub(crate) fn initialize_args<Params>(&mut self, params: Params)
     where
         Params: CallParams,
     {
@@ -326,7 +360,7 @@ impl EngineInner {
     /// # Panics
     ///
     /// - If the `results` buffer length does not match the remaining amount of stack values.
-    fn write_results_back<Results>(
+    pub(crate) fn write_results_back<Results>(
         &mut self,
         func_type: DedupFuncType,
         results: Results,
@@ -390,7 +424,48 @@ impl EngineInner {
                             )?;
                         }
                     }
-                }
+                },
+                _ => unreachable!("should never meet halt error"),
+            }
+        }
+    }
+
+    fn execute_wasm_func_step_n(
+        &mut self,
+        mut ctx: impl AsContextMut,
+        frame: &mut FuncFrame,
+        cache: &mut InstanceCache,
+        n: Option<usize>,
+    ) -> Result<(), Trap> {
+        let mut n = n.unwrap_or(u32::MAX as usize);
+
+        'outer: loop {
+            match self.execute_frame_step_n(ctx.as_context_mut(), frame, cache, &mut n)? {
+                CallOutcome::Return => match self.stack.return_wasm() {
+                    Some(caller) => {
+                        *frame = caller;
+                        continue 'outer;
+                    }
+                    None => return Ok(()),
+                },
+                CallOutcome::NestedCall(called_func) => {
+                    match called_func.as_internal(ctx.as_context()) {
+                        FuncEntityInternal::Wasm(wasm_func) => {
+                            self.stack.call_wasm(frame, wasm_func, &self.code_map)?;
+                        }
+                        FuncEntityInternal::Host(host_func) => {
+                            cache.reset_default_memory_bytes();
+                            let host_func = host_func.clone();
+                            self.stack.call_host(
+                                ctx.as_context_mut(),
+                                frame,
+                                host_func,
+                                &self.func_types,
+                            )?;
+                        }
+                    }
+                },
+                CallOutcome::Halt => return Err(TrapCode::Halt.into()),
             }
         }
     }
@@ -409,5 +484,17 @@ impl EngineInner {
     ) -> Result<CallOutcome, Trap> {
         let insts = self.code_map.insts(frame.iref());
         execute_frame(ctx, frame, cache, insts, &mut self.stack.values)
+    }
+
+    #[inline(always)]
+    fn execute_frame_step_n(
+        &mut self,
+        ctx: impl AsContextMut,
+        frame: &mut FuncFrame,
+        cache: &mut InstanceCache,
+        n: &mut usize,
+    ) -> Result<CallOutcome, Trap> {
+        let insts = self.code_map.insts(frame.iref());
+        execute_frame_step_n(ctx, frame, cache, insts, &mut self.stack.values, n)
     }
 }

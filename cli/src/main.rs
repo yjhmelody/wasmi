@@ -43,7 +43,7 @@ fn main() -> Result<()> {
     print_execution_start(&wasm_file, &func_name, &func_args);
 
     func.call(&mut store, &func_args, &mut results)
-        .map_err(|error| anyhow!("failed during exeuction of {func_name}: {error}"))?;
+        .map_err(|error| anyhow!("failed during execution of {func_name}: {error}"))?;
 
     print_pretty_results(&results);
 

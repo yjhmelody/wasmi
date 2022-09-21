@@ -696,6 +696,7 @@ impl<'alloc, 'parser> FuncBuilder<'alloc, 'parser> {
     /// Adjusts the emulated [`ValueStack`] given the [`FuncType`] of the call.
     fn adjust_value_stack_for_call(&mut self, func_type: &FuncType) {
         let (params, results) = func_type.params_results();
+        // TODO(yjh): the local vars are reversed.
         for param in params.iter().rev() {
             let popped = self.value_stack.pop1();
             debug_assert_eq!(popped, *param);
@@ -766,6 +767,7 @@ impl<'alloc, 'parser> FuncBuilder<'alloc, 'parser> {
     /// Translate a Wasm `local.get` instruction.
     pub fn translate_local_get(&mut self, local_idx: u32) -> Result<(), TranslationError> {
         self.translate_if_reachable(|builder| {
+            // TODO(yjh): should we re-design this?
             let local_depth = builder.relative_local_depth(local_idx);
             builder
                 .inst_builder

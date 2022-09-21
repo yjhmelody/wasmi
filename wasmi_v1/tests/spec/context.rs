@@ -1,24 +1,10 @@
 use super::{TestDescriptor, TestError, TestProfile, TestSpan};
 use anyhow::Result;
 use std::collections::HashMap;
-use wasmi::{
-    Config,
-    Engine,
-    Extern,
-    Func,
-    Global,
-    Instance,
-    Linker,
-    Memory,
-    MemoryType,
-    Module,
-    Mutability,
-    Store,
-    Table,
-    TableType,
-};
-use wasmi_core::{Value, F32, F64};
+use wasmi::{Config, Engine, Error, Extern, Func, Global, Instance, Linker, Memory, MemoryType, Module, Mutability, Store, Table, TableType};
+use wasmi_core::{Value, F32, F64, TrapCode};
 use wast::token::{Id, Span};
+use wasmi::Error::Trap;
 
 /// The context of a single Wasm test spec suite run.
 #[derive(Debug)]
@@ -214,7 +200,7 @@ impl TestContext<'_> {
     ///
     /// - If no module instances can be found.
     /// - If no function identified with `func_name` can be found.
-    /// - If function invokation returned an error.
+    /// - If function invocation returned an error.
     pub fn invoke(
         &mut self,
         module_name: Option<&str>,

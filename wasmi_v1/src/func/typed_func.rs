@@ -107,6 +107,21 @@ where
             <CallResultsTuple<Results>>::default(),
         )
     }
+
+    pub fn call_step_n(&self, mut ctx: impl AsContextMut, params: Params, n: Option<usize>) -> Result<Results, Trap> {
+        // Note: Cloning an [`Engine`] is intentionally a cheap operation.
+        let engine = ctx.as_context().store.engine().clone();
+        let mut engine = engine.inner.lock();
+        engine.initialize_args(params);
+
+        let signature = engine.execute_func_step_n(
+            ctx.as_context_mut(),
+            self.func,
+            n,
+        )?;
+        let results = engine.write_results_back(signature, <CallResultsTuple<Results>>::default());
+        Ok(results)
+    }
 }
 
 impl<Params> CallParams for Params
