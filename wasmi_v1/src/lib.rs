@@ -102,6 +102,8 @@ mod instance;
 mod linker;
 mod memory;
 mod module;
+mod proof;
+mod state_hash;
 mod store;
 mod table;
 

@@ -12,8 +12,6 @@ mod one_step_executor;
 pub mod stack;
 mod traits;
 
-mod state_hash;
-
 pub(crate) use self::func_args::{FuncParams, FuncResults};
 use self::{
     bytecode::Instruction,
@@ -43,9 +41,7 @@ use super::{func::FuncEntityInternal, AsContextMut, Func};
 use crate::{
     arena::{GuardedEntity, Index},
     core::Trap,
-    engine::{
-        code_map::{Instructions, InstructionsRef},
-    },
+    engine::code_map::{Instructions, InstructionsRef},
     FuncType,
 };
 use alloc::sync::Arc;

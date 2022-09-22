@@ -56,6 +56,9 @@ impl StoreIdx {
 /// A stored entity.
 pub type Stored<Idx> = GuardedEntity<StoreIdx, Idx>;
 
+// TODO(yjh): design the one single instruction global state.
+// When call host function, how to use store for proof.
+
 /// The store that owns all data associated to Wasm modules.
 #[derive(Debug)]
 pub struct Store<T> {

@@ -3,10 +3,8 @@
 use super::{err_stack_overflow, DEFAULT_MAX_VALUE_STACK_HEIGHT, DEFAULT_MIN_VALUE_STACK_HEIGHT};
 use crate::{
     core::TrapCode,
-    engine::{
-        traits::{ProofGenerator, ProofKind},
-        DropKeep,
-    },
+    engine::DropKeep,
+    proof::{ProofGenerator, ProofKind},
 };
 use alloc::vec::Vec;
 use codec::{Decode, Encode};

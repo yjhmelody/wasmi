@@ -3,16 +3,14 @@
 use super::{err_stack_overflow, DEFAULT_MAX_RECURSION_DEPTH};
 use crate::{
     core::TrapCode,
-    engine::{
-        code_map::InstructionsRef,
-        state_hash::Bytes32,
-        traits::{ProofGenerator, ProofKind},
-    },
+    engine::code_map::InstructionsRef,
+    proof::{ProofGenerator, ProofKind},
+    state_hash::Bytes32,
     Instance,
 };
 use alloc::vec::Vec;
-use core::mem::replace;
 use codec::Encode;
+use core::mem::replace;
 use sha3::{Digest, Keccak256};
 
 /// A function frame of a function on the call stack.

@@ -108,7 +108,6 @@ where
         )
     }
 
-    // TODO: we should run code from any instruction not only from a function first instruction.
     pub fn call_step_n(
         &self,
         mut ctx: impl AsContextMut,

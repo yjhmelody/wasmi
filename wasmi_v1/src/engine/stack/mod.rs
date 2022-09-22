@@ -12,8 +12,8 @@ use super::{
 };
 use crate::{
     core::UntypedValue,
-    engine::traits::{ProofGenerator, ProofKind},
     func::{HostFuncEntity, WasmFuncEntity},
+    proof::{ProofGenerator, ProofKind},
     AsContext,
     AsContextMut,
     Instance,
