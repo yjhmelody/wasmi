@@ -71,9 +71,9 @@ impl FuncFrame {
 
     pub fn state_hash(&self) -> Bytes32 {
         let mut h = Keccak256::new();
-        h.update(self.iref.start.to_be_bytes());
-        h.update(self.iref.end.to_be_bytes());
-        h.update((self.pc as u32).to_be_bytes());
+        h.update(self.iref.start.to_le_bytes());
+        h.update(self.iref.end.to_le_bytes());
+        h.update((self.pc as u32).to_le_bytes());
         h.finalize().into()
     }
 }
