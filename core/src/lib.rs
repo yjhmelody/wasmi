@@ -31,7 +31,7 @@ pub mod memory_units {
 pub use self::{
     host_error::HostError,
     nan_preserving_float::{F32, F64},
-    trap::{Trap, TrapCode},
+    trap::{Trap, TrapCode, TrapInner},
     untyped::{DecodeUntypedSlice, EncodeUntypedSlice, UntypedError, UntypedValue},
     value::{
         ArithmeticOps,

@@ -25,11 +25,16 @@ fn trap_size() {
 
 /// The internal of a [`Trap`].
 #[derive(Debug)]
-enum TrapInner {
+pub enum TrapInner {
     /// Traps during Wasm execution.
     Code(TrapCode),
     /// Traps and errors during host execution.
     Host(Box<dyn HostError>),
+    /// A special trap that maybe re-execute code.
+    /// - current pc.
+    /// - function start index
+    /// - function end index
+    Halt(usize, usize, usize),
 }
 
 impl TrapInner {
@@ -84,7 +89,7 @@ impl TrapInner {
 
 impl Trap {
     /// Create a new [`Trap`] from the [`TrapInner`].
-    fn new(inner: TrapInner) -> Self {
+    pub fn new(inner: TrapInner) -> Self {
         Self {
             inner: Box::new(inner),
         }
@@ -158,6 +163,7 @@ impl Display for TrapInner {
         match self {
             Self::Code(trap_code) => Display::fmt(trap_code, f),
             Self::Host(host_error) => Display::fmt(host_error, f),
+            Self::Halt(pc, start, end) => write!(f, "Halted at pc: {}, func: [{}:{}]", pc, start, end)
         }
     }
 }

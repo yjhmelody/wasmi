@@ -41,14 +41,15 @@ use super::{func::FuncEntityInternal, AsContextMut, Func};
 use crate::{
     arena::{GuardedEntity, Index},
     core::Trap,
-    engine::code_map::{Instructions, InstructionsRef},
     FuncType,
 };
+
+pub use crate::engine::code_map::InstructionsRef;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU32, Ordering};
 pub use func_types::DedupFuncType;
 use spin::mutex::Mutex;
-use wasmi_core::TrapCode;
+use wasmi_core::{TrapCode, TrapInner};
 
 /// The outcome of a `wasmi` function execution.
 #[derive(Debug, Copy, Clone)]
@@ -57,7 +58,11 @@ pub enum CallOutcome {
     Return,
     /// The function called another function.
     NestedCall(Func),
-    Halt,
+    // TODO: refine this
+    /// A halt by host.
+    ///
+    /// Hold on pc and function body range
+    Halt(usize, usize, usize),
 }
 
 /// A unique engine index.
@@ -82,6 +87,7 @@ impl Index for EngineIdx {
 }
 
 impl EngineIdx {
+    // TODO: should not be global. maybe we need to store this for re-exec.
     /// Returns a new unique [`EngineIdx`].
     fn new() -> Self {
         /// A static store index counter.
@@ -511,8 +517,10 @@ impl EngineInner {
                         }
                     }
                 }
-                // Do not destroy any engine state.
-                CallOutcome::Halt => return Err(TrapCode::Halt.into()),
+                // should not destroy any engine state when halt for re-execution.
+                CallOutcome::Halt(pc, start, end) => {
+                    return Err(Trap::new(TrapInner::Halt(pc, start, end)))
+                }
             }
         }
     }

@@ -337,6 +337,11 @@ impl Memory {
         ctx.into().store.resolve_memory(*self).data()
     }
 
+    // TODO(yjh): used for encode/decode
+    pub(crate) fn memory<'a, T: 'a>(&self, ctx: impl Into<StoreContext<'a, T>>) -> &'a MemoryEntity {
+        ctx.into().store.resolve_memory(*self)
+    }
+
     /// Returns an exclusive slice to the bytes underlying the [`Memory`].
     ///
     /// # Panics
@@ -344,6 +349,11 @@ impl Memory {
     /// Panics if `ctx` does not own this [`Memory`].
     pub fn data_mut<'a, T: 'a>(&self, ctx: impl Into<StoreContextMut<'a, T>>) -> &'a mut [u8] {
         ctx.into().store.resolve_memory_mut(*self).data_mut()
+    }
+
+    // TODO(yjh): used for encode/decode
+    pub(crate) fn memory_mut<'a, T: 'a>(&self, ctx: impl Into<StoreContextMut<'a, T>>) -> &'a mut MemoryEntity {
+        ctx.into().store.resolve_memory_mut(*self)
     }
 
     /// Returns an exclusive slice to the bytes underlying the [`Memory`], and an exclusive

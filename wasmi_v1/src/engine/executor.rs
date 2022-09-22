@@ -290,7 +290,8 @@ where
             }
         }
 
-        Ok(CallOutcome::Halt)
+        let iref = self.frame.iref();
+        Ok(CallOutcome::Halt(self.pc, iref.start, iref.end))
     }
 
     /// Executes the function frame until it returns or traps.
