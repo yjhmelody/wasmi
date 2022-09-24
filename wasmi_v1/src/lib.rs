@@ -103,7 +103,7 @@ mod linker;
 mod memory;
 mod module;
 mod proof;
-mod state_hash;
+mod byte32;
 mod store;
 mod table;
 

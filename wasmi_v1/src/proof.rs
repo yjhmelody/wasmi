@@ -1,4 +1,4 @@
-use crate::state_hash::Bytes32;
+use crate::byte32::Bytes32;
 use core::convert::TryFrom;
 use digest::Digest;
 use sha3::Keccak256;

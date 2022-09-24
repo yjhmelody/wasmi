@@ -5,7 +5,7 @@ use crate::{
     core::TrapCode,
     engine::code_map::InstructionsRef,
     proof::{ProofGenerator, ProofKind},
-    state_hash::Bytes32,
+    byte32::Bytes32,
     Instance,
 };
 use alloc::vec::Vec;
