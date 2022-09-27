@@ -2,10 +2,10 @@
 
 use super::{err_stack_overflow, DEFAULT_MAX_RECURSION_DEPTH};
 use crate::{
+    byte32::Bytes32,
     core::TrapCode,
     engine::code_map::InstructionsRef,
     proof::{ProofGenerator, ProofKind},
-    byte32::Bytes32,
     Instance,
 };
 use alloc::vec::Vec;
@@ -98,6 +98,7 @@ impl ProofGenerator for CallStack {
         proof_buf.push(ProofKind::CallStack as u8);
         // proof_buf.extend((self.recursion_limit as u32).encode());
         let last_frame = self.frames.last().cloned();
+        // TODO: fix
         match last_frame {
             None => proof_buf.push(0),
             Some(frame) => proof_buf.extend(frame.state_hash()),

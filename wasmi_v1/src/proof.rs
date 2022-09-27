@@ -1,7 +1,14 @@
-use crate::byte32::Bytes32;
+use crate::{byte32::Bytes32, memory::MemoryEntity, TableEntity};
 use core::convert::TryFrom;
-use digest::Digest;
+use digest::{typenum::Le, Digest};
 use sha3::Keccak256;
+
+pub const LEAF_SIZE: usize = 32;
+/// Only used when initializing a memory to determine its size
+pub const PAGE_SIZE: u64 = 65536;
+/// The number of layers in the memory merkle tree
+/// 1 + log2(2^32 / LEAF_SIZE) = 1 + log2(2^(32 - log2(LEAF_SIZE))) = 1 + 32 - 5
+const MEMORY_LAYERS: usize = 1 + 32 - 5;
 
 #[derive(Debug, Eq, PartialEq)]
 #[repr(u8)]
@@ -10,6 +17,7 @@ pub enum ProofKind {
     ValueStack = 1,
     CallStack = 2,
     Memory = 3,
+    Global = 4,
 }
 
 // TODO: design the encode/decode spec.
@@ -54,6 +62,32 @@ fn hash_node(ty: MerkleType, a: Bytes32, b: Bytes32) -> Bytes32 {
     h.finalize().into()
 }
 
+/// hash the memory bytes.
+fn hash_leaf(bytes: [u8; LEAF_SIZE]) -> Bytes32 {
+    let mut h = Keccak256::new();
+    h.update(bytes);
+    h.finalize().into()
+}
+
+fn round_up_to_power_of_two(mut input: usize) -> usize {
+    if input == 0 {
+        return 1;
+    }
+    input -= 1;
+    1usize
+        .checked_shl(usize::BITS - input.leading_zeros())
+        .expect("Can't round buffer up to power of two and fit in memory")
+}
+
+/// Overflow safe divide and round up
+fn div_round_up(num: usize, denom: usize) -> usize {
+    let mut res = num / denom;
+    if num % denom > 0 {
+        res += 1;
+    }
+    res
+}
+
 impl Merkle {
     pub fn new(ty: MerkleType, hashes: Vec<Bytes32>) -> Self {
         Self::new_advanced(ty, hashes, Bytes32::default(), 0)
@@ -71,17 +105,16 @@ impl Merkle {
         let mut layers = vec![hashes];
         let mut empty_layers = vec![empty_hash];
         while layers.last().unwrap().len() > 1 || layers.len() < min_depth {
-            let empty_layer = *empty_layers.last().unwrap();
+            let empty_layer = *empty_layers
+                .last()
+                .expect("empty layer size is not empty; qed");
             let layer = layers.last().expect("layers size is not empty; qed");
-
-            let mut new_layer = vec![];
-            let mut i = 0;
-            while i < layer.len() + 1 {
-                let parent = hash_node(ty, layer[0], layer.get(1).cloned().unwrap_or(empty_layer));
-                new_layer.push(parent);
-                i += 2;
-            }
-
+            let new_layer = layer
+                .chunks(2)
+                .map(|window| {
+                    hash_node(ty, window[0], window.get(1).cloned().unwrap_or(empty_layer))
+                })
+                .collect();
             empty_layers.push(hash_node(ty, empty_layer, empty_layer));
             layers.push(new_layer);
         }
@@ -154,5 +187,91 @@ impl Merkle {
             }
             idx >>= 1;
         }
+    }
+}
+
+impl MemoryEntity {
+    pub fn merkle(&self) -> Merkle {
+        // Round the size up to 32 byte size leaves, then round up to the next power of two number of leaves
+        let leaves = round_up_to_power_of_two(div_round_up(self.data().len(), LEAF_SIZE));
+        let mut leaf_hashes: Vec<Bytes32> = self
+            .data()
+            .chunks(LEAF_SIZE)
+            .map(|leaf| {
+                let mut full_leaf = [0u8; LEAF_SIZE];
+                full_leaf[..leaf.len()].copy_from_slice(leaf);
+                hash_leaf(full_leaf)
+            })
+            .collect();
+        if leaf_hashes.len() < leaves {
+            let empty_hash = hash_leaf([0u8; LEAF_SIZE]);
+            leaf_hashes.resize(leaves, empty_hash);
+        }
+        Merkle::new_advanced(
+            MerkleType::Memory,
+            leaf_hashes,
+            hash_leaf([0u8; LEAF_SIZE]),
+            MEMORY_LAYERS,
+        )
+    }
+
+    pub fn hash(&self) -> Bytes32 {
+        let mut h = Keccak256::new();
+        h.update([MerkleType::Memory as u8]);
+        // TODO: add other memory data to hash.
+        h.update(self.merkle().root());
+        h.finalize().into()
+    }
+}
+
+impl TableEntity {
+    pub fn merkle(&self) -> Merkle {
+        todo!()
+        // // Round the size up to 32 byte size leaves, then round up to the next power of two number of leaves
+        // let leaves = round_up_to_power_of_two(div_round_up(self.data().len(), LEAF_SIZE));
+        // let mut leaf_hashes: Vec<Bytes32> = self
+        //     .data().chunks(LEAF_SIZE)
+        //     .map(|leaf| {
+        //         let mut full_leaf = [0u8; LEAF_SIZE];
+        //         full_leaf[..leaf.len()].copy_from_slice(leaf);
+        //         hash_leaf(full_leaf)
+        //     })
+        //     .collect();
+        // if leaf_hashes.len() < leaves {
+        //     let empty_hash = hash_leaf([0u8; LEAF_SIZE]);
+        //     leaf_hashes.resize(leaves, empty_hash);
+        // }
+        // Merkle::new_advanced(
+        //     MerkleType::Memory,
+        //     leaf_hashes,
+        //     hash_leaf([0u8; LEAF_SIZE]),
+        //     MEMORY_LAYERS,
+        // )
+    }
+
+    pub fn hash(&self) -> Bytes32 {
+        let mut h = Keccak256::new();
+        h.update([MerkleType::Table as u8]);
+        // TODO: add other memory data to hash.
+        h.update(self.merkle().root());
+        h.finalize().into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn test_round_up_power_of_two() {
+        assert_eq!(round_up_to_power_of_two(0), 1);
+        assert_eq!(round_up_to_power_of_two(1), 1);
+        assert_eq!(round_up_to_power_of_two(2), 2);
+        assert_eq!(round_up_to_power_of_two(3), 4);
+        assert_eq!(round_up_to_power_of_two(4), 4);
+        assert_eq!(round_up_to_power_of_two(5), 8);
+        assert_eq!(round_up_to_power_of_two(6), 8);
+        assert_eq!(round_up_to_power_of_two(7), 8);
+        assert_eq!(round_up_to_power_of_two(8), 8);
     }
 }

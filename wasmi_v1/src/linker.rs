@@ -353,6 +353,7 @@ impl<T> Linker<T> {
         self.definitions.get(&key).copied()
     }
 
+    // TODO: add func instantiate_by_state
     /// Instantiates the given [`Module`] using the definitions in the [`Linker`].
     ///
     /// # Errors

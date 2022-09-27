@@ -261,7 +261,7 @@ impl MemoryEntity {
 }
 
 /// A Wasm linear memory reference.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct Memory(Stored<MemoryIdx>);
 
@@ -338,7 +338,10 @@ impl Memory {
     }
 
     // TODO(yjh): used for encode/decode
-    pub(crate) fn memory<'a, T: 'a>(&self, ctx: impl Into<StoreContext<'a, T>>) -> &'a MemoryEntity {
+    pub(crate) fn memory<'a, T: 'a>(
+        &self,
+        ctx: impl Into<StoreContext<'a, T>>,
+    ) -> &'a MemoryEntity {
         ctx.into().store.resolve_memory(*self)
     }
 
@@ -352,7 +355,10 @@ impl Memory {
     }
 
     // TODO(yjh): used for encode/decode
-    pub(crate) fn memory_mut<'a, T: 'a>(&self, ctx: impl Into<StoreContextMut<'a, T>>) -> &'a mut MemoryEntity {
+    pub(crate) fn memory_mut<'a, T: 'a>(
+        &self,
+        ctx: impl Into<StoreContextMut<'a, T>>,
+    ) -> &'a mut MemoryEntity {
         ctx.into().store.resolve_memory_mut(*self)
     }
 

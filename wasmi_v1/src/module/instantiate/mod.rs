@@ -64,6 +64,33 @@ impl Module {
         Ok(InstancePre::new(handle, self, builder))
     }
 
+    pub(crate) fn instantiate_by_state<I>(
+        &self,
+        mut context: impl AsContextMut,
+        externals: I,
+    ) -> Result<InstancePre, Error>
+        where
+            I: IntoIterator<Item = Extern>,
+    {
+        let handle = context.as_context_mut().store.alloc_instance();
+        let mut builder = InstanceEntity::build();
+
+        self.extract_func_types(&mut context, &mut builder);
+        self.extract_imports(&mut context, &mut builder, externals)?;
+        self.extract_functions(&mut context, &mut builder, handle);
+        self.extract_tables(&mut context, &mut builder);
+        self.extract_memories(&mut context, &mut builder);
+        self.extract_globals(&mut context, &mut builder);
+        self.extract_exports(&mut builder);
+
+        self.initialize_table_elements(&mut context, &mut builder)?;
+        self.initialize_memory_data(&mut context, &mut builder)?;
+
+        // At this point the module instantiation is nearly done.
+        // The only thing that is missing is to run the `start` function.
+        Ok(InstancePre::new(handle, self, builder))
+    }
+
     /// Extracts the Wasm function signatures from the
     /// module and stores them into the [`Store`].
     ///

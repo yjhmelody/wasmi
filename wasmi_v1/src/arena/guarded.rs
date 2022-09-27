@@ -1,7 +1,7 @@
 use crate::arena::Index;
 
 /// A guarded entity.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct GuardedEntity<GuardIdx, EntityIdx> {
     pub(crate) guard_idx: GuardIdx,
     pub(crate) entity_idx: EntityIdx,

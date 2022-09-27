@@ -1,7 +1,10 @@
 use wasmi_core::UntypedValue;
 
 use super::{AsContext, AsContextMut, Index, Stored};
-use crate::core::{Value, ValueType};
+use crate::{
+    core::{Value, ValueType},
+    proof::{ProofGenerator, ProofKind},
+};
 use core::{fmt, fmt::Display, ptr::NonNull};
 
 /// A raw index to a global variable entity.
@@ -176,7 +179,7 @@ impl GlobalEntity {
 }
 
 /// A Wasm global variable reference.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct Global(Stored<GlobalIdx>);
 

@@ -233,7 +233,7 @@ impl TableEntity {
 }
 
 /// A Wasm table reference.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct Table(Stored<TableIdx>);
 

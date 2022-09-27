@@ -163,7 +163,9 @@ impl Display for TrapInner {
         match self {
             Self::Code(trap_code) => Display::fmt(trap_code, f),
             Self::Host(host_error) => Display::fmt(host_error, f),
-            Self::Halt(pc, start, end) => write!(f, "Halted at pc: {}, func: [{}:{}]", pc, start, end)
+            Self::Halt(pc, start, end) => {
+                write!(f, "Halted at pc: {}, func: [{}:{}]", pc, start, end)
+            }
         }
     }
 }

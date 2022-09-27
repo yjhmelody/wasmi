@@ -92,6 +92,7 @@ extern crate std as alloc;
 mod foreach_tuple;
 
 mod arena;
+mod byte32;
 mod engine;
 mod error;
 mod external;
@@ -103,7 +104,6 @@ mod linker;
 mod memory;
 mod module;
 mod proof;
-mod byte32;
 mod store;
 mod table;
 

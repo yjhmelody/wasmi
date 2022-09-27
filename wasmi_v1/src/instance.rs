@@ -10,6 +10,7 @@ use super::{
     Stored,
     Table,
 };
+use crate::{AsContextMut, FuncEntity, FuncType, GlobalEntity, MemoryEntity, TableEntity};
 use alloc::{
     collections::{btree_map, BTreeMap},
     string::{String, ToString},
@@ -46,7 +47,122 @@ pub struct InstanceEntity {
     exports: BTreeMap<String, Extern>,
 }
 
+use codec::{Decode, Encode};
+
+// TODO: support codec.
+/// The state has two purpose:
+/// 1. Generate merkle proof.
+/// 2. Generate instruction level state.
+///
+/// The state will be used to execute a instruction in another one step executor.
+/// And then diff the merkle root.
+pub struct InstanceState<'a, T> {
+    pub initialized: bool,
+    pub func_types: Vec<FuncType>,
+    pub tables: Vec<&'a TableEntity>,
+    // TODO: consider this data field's `instance`.
+    pub funcs: Vec<&'a FuncEntity<T>>,
+    pub memories: Vec<&'a MemoryEntity>,
+    pub globals: Vec<&'a GlobalEntity>,
+    pub exports: Vec<(&'a str, ExternState)>,
+}
+
+/// An external reference to corresponding field in `InstanceState`.
+#[derive(Debug, Copy, Clone, Encode, Decode)]
+pub enum ExternState {
+    /// An externally defined global variable.
+    Global(u32),
+    /// An externally defined table.
+    Table(u32),
+    /// An externally defined linear memory.
+    Memory(u32),
+    /// An externally defined Wasm or host function.
+    Func(u32),
+}
+
 impl InstanceEntity {
+
+    pub fn as_state<'a, T>(
+        &'a self,
+        mut ctx: &'a impl AsContext<UserState = T>,
+    ) -> InstanceState<'a, T> {
+        let store = ctx.as_context().store;
+
+        let func_types = self
+            .func_types
+            .iter()
+            .map(|func| store.resolve_func_type(func.clone()))
+            .collect();
+
+        let funcs = self
+            .funcs
+            .iter()
+            .map(|func| store.resolve_func(func.clone()))
+            .collect();
+
+        let globals = self
+            .globals
+            .iter()
+            .map(|global| store.resolve_global(global.clone()))
+            .collect();
+
+        let memories = self
+            .memories
+            .iter()
+            .map(|mem| store.resolve_memory(mem.clone()))
+            .collect();
+
+        let tables = self
+            .tables
+            .iter()
+            .map(|table| store.resolve_table(table.clone()))
+            .collect();
+
+        let exports = self
+            .exports
+            .iter()
+            .map(|(name, ext)| {
+                let index = match ext {
+                    Extern::Memory(mem) => ExternState::Memory(
+                        self.memories
+                            .binary_search(mem)
+                            .expect("exported memory must exist; qed")
+                            as u32,
+                    ),
+                    Extern::Func(func) => ExternState::Func(
+                        self.funcs
+                            .binary_search(func)
+                            .expect("exported func must exist; qed") as u32,
+                    ),
+                    Extern::Table(table) => ExternState::Table(
+                        self.tables
+                            .binary_search(table)
+                            .expect("exported table must exist; qed")
+                            as u32,
+                    ),
+                    Extern::Global(global) => ExternState::Global(
+                        self.globals
+                            .binary_search(global)
+                            .expect("exported global must exist; qed")
+                            as u32,
+                    ),
+                };
+
+                (name.as_str(), index)
+            })
+            .collect();
+
+        InstanceState {
+            initialized: self.initialized,
+            func_types,
+            globals,
+            memories,
+            tables,
+            funcs,
+            exports,
+        }
+    }
+
     /// Creates an uninitialized [`InstanceEntity`].
     pub(crate) fn uninitialized() -> InstanceEntity {
         Self {
