@@ -7,6 +7,7 @@ use super::{
     Module,
 };
 use crate::{
+    instance::InstanceSnapshot,
     module::{ImportName, ModuleImport, ModuleImportType},
     FuncType,
     GlobalType,
@@ -365,6 +366,26 @@ impl<T> Linker<T> {
         context: impl AsContextMut,
         module: &'a Module,
     ) -> Result<InstancePre<'a>, Error> {
+        self._instantiate(&context, module)?;
+        module.instantiate(context, self.externals.drain(..))
+    }
+
+    pub fn restore_instance<'a>(
+        &mut self,
+        context: impl AsContextMut,
+        module: &'a Module,
+        snapshot: InstanceSnapshot<T>,
+    ) -> Result<InstancePre<'a>, Error> {
+        self._instantiate(&context, module)?;
+        module.restore_instance(context, self.externals.drain(..), snapshot)
+    }
+
+    fn _instantiate<'a>(
+        &mut self,
+        context: &impl AsContextMut,
+
+        module: &'a Module,
+    ) -> Result<(), Error> {
         // Clear the cached externals buffer.
         self.externals.clear();
 
@@ -431,6 +452,7 @@ impl<T> Linker<T> {
             };
             self.externals.push(external);
         }
-        module.instantiate(context, self.externals.drain(..))
+
+        Ok(())
     }
 }

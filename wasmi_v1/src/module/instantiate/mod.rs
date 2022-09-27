@@ -4,18 +4,23 @@ mod pre;
 pub use self::{error::InstantiationError, pre::InstancePre};
 use super::{export, InitExpr, Module, ModuleImportType};
 use crate::{
+    instance::InstanceSnapshot,
     module::{init_expr::InitExprOperand, DEFAULT_MEMORY_INDEX},
     AsContext,
     AsContextMut,
     Error,
     Extern,
+    Func,
     FuncEntity,
     Global,
+    GlobalEntity,
     Instance,
     InstanceEntity,
     InstanceEntityBuilder,
     Memory,
+    MemoryEntity,
     Table,
+    TableEntity,
 };
 use wasmi_core::Value;
 
@@ -64,13 +69,14 @@ impl Module {
         Ok(InstancePre::new(handle, self, builder))
     }
 
-    pub(crate) fn instantiate_by_state<I>(
+    pub(crate) fn restore_instance<I, T>(
         &self,
         mut context: impl AsContextMut,
         externals: I,
+        snapshot: InstanceSnapshot<T>,
     ) -> Result<InstancePre, Error>
-        where
-            I: IntoIterator<Item = Extern>,
+    where
+        I: IntoIterator<Item = Extern>,
     {
         let handle = context.as_context_mut().store.alloc_instance();
         let mut builder = InstanceEntity::build();
@@ -78,16 +84,13 @@ impl Module {
         self.extract_func_types(&mut context, &mut builder);
         self.extract_imports(&mut context, &mut builder, externals)?;
         self.extract_functions(&mut context, &mut builder, handle);
-        self.extract_tables(&mut context, &mut builder);
-        self.extract_memories(&mut context, &mut builder);
-        self.extract_globals(&mut context, &mut builder);
+
+        self.restore_tables(&mut context, &mut builder, snapshot.tables);
+        self.restore_memories(&mut context, &mut builder, snapshot.memories);
+        self.restore_globals(&mut context, &mut builder, snapshot.globals);
+
         self.extract_exports(&mut builder);
-
-        self.initialize_table_elements(&mut context, &mut builder)?;
-        self.initialize_memory_data(&mut context, &mut builder)?;
-
-        // At this point the module instantiation is nearly done.
-        // The only thing that is missing is to run the `start` function.
+        // TODO: check `initialized`
         Ok(InstancePre::new(handle, self, builder))
     }
 
@@ -222,6 +225,22 @@ impl Module {
         }
     }
 
+    fn restore_tables(
+        &self,
+        context: &mut impl AsContextMut,
+        builder: &mut InstanceEntityBuilder,
+        tables: Vec<TableEntity>,
+    ) {
+        debug_assert_eq!(self.tables.len(), tables.len());
+
+        for (table_type, table_entity) in self.tables.iter().copied().zip(tables.into_iter()) {
+            assert_eq!(table_type, table_entity.table_type());
+
+            let table = Table::with_entity(context.as_context_mut(), table_entity);
+            builder.push_table(table);
+        }
+    }
+
     /// Extracts the Wasm linear memories from the module and stores them into the [`Store`].
     ///
     /// This also stores [`Memory`] references into the [`Instance`] under construction.
@@ -244,6 +263,23 @@ impl Module {
         }
     }
 
+    fn restore_memories(
+        &self,
+        context: &mut impl AsContextMut,
+        builder: &mut InstanceEntityBuilder,
+        memories: Vec<MemoryEntity>,
+    ) {
+        debug_assert_eq!(self.memories.len(), memories.len());
+
+        for (memory_type, memory_entity) in self.memories.iter().copied().zip(memories.into_iter())
+        {
+            assert_eq!(memory_type, memory_entity.memory_type());
+
+            let memory = Memory::with_entity(context.as_context_mut(), memory_entity);
+            builder.push_memory(memory);
+        }
+    }
+
     /// Extracts the Wasm global variables from the module and stores them into the [`Store`].
     ///
     /// This also stores [`Global`] references into the [`Instance`] under construction.
@@ -258,6 +294,22 @@ impl Module {
             let init_value = Self::eval_init_expr(context.as_context_mut(), builder, global_init);
             let mutability = global_type.mutability();
             let global = Global::new(context.as_context_mut(), init_value, mutability);
+            builder.push_global(global);
+        }
+    }
+
+    fn restore_globals(
+        &self,
+        context: &mut impl AsContextMut,
+        builder: &mut InstanceEntityBuilder,
+        globals: Vec<GlobalEntity>,
+    ) {
+        debug_assert_eq!(self.globals.len(), globals.len());
+
+        for (global_type, global_entity) in self.globals.iter().copied().zip(globals.into_iter()) {
+            assert_eq!(global_type, global_entity.global_type());
+
+            let global = Global::with_entity(context.as_context_mut(), global_entity);
             builder.push_global(global);
         }
     }

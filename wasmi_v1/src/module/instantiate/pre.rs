@@ -10,9 +10,9 @@ use crate::{module::FuncIdx, AsContextMut, Error, Instance, InstanceEntityBuilde
 /// process with regard to this need.
 #[derive(Debug)]
 pub struct InstancePre<'a> {
-    handle: Instance,
-    module: &'a Module,
-    builder: InstanceEntityBuilder,
+    pub(crate) handle: Instance,
+    pub(crate) module: &'a Module,
+    pub(crate) builder: InstanceEntityBuilder,
 }
 
 impl<'a> InstancePre<'a> {

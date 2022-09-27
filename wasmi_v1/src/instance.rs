@@ -39,8 +39,10 @@ impl Index for InstanceIdx {
 #[derive(Debug)]
 pub struct InstanceEntity {
     initialized: bool,
+    // TODO: maybe we do need this
     func_types: Vec<DedupFuncType>,
     tables: Vec<Table>,
+    // TODO: maybe we do need this
     funcs: Vec<Func>,
     memories: Vec<Memory>,
     globals: Vec<Global>,
@@ -67,6 +69,19 @@ pub struct InstanceState<'a, T> {
     pub exports: Vec<(&'a str, ExternState)>,
 }
 
+pub struct InstanceSnapshot<T> {
+    pub initialized: bool,
+    pub func_types: Vec<FuncType>,
+    pub tables: Vec<TableEntity>,
+    // TODO: consider this data field's `instance`.
+    pub funcs: Vec<FuncEntity<T>>,
+    pub memories: Vec<MemoryEntity>,
+    pub globals: Vec<GlobalEntity>,
+    pub exports: Vec<(String, ExternState)>,
+}
+
+impl<T> InstanceSnapshot<T> {}
+
 /// An external reference to corresponding field in `InstanceState`.
 #[derive(Debug, Copy, Clone, Encode, Decode)]
 pub enum ExternState {
@@ -81,8 +96,7 @@ pub enum ExternState {
 }
 
 impl InstanceEntity {
-
-    pub fn as_state<'a, T>(
+    pub fn into_state<'a, T>(
         &'a self,
         mut ctx: &'a impl AsContext<UserState = T>,
     ) -> InstanceState<'a, T> {
@@ -278,7 +292,7 @@ impl FusedIterator for ExportsIter<'_> {}
 #[derive(Debug)]
 pub struct InstanceEntityBuilder {
     /// The [`InstanceEntity`] under construction.
-    instance: InstanceEntity,
+    pub(crate) instance: InstanceEntity,
 }
 
 impl InstanceEntityBuilder {

@@ -207,6 +207,11 @@ impl Global {
             .alloc_global(GlobalEntity::new(initial_value, mutability))
     }
 
+    /// Creates a new global variable to the store.
+    pub fn with_entity(mut ctx: impl AsContextMut, entity: GlobalEntity) -> Self {
+        ctx.as_context_mut().store.alloc_global(entity)
+    }
+
     /// Returns `true` if the global variable is mutable.
     ///
     /// # Panics

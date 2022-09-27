@@ -145,7 +145,7 @@ impl TableType {
 }
 
 /// A Wasm table entity.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TableEntity {
     table_type: TableType,
     elements: Vec<Option<Func>>,
@@ -253,6 +253,11 @@ impl Table {
         ctx.as_context_mut()
             .store
             .alloc_table(TableEntity::new(table_type))
+    }
+
+    /// Creates a new table to the store.
+    pub fn with_entity(mut ctx: impl AsContextMut, table: TableEntity) -> Self {
+        ctx.as_context_mut().store.alloc_table(table)
     }
 
     /// Returns the type and limits of the table.

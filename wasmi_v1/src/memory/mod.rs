@@ -287,6 +287,10 @@ impl Memory {
         Ok(memory)
     }
 
+    pub fn with_entity(mut ctx: impl AsContextMut, entity: MemoryEntity) -> Self {
+        ctx.as_context_mut().store.alloc_memory(entity)
+    }
+
     /// Returns the memory type of the linear memory.
     ///
     /// # Panics
