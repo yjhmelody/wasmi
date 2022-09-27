@@ -88,7 +88,11 @@ impl Module {
 
         // table must be restored after func
         self.restore_tables(&mut context, &mut builder, snapshot.tables);
-        self.restore_memories(&mut context, &mut builder, snapshot.memories);
+        self.restore_memories(
+            &mut context,
+            &mut builder,
+            snapshot.memories.into_iter().map(Into::into).collect(),
+        );
         self.restore_globals(&mut context, &mut builder, snapshot.globals);
 
         self.extract_exports(&mut builder);
@@ -251,7 +255,9 @@ impl Module {
                     }))
                 });
 
-                table.set(context.as_context_mut(), i, func).expect("Table is illegal");
+                table
+                    .set(context.as_context_mut(), i, func)
+                    .expect("Table is illegal");
             }
 
             builder.push_table(table);

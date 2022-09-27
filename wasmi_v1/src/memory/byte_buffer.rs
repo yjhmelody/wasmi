@@ -8,9 +8,9 @@ use alloc::{vec, vec::Vec};
 /// This is less efficient than the byte buffer implementation that is
 /// based on actual OS provided virtual memory but it is a safe fallback
 /// solution fitting any platform.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ByteBuffer {
-    bytes: Vec<u8>,
+    pub(crate) bytes: Vec<u8>,
 }
 
 impl ByteBuffer {

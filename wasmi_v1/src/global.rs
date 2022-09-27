@@ -95,7 +95,7 @@ impl GlobalType {
 }
 
 /// A global variable entity.
-#[derive(Debug, codec::Encode, codec::Decode)]
+#[derive(Debug, Clone, codec::Encode, codec::Decode)]
 pub struct GlobalEntity {
     /// The current value of the global variable.
     value: UntypedValue,

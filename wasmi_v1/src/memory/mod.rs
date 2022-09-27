@@ -1,6 +1,6 @@
 mod byte_buffer;
 
-use self::byte_buffer::ByteBuffer;
+pub use self::byte_buffer::ByteBuffer;
 use super::{AsContext, AsContextMut, Index, StoreContext, StoreContextMut, Stored};
 use crate::proof::{ProofGenerator, ProofKind};
 use core::{fmt, fmt::Display};
@@ -134,7 +134,7 @@ impl MemoryType {
 }
 
 /// A linear memory entity.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemoryEntity {
     pub(crate) bytes: ByteBuffer,
     pub(crate) memory_type: MemoryType,

@@ -16,6 +16,7 @@ use crate::{
     FuncType,
     GlobalEntity,
     MemoryEntity,
+    MemoryType,
     TableEntity,
     TableType,
 };
@@ -55,7 +56,9 @@ pub struct InstanceEntity {
     exports: BTreeMap<String, Extern>,
 }
 
+use crate::memory::ByteBuffer;
 use codec::{Decode, Encode, Output};
+use wasmi_core::memory_units::Pages;
 
 // TODO: support codec.
 /// The state has two purpose:
@@ -77,6 +80,60 @@ pub struct InstanceState<'a> {
     // pub exports: Vec<(&'a str, ExternState)>,
 }
 
+#[derive(Encode, Decode)]
+pub struct InstanceSnapshot {
+    pub initialized: bool,
+    // pub func_types: Vec<FuncType>,
+    // pub funcs: Vec<FuncEntity<T>>,
+    pub tables: Vec<TableState>,
+    // TODO: consider this data field's `instance`.
+    pub memories: Vec<MemoryEntityState>,
+    pub globals: Vec<GlobalEntity>,
+    // pub exports: Vec<(String, ExternState)>,
+}
+
+#[derive(Encode, Decode)]
+pub struct MemoryEntityState {
+    pub memory_type: MemoryTypeState,
+    pub current_pages: u32,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Encode, Decode)]
+pub struct MemoryTypeState {
+    pub initial_pages: u32,
+    pub maximum_pages: Option<u32>,
+}
+
+impl From<MemoryTypeState> for MemoryType {
+    fn from(t: MemoryTypeState) -> Self {
+        Self::new(t.initial_pages, t.maximum_pages)
+    }
+}
+
+impl From<MemoryEntityState> for MemoryEntity {
+    fn from(t: MemoryEntityState) -> Self {
+        Self {
+            bytes: ByteBuffer { bytes: t.bytes },
+            memory_type: t.memory_type.into(),
+            current_pages: Pages(t.current_pages as usize),
+        }
+    }
+}
+
+impl From<MemoryEntity> for MemoryEntityState {
+    fn from(mem: MemoryEntity) -> Self {
+        Self {
+            memory_type: MemoryTypeState {
+                initial_pages: mem.memory_type().initial_pages().0 as u32,
+                maximum_pages: mem.memory_type().maximum_pages().map(|x| x.0 as u32),
+            },
+            current_pages: mem.current_pages.0 as u32,
+            bytes: mem.bytes.bytes,
+        }
+    }
+}
+
 impl<'a> Encode for InstanceState<'a> {
     fn encode_to<O: Output + ?Sized>(&self, dest: &mut O) {
         self.initialized.encode_to(dest);
@@ -84,6 +141,7 @@ impl<'a> Encode for InstanceState<'a> {
         // TODO: codec
 
         for mem in self.memories.iter() {
+            // TODO: order
             (mem.memory_type.initial_pages().0 as u32).encode_to(dest);
             (mem.memory_type.maximum_pages().map(|page| page.0 as u32)).encode_to(dest);
             (mem.current_pages.0 as u32).encode_to(dest);
@@ -94,17 +152,6 @@ impl<'a> Encode for InstanceState<'a> {
             global.encode_to(dest);
         }
     }
-}
-
-pub struct InstanceSnapshot {
-    pub initialized: bool,
-    // pub func_types: Vec<FuncType>,
-    // pub funcs: Vec<FuncEntity<T>>,
-    pub tables: Vec<TableState>,
-    // TODO: consider this data field's `instance`.
-    pub memories: Vec<MemoryEntity>,
-    pub globals: Vec<GlobalEntity>,
-    // pub exports: Vec<(String, ExternState)>,
 }
 
 #[derive(Debug, Eq, PartialEq, Encode, Decode)]
@@ -126,7 +173,7 @@ impl From<TableType> for TableTypeState {
     fn from(t: TableType) -> Self {
         Self {
             initial: t.initial() as u32,
-            maximum: t.maximum().map(|x| x as u32)
+            maximum: t.maximum().map(|x| x as u32),
         }
     }
 }
@@ -145,6 +192,61 @@ pub enum ExternState {
 }
 
 impl InstanceEntity {
+    pub fn as_snapshot(&self, ctx: &impl AsContext) -> InstanceSnapshot {
+        let store = ctx.as_context().store;
+        let tables = self
+            .tables
+            .iter()
+            .map(|table| {
+                let table = store.resolve_table(table.clone());
+
+                let mut elements_index = Vec::new();
+
+                for elem in table.elements.iter() {
+                    match elem {
+                        None => elements_index.push(None),
+                        Some(func) => {
+                            let func_index = self
+                                .funcs
+                                .binary_search(func)
+                                .expect("function ref in table must exist in funcs");
+                            elements_index.push(Some(func_index as u32))
+                        }
+                    }
+                }
+                TableState {
+                    table_type: table.table_type().into(),
+                    elements: elements_index,
+                }
+            })
+            .collect();
+
+        let memories = self
+            .memories
+            .iter()
+            .map(|mem| {
+                let mem = store.resolve_memory(mem.clone()).clone();
+                mem.into()
+            })
+            .collect();
+
+        let globals = self
+            .globals
+            .iter()
+            .map(|global| {
+                let global= store.resolve_global(global.clone());
+                global.clone()
+            })
+            .collect();
+
+        InstanceSnapshot {
+            initialized: self.initialized,
+            tables,
+            memories,
+            globals,
+        }
+    }
+
     pub fn as_state<'a>(&'a self, ctx: &'a impl AsContext) -> InstanceState<'a> {
         let store = ctx.as_context().store;
 
@@ -533,9 +635,15 @@ impl Instance {
     }
 
     // TODO: docs
-    pub fn make_snapshot<'a>(&self, store: &'a impl AsContext) -> InstanceState<'a> {
+    pub fn make_state<'a>(&self, store: &'a impl AsContext) -> InstanceState<'a> {
         let ctx = store.as_context();
         let instance = ctx.store.resolve_instance(*self);
         instance.as_state(store)
+    }
+
+    pub fn make_snapshot(&self, store: &impl AsContext) -> InstanceSnapshot {
+        let ctx = store.as_context();
+        let instance = ctx.store.resolve_instance(*self);
+        instance.clone().as_snapshot(store)
     }
 }

@@ -154,3 +154,5 @@ pub use self::{
     store::{AsContext, AsContextMut, Store, StoreContext, StoreContextMut},
     table::{Table, TableType},
 };
+
+pub use self::instance::*;
