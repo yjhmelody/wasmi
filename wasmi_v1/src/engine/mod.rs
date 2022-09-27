@@ -220,6 +220,26 @@ impl Engine {
     {
         self.inner.lock().execute_func(ctx, func, params, results)
     }
+
+    pub(crate) fn execute_func_step_n<Params, Results>(
+        &mut self,
+        ctx: impl AsContextMut,
+        func: Func,
+        params: Params,
+        results: Results,
+        n: Option<u64>,
+    ) -> Result<<Results as CallResults>::Results, Trap>
+    where
+        Params: CallParams,
+        Results: CallResults,
+    {
+        let mut engine = self.inner.lock();
+        engine.initialize_args(params);
+
+        let signature = engine.execute_func_step_n(ctx, func, n)?;
+        let results = engine.write_results_back(signature, results);
+        Ok(results)
+    }
 }
 
 /// The internal state of the `wasmi` engine.

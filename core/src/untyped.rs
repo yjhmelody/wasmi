@@ -23,6 +23,7 @@ use core::{
 /// Provides a dense and simple interface to all functional Wasm operations.
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
+#[derive(codec::Encode, codec::Decode)]
 pub struct UntypedValue {
     /// This inner value is required to have enough bits to represent
     /// all fundamental WebAssembly types `i32`, `i64`, `f32` and `f64`.

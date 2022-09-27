@@ -58,7 +58,7 @@ impl Display for GlobalError {
 }
 
 /// The mutability of a global variable.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 pub enum Mutability {
     /// The value of the global variable is a constant.
     Const,
@@ -95,7 +95,7 @@ impl GlobalType {
 }
 
 /// A global variable entity.
-#[derive(Debug)]
+#[derive(Debug, codec::Encode, codec::Decode)]
 pub struct GlobalEntity {
     /// The current value of the global variable.
     value: UntypedValue,

@@ -148,7 +148,8 @@ impl TableType {
 #[derive(Debug, Clone)]
 pub struct TableEntity {
     table_type: TableType,
-    elements: Vec<Option<Func>>,
+    // TODO: this hold func index that could not snapshot
+    pub(crate) elements: Vec<Option<Func>>,
 }
 
 impl TableEntity {

@@ -10,7 +10,15 @@ use super::{
     Stored,
     Table,
 };
-use crate::{AsContextMut, FuncEntity, FuncType, GlobalEntity, MemoryEntity, TableEntity};
+use crate::{
+    AsContextMut,
+    FuncEntity,
+    FuncType,
+    GlobalEntity,
+    MemoryEntity,
+    TableEntity,
+    TableType,
+};
 use alloc::{
     collections::{btree_map, BTreeMap},
     string::{String, ToString},
@@ -39,17 +47,15 @@ impl Index for InstanceIdx {
 #[derive(Debug)]
 pub struct InstanceEntity {
     initialized: bool,
-    // TODO: maybe we do need this
     func_types: Vec<DedupFuncType>,
     tables: Vec<Table>,
-    // TODO: maybe we do need this
     funcs: Vec<Func>,
     memories: Vec<Memory>,
     globals: Vec<Global>,
     exports: BTreeMap<String, Extern>,
 }
 
-use codec::{Decode, Encode};
+use codec::{Decode, Encode, Output};
 
 // TODO: support codec.
 /// The state has two purpose:
@@ -58,29 +64,72 @@ use codec::{Decode, Encode};
 ///
 /// The state will be used to execute a instruction in another one step executor.
 /// And then diff the merkle root.
-pub struct InstanceState<'a, T> {
+pub struct InstanceState<'a> {
     pub initialized: bool,
-    pub func_types: Vec<FuncType>,
-    pub tables: Vec<&'a TableEntity>,
-    // TODO: consider this data field's `instance`.
-    pub funcs: Vec<&'a FuncEntity<T>>,
+    // TODO: maybe we do not need this
+    // pub func_types: Vec<FuncType>,
+    // TODO: maybe we do not need this
+    // pub funcs: Vec<&'a FuncEntity<T>>,
+    pub tables: Vec<TableState>,
     pub memories: Vec<&'a MemoryEntity>,
     pub globals: Vec<&'a GlobalEntity>,
-    pub exports: Vec<(&'a str, ExternState)>,
+    // TODO:
+    // pub exports: Vec<(&'a str, ExternState)>,
 }
 
-pub struct InstanceSnapshot<T> {
+impl<'a> Encode for InstanceState<'a> {
+    fn encode_to<O: Output + ?Sized>(&self, dest: &mut O) {
+        self.initialized.encode_to(dest);
+        self.tables.encode_to(dest);
+        // TODO: codec
+
+        for mem in self.memories.iter() {
+            (mem.memory_type.initial_pages().0 as u32).encode_to(dest);
+            (mem.memory_type.maximum_pages().map(|page| page.0 as u32)).encode_to(dest);
+            (mem.current_pages.0 as u32).encode_to(dest);
+            mem.bytes.data().encode_to(dest);
+        }
+
+        for global in self.globals.iter() {
+            global.encode_to(dest);
+        }
+    }
+}
+
+pub struct InstanceSnapshot {
     pub initialized: bool,
-    pub func_types: Vec<FuncType>,
-    pub tables: Vec<TableEntity>,
+    // pub func_types: Vec<FuncType>,
+    // pub funcs: Vec<FuncEntity<T>>,
+    pub tables: Vec<TableState>,
     // TODO: consider this data field's `instance`.
-    pub funcs: Vec<FuncEntity<T>>,
     pub memories: Vec<MemoryEntity>,
     pub globals: Vec<GlobalEntity>,
-    pub exports: Vec<(String, ExternState)>,
+    // pub exports: Vec<(String, ExternState)>,
 }
 
-impl<T> InstanceSnapshot<T> {}
+#[derive(Debug, Eq, PartialEq, Encode, Decode)]
+pub struct TableState {
+    pub table_type: TableTypeState,
+    // element index
+    pub elements: Vec<Option<u32>>,
+}
+
+#[derive(Debug, Eq, PartialEq, Encode, Decode)]
+pub struct TableTypeState {
+    /// The initial size of the [`Table`].
+    initial: u32,
+    /// The optional maximum size fo the [`Table`].
+    maximum: Option<u32>,
+}
+
+impl From<TableType> for TableTypeState {
+    fn from(t: TableType) -> Self {
+        Self {
+            initial: t.initial() as u32,
+            maximum: t.maximum().map(|x| x as u32)
+        }
+    }
+}
 
 /// An external reference to corresponding field in `InstanceState`.
 #[derive(Debug, Copy, Clone, Encode, Decode)]
@@ -96,23 +145,20 @@ pub enum ExternState {
 }
 
 impl InstanceEntity {
-    pub fn into_state<'a, T>(
-        &'a self,
-        mut ctx: &'a impl AsContext<UserState = T>,
-    ) -> InstanceState<'a, T> {
+    pub fn as_state<'a>(&'a self, ctx: &'a impl AsContext) -> InstanceState<'a> {
         let store = ctx.as_context().store;
 
-        let func_types = self
-            .func_types
-            .iter()
-            .map(|func| store.resolve_func_type(func.clone()))
-            .collect();
+        // let func_types = self
+        //     .func_types
+        //     .iter()
+        //     .map(|func| store.resolve_func_type(func.clone()))
+        //     .collect();
 
-        let funcs = self
-            .funcs
-            .iter()
-            .map(|func| store.resolve_func(func.clone()))
-            .collect();
+        // let funcs = self
+        //     .funcs
+        //     .iter()
+        //     .map(|func| store.resolve_func(func.clone()))
+        //     .collect();
 
         let globals = self
             .globals
@@ -129,51 +175,72 @@ impl InstanceEntity {
         let tables = self
             .tables
             .iter()
-            .map(|table| store.resolve_table(table.clone()))
-            .collect();
+            .map(|table| {
+                let table = store.resolve_table(table.clone());
 
-        let exports = self
-            .exports
-            .iter()
-            .map(|(name, ext)| {
-                let index = match ext {
-                    Extern::Memory(mem) => ExternState::Memory(
-                        self.memories
-                            .binary_search(mem)
-                            .expect("exported memory must exist; qed")
-                            as u32,
-                    ),
-                    Extern::Func(func) => ExternState::Func(
-                        self.funcs
-                            .binary_search(func)
-                            .expect("exported func must exist; qed") as u32,
-                    ),
-                    Extern::Table(table) => ExternState::Table(
-                        self.tables
-                            .binary_search(table)
-                            .expect("exported table must exist; qed")
-                            as u32,
-                    ),
-                    Extern::Global(global) => ExternState::Global(
-                        self.globals
-                            .binary_search(global)
-                            .expect("exported global must exist; qed")
-                            as u32,
-                    ),
-                };
+                let mut elements_index = Vec::new();
 
-                (name.as_str(), index)
+                for elem in table.elements.iter() {
+                    match elem {
+                        None => elements_index.push(None),
+                        Some(func) => {
+                            let func_index = self
+                                .funcs
+                                .binary_search(func)
+                                .expect("function ref in table must exist in funcs");
+                            elements_index.push(Some(func_index as u32))
+                        }
+                    }
+                }
+                TableState {
+                    table_type: table.table_type().into(),
+                    elements: elements_index,
+                }
             })
             .collect();
 
+        // let exports = self
+        //     .exports
+        //     .iter()
+        //     .map(|(name, ext)| {
+        //         let index = match ext {
+        //             Extern::Memory(mem) => ExternState::Memory(
+        //                 self.memories
+        //                     .binary_search(mem)
+        //                     .expect("exported memory must exist; qed")
+        //                     as u32,
+        //             ),
+        //             Extern::Func(func) => ExternState::Func(
+        //                 self.funcs
+        //                     .binary_search(func)
+        //                     .expect("exported func must exist; qed") as u32,
+        //             ),
+        //             Extern::Table(table) => ExternState::Table(
+        //                 self.tables
+        //                     .binary_search(table)
+        //                     .expect("exported table must exist; qed")
+        //                     as u32,
+        //             ),
+        //             Extern::Global(global) => ExternState::Global(
+        //                 self.globals
+        //                     .binary_search(global)
+        //                     .expect("exported global must exist; qed")
+        //                     as u32,
+        //             ),
+        //         };
+        //
+        //         (name.as_str(), index)
+        //     })
+        //     .collect();
+
         InstanceState {
             initialized: self.initialized,
-            func_types,
+            // func_types,
             globals,
             memories,
             tables,
-            funcs,
-            exports,
+            // funcs,
+            // exports,
         }
     }
 
@@ -463,5 +530,12 @@ impl Instance {
     /// Panics if `store` does not own this [`Instance`].
     pub fn exports<'a, T: 'a>(&self, store: impl Into<StoreContext<'a, T>>) -> ExportsIter<'a> {
         store.into().store.resolve_instance(*self).exports()
+    }
+
+    // TODO: docs
+    pub fn make_snapshot<'a>(&self, store: &'a impl AsContext) -> InstanceState<'a> {
+        let ctx = store.as_context();
+        let instance = ctx.store.resolve_instance(*self);
+        instance.as_state(store)
     }
 }

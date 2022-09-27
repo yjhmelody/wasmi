@@ -157,6 +157,34 @@ impl TestContext<'_> {
         Ok(instance)
     }
 
+    // TODO: docs
+    pub fn compile_and_restore_instance(
+        &mut self,
+        mut module: wast::core::Module,
+    ) -> Result<Instance, TestError> {
+        let module_name = module.id.map(|id| id.name());
+        let wasm = module.encode().unwrap_or_else(|error| {
+            panic!(
+                "encountered unexpected failure to encode `.wast` module into `.wasm`:{}: {}",
+                self.test_path(),
+                error
+            )
+        });
+        let module = Module::new(self.engine(), &wasm[..])?;
+        let instance_pre = self.linker.instantiate(&mut self.store, &module)?;
+        // instance_pre.ensure_no_start()
+        let instance = instance_pre.start(&mut self.store)?;
+        self.modules.push(module);
+        if let Some(module_name) = module_name {
+            self.instances.insert(module_name.to_string(), instance);
+            for (field_name, export) in instance.exports(&self.store) {
+                self.linker.define(module_name, field_name, *export)?;
+            }
+        }
+        self.last_instance = Some(instance);
+        Ok(instance)
+    }
+
     /// Loads the Wasm module instance with the given name.
     ///
     /// # Errors

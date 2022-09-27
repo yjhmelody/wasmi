@@ -50,6 +50,11 @@ impl TrapInner {
         matches!(self, TrapInner::Code(_))
     }
 
+    #[inline]
+    pub fn is_halt(&self) -> bool {
+        matches!(self, TrapInner::Halt(_, _, _))
+    }
+
     /// Returns a shared reference to the [`HostError`] if any.
     #[inline]
     pub fn as_host(&self) -> Option<&dyn HostError> {
@@ -114,6 +119,11 @@ impl Trap {
     #[inline]
     pub fn is_code(&self) -> bool {
         self.inner.is_code()
+    }
+
+    #[inline]
+    pub fn is_halt(&self) -> bool {
+        self.inner.is_halt()
     }
 
     /// Returns a shared reference to the [`HostError`] if any.

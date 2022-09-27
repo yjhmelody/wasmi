@@ -4,7 +4,7 @@ mod pre;
 pub use self::{error::InstantiationError, pre::InstancePre};
 use super::{export, InitExpr, Module, ModuleImportType};
 use crate::{
-    instance::InstanceSnapshot,
+    instance::{InstanceSnapshot, TableState},
     module::{init_expr::InitExprOperand, DEFAULT_MEMORY_INDEX},
     AsContext,
     AsContextMut,
@@ -69,11 +69,12 @@ impl Module {
         Ok(InstancePre::new(handle, self, builder))
     }
 
-    pub(crate) fn restore_instance<I, T>(
+    // TODO: docs
+    pub(crate) fn restore_instance<I>(
         &self,
         mut context: impl AsContextMut,
         externals: I,
-        snapshot: InstanceSnapshot<T>,
+        snapshot: InstanceSnapshot,
     ) -> Result<InstancePre, Error>
     where
         I: IntoIterator<Item = Extern>,
@@ -85,6 +86,7 @@ impl Module {
         self.extract_imports(&mut context, &mut builder, externals)?;
         self.extract_functions(&mut context, &mut builder, handle);
 
+        // table must be restored after func
         self.restore_tables(&mut context, &mut builder, snapshot.tables);
         self.restore_memories(&mut context, &mut builder, snapshot.memories);
         self.restore_globals(&mut context, &mut builder, snapshot.globals);
@@ -229,14 +231,29 @@ impl Module {
         &self,
         context: &mut impl AsContextMut,
         builder: &mut InstanceEntityBuilder,
-        tables: Vec<TableEntity>,
+        tables: Vec<TableState>,
     ) {
         debug_assert_eq!(self.tables.len(), tables.len());
 
-        for (table_type, table_entity) in self.tables.iter().copied().zip(tables.into_iter()) {
-            assert_eq!(table_type, table_entity.table_type());
+        for (table_type, table_state) in self.tables.iter().copied().zip(tables.into_iter()) {
+            // TODO:
+            // assert_eq!(table_type, table_state.table_type);
+            let table = Table::new(context.as_context_mut(), table_type);
 
-            let table = Table::with_entity(context.as_context_mut(), table_entity);
+            // TODO:
+            for (i, func_index) in table_state.elements.iter().enumerate() {
+                let func = func_index.and_then(|func_index| {
+                    Some(builder.get_func(func_index.clone()).unwrap_or_else(|| {
+                        panic!(
+                            "encountered missing function at index {} upon element initialization",
+                            func_index
+                        )
+                    }))
+                });
+
+                table.set(context.as_context_mut(), i, func).expect("Table is illegal");
+            }
+
             builder.push_table(table);
         }
     }
@@ -436,6 +453,7 @@ impl Module {
             // Finally do the actual initialization of the table elements.
             for (i, func_index) in element_segment.items().iter().enumerate() {
                 let func_index = func_index.into_u32();
+                // TODO: reverse index
                 let func = builder.get_func(func_index).unwrap_or_else(|| {
                     panic!(
                         "encountered missing function at index {} upon element initialization",

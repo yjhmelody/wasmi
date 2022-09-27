@@ -3,9 +3,10 @@ mod byte_buffer;
 use self::byte_buffer::ByteBuffer;
 use super::{AsContext, AsContextMut, Index, StoreContext, StoreContextMut, Stored};
 use crate::proof::{ProofGenerator, ProofKind};
-use codec::Encode;
 use core::{fmt, fmt::Display};
 use wasmi_core::memory_units::{Bytes, Pages};
+
+use codec::{Decode, Encode};
 
 /// A raw index to a linear memory entity.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -135,14 +136,13 @@ impl MemoryType {
 /// A linear memory entity.
 #[derive(Debug)]
 pub struct MemoryEntity {
-    bytes: ByteBuffer,
-    memory_type: MemoryType,
-    current_pages: Pages,
+    pub(crate) bytes: ByteBuffer,
+    pub(crate) memory_type: MemoryType,
+    pub(crate) current_pages: Pages,
 }
 
 impl ProofGenerator for MemoryEntity {
     fn write_proof(&self, proof_buf: &mut Vec<u8>) {
-        use codec::Encode;
         proof_buf.push(ProofKind::Memory as u8);
         proof_buf.extend((self.memory_type.initial_pages.0 as u32).encode());
         proof_buf.extend(

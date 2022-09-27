@@ -82,6 +82,10 @@ impl<'a> InstancePre<'a> {
         if let Some(index) = self.start_fn() {
             return Err(InstantiationError::FoundStartFn { index });
         }
+        self.no_start(context)
+    }
+
+    pub fn no_start(self, mut context: impl AsContextMut) -> Result<Instance, InstantiationError> {
         context
             .as_context_mut()
             .store

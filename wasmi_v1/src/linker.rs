@@ -354,7 +354,6 @@ impl<T> Linker<T> {
         self.definitions.get(&key).copied()
     }
 
-    // TODO: add func instantiate_by_state
     /// Instantiates the given [`Module`] using the definitions in the [`Linker`].
     ///
     /// # Errors
@@ -370,11 +369,12 @@ impl<T> Linker<T> {
         module.instantiate(context, self.externals.drain(..))
     }
 
+    // TODO: docs
     pub fn restore_instance<'a>(
         &mut self,
         context: impl AsContextMut,
         module: &'a Module,
-        snapshot: InstanceSnapshot<T>,
+        snapshot: InstanceSnapshot,
     ) -> Result<InstancePre<'a>, Error> {
         self._instantiate(&context, module)?;
         module.restore_instance(context, self.externals.drain(..), snapshot)
@@ -383,7 +383,6 @@ impl<T> Linker<T> {
     fn _instantiate<'a>(
         &mut self,
         context: &impl AsContextMut,
-
         module: &'a Module,
     ) -> Result<(), Error> {
         // Clear the cached externals buffer.

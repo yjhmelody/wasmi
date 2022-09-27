@@ -336,13 +336,14 @@ impl<T> Store<T> {
         })
     }
 
+    // TODO: wrapper
     /// Returns a shared reference to the associated entity of the [`Instance`].
     ///
     /// # Panics
     ///
     /// - If the Wasm or host function does not originate from this store.
     /// - If the Wasm or host function cannot be resolved to its entity.
-    pub(super) fn resolve_instance(&self, instance: Instance) -> &InstanceEntity {
+    pub fn resolve_instance(&self, instance: Instance) -> &InstanceEntity {
         let entity_index = self.unwrap_index(instance.into_inner());
         self.instances.get(entity_index).unwrap_or_else(|| {
             panic!(
