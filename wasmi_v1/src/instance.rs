@@ -641,6 +641,7 @@ impl Instance {
         instance.as_state(store)
     }
 
+    // TODO: docs
     pub fn make_snapshot(&self, store: &impl AsContext) -> InstanceSnapshot {
         let ctx = store.as_context();
         let instance = ctx.store.resolve_instance(*self);
