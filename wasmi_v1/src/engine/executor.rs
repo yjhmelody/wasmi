@@ -97,11 +97,12 @@ where
     /// Executes the function frame until it returns or traps.
     #[inline(always)]
     fn execute_step_n(mut self, n: &mut u64) -> Result<CallOutcome, Trap> {
-        // TODO: reduce code by macro.
         use Instruction as Instr;
         loop {
             if *n == 0 {
-                break;
+                // let iref = self.frame.iref();
+                // Ok(CallOutcome::Halt(self.pc, iref.start, iref.end))
+                return Ok(CallOutcome::Halt(self.pc));
             }
             *n -= 1;
             match *self.instr() {
@@ -289,9 +290,6 @@ where
                 Instr::I64Extend32S => self.visit_i64_sign_extend32(),
             }
         }
-
-        let iref = self.frame.iref();
-        Ok(CallOutcome::Halt(self.pc, iref.start, iref.end))
     }
 
     /// Executes the function frame until it returns or traps.

@@ -11,6 +11,7 @@ use super::{
     Table,
 };
 use crate::{
+    snapshot::{InstanceSnapshot, InstanceState, TableSnapshot},
     AsContextMut,
     FuncEntity,
     FuncType,
@@ -56,142 +57,6 @@ pub struct InstanceEntity {
     exports: BTreeMap<String, Extern>,
 }
 
-use crate::memory::ByteBuffer;
-use codec::{Decode, Encode, Output};
-use wasmi_core::memory_units::Pages;
-
-// TODO: support codec.
-/// The state has two purpose:
-/// 1. Generate merkle proof.
-/// 2. Generate instruction level state.
-///
-/// The state will be used to execute a instruction in another one step executor.
-/// And then diff the merkle root.
-pub struct InstanceState<'a> {
-    pub initialized: bool,
-    // TODO: maybe we do not need this
-    // pub func_types: Vec<FuncType>,
-    // TODO: maybe we do not need this
-    // pub funcs: Vec<&'a FuncEntity<T>>,
-    pub tables: Vec<TableState>,
-    pub memories: Vec<&'a MemoryEntity>,
-    pub globals: Vec<&'a GlobalEntity>,
-    // TODO:
-    // pub exports: Vec<(&'a str, ExternState)>,
-}
-
-#[derive(Clone, Encode, Decode)]
-pub struct InstanceSnapshot {
-    pub initialized: bool,
-    // pub func_types: Vec<FuncType>,
-    // pub funcs: Vec<FuncEntity<T>>,
-    pub tables: Vec<TableState>,
-    // TODO: consider this data field's `instance`.
-    pub memories: Vec<MemoryEntityState>,
-    pub globals: Vec<GlobalEntity>,
-    // pub exports: Vec<(String, ExternState)>,
-}
-
-#[derive(Clone, Eq, PartialEq, Encode, Decode)]
-pub struct MemoryEntityState {
-    pub memory_type: MemoryTypeState,
-    pub current_pages: u32,
-    pub bytes: Vec<u8>,
-}
-
-#[derive(Clone, Eq, PartialEq, Encode, Decode)]
-pub struct MemoryTypeState {
-    pub initial_pages: u32,
-    pub maximum_pages: Option<u32>,
-}
-
-impl From<MemoryTypeState> for MemoryType {
-    fn from(t: MemoryTypeState) -> Self {
-        Self::new(t.initial_pages, t.maximum_pages)
-    }
-}
-
-impl From<MemoryEntityState> for MemoryEntity {
-    fn from(t: MemoryEntityState) -> Self {
-        Self {
-            bytes: ByteBuffer { bytes: t.bytes },
-            memory_type: t.memory_type.into(),
-            current_pages: Pages(t.current_pages as usize),
-        }
-    }
-}
-
-impl From<MemoryEntity> for MemoryEntityState {
-    fn from(mem: MemoryEntity) -> Self {
-        Self {
-            memory_type: MemoryTypeState {
-                initial_pages: mem.memory_type().initial_pages().0 as u32,
-                maximum_pages: mem.memory_type().maximum_pages().map(|x| x.0 as u32),
-            },
-            current_pages: mem.current_pages.0 as u32,
-            bytes: mem.bytes.bytes,
-        }
-    }
-}
-
-impl<'a> Encode for InstanceState<'a> {
-    fn encode_to<O: Output + ?Sized>(&self, dest: &mut O) {
-        self.initialized.encode_to(dest);
-        self.tables.encode_to(dest);
-        // TODO: codec
-
-        for mem in self.memories.iter() {
-            // TODO: order
-            (mem.memory_type.initial_pages().0 as u32).encode_to(dest);
-            (mem.memory_type.maximum_pages().map(|page| page.0 as u32)).encode_to(dest);
-            (mem.current_pages.0 as u32).encode_to(dest);
-            mem.bytes.data().encode_to(dest);
-        }
-
-        for global in self.globals.iter() {
-            global.encode_to(dest);
-        }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
-pub struct TableState {
-    /// Table type
-    pub table_type: TableTypeState,
-    /// Element index
-    pub elements: Vec<Option<u32>>,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
-pub struct TableTypeState {
-    /// The initial size of the [`Table`].
-    initial: u32,
-    /// The optional maximum size fo the [`Table`].
-    maximum: Option<u32>,
-}
-
-impl From<TableType> for TableTypeState {
-    fn from(t: TableType) -> Self {
-        Self {
-            initial: t.initial() as u32,
-            maximum: t.maximum().map(|x| x as u32),
-        }
-    }
-}
-
-/// An external reference to corresponding field in `InstanceState`.
-#[derive(Debug, Copy, Clone, Encode, Decode)]
-pub enum ExternState {
-    /// An externally defined global variable.
-    Global(u32),
-    /// An externally defined table.
-    Table(u32),
-    /// An externally defined linear memory.
-    Memory(u32),
-    /// An externally defined Wasm or host function.
-    Func(u32),
-}
-
 impl InstanceEntity {
     pub fn make_snapshot(&self, ctx: &impl AsContext) -> InstanceSnapshot {
         let store = ctx.as_context().store;
@@ -215,7 +80,7 @@ impl InstanceEntity {
                         }
                     }
                 }
-                TableState {
+                TableSnapshot {
                     table_type: table.table_type().into(),
                     elements: elements_index,
                 }
@@ -239,6 +104,8 @@ impl InstanceEntity {
                 global.clone()
             })
             .collect();
+
+        let engine = store.engine().inner.lock();
 
         InstanceSnapshot {
             initialized: self.initialized,
@@ -283,6 +150,7 @@ impl InstanceEntity {
 
                 let mut elements_index = Vec::new();
 
+                // now: table ony support func index
                 for elem in table.elements.iter() {
                     match elem {
                         None => elements_index.push(None),
@@ -295,7 +163,7 @@ impl InstanceEntity {
                         }
                     }
                 }
-                TableState {
+                TableSnapshot {
                     table_type: table.table_type().into(),
                     elements: elements_index,
                 }
@@ -590,7 +458,7 @@ impl Instance {
     /// # Panics
     ///
     /// Panics if `store` does not own this [`Instance`].
-    pub(crate) fn get_func(&self, store: impl AsContext, index: u32) -> Option<Func> {
+    pub fn get_func(&self, store: impl AsContext, index: u32) -> Option<Func> {
         store
             .as_context()
             .store
@@ -639,6 +507,6 @@ impl Instance {
     pub fn make_snapshot(&self, store: &impl AsContext) -> InstanceSnapshot {
         let ctx = store.as_context();
         let instance = ctx.store.resolve_instance(*self);
-        instance.clone().make_snapshot(store)
+        instance.make_snapshot(store)
     }
 }

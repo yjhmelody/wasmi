@@ -119,7 +119,12 @@ where
         let mut engine = engine.inner.lock();
         engine.initialize_args(params);
 
-        let signature = engine.execute_func_step_n(ctx.as_context_mut(), self.func, n)?;
+        let signature = engine.execute_func_step_n(
+            ctx.as_context_mut(),
+            self.func,
+            n,
+            &mut Default::default(),
+        )?;
         let results = engine.write_results_back(signature, <CallResultsTuple<Results>>::default());
         Ok(results)
     }

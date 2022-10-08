@@ -66,7 +66,7 @@ fn test_snapshot() {
     let mut store = Store::new(&engine, ());
     let module = setup_module(&mut store, wat).unwrap();
     let instance = instantiate(&mut store, &module).unwrap();
-    let one_step = Some(1);
+    let one_step = Some(2);
 
     let funcs = module
         .exports()
@@ -99,7 +99,7 @@ fn test_snapshot() {
         )
         .unwrap_err();
         // must meet halt
-        assert_halt(err);
+        let pc = catch_halt_pc(err);
         // 2. make snapshot for instance.
         let snapshot = instance.make_snapshot(&store);
         let snapshot_bytes = snapshot.encode();
@@ -113,24 +113,29 @@ fn test_snapshot() {
             .ensure_no_start(store.as_context_mut())
             .unwrap();
 
-        // 5. run the rest instructions
-        call_step_n(
-            &mut store,
-            instance,
-            f,
-            &vec![Value::I32(1), Value::I32(2)],
-            &mut result,
-            None,
-        )
-        .unwrap();
+        // TODO: we should impl instruction level snapshot firstly
+        engine
+            .execute_instruction_step_n(store.as_context_mut(), pc, instance, None)
+            .unwrap();
 
-        assert_eq!(expected_result, result, "`{}` failed", f);
+        // // 5. run the instructions
+        // call_step_n(
+        //     &mut store,
+        //     instance,
+        //     f,
+        //     &vec![Value::I32(1), Value::I32(2)],
+        //     &mut result,
+        //     None,
+        // )
+        // .unwrap();
+        //
+        // assert_eq!(expected_result, result, "`{}` failed", f);
     }
 }
 
-fn assert_halt(err: Error) {
+fn catch_halt_pc(err: Error) -> usize {
     match err {
-        Error::Trap(trap) if trap.is_halt() => {}
+        Error::Trap(trap) if trap.is_halt() => trap.pc().expect("Error must be trap halt"),
         _ => panic!("Error must be trap halt"),
     }
 }

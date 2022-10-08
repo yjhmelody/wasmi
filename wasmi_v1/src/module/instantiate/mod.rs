@@ -4,8 +4,8 @@ mod pre;
 pub use self::{error::InstantiationError, pre::InstancePre};
 use super::{export, InitExpr, Module, ModuleImportType};
 use crate::{
-    instance::{InstanceSnapshot, TableState},
     module::{init_expr::InitExprOperand, DEFAULT_MEMORY_INDEX},
+    snapshot::{InstanceSnapshot, TableSnapshot},
     AsContext,
     AsContextMut,
     Error,
@@ -235,7 +235,7 @@ impl Module {
         &self,
         context: &mut impl AsContextMut,
         builder: &mut InstanceEntityBuilder,
-        tables: Vec<TableState>,
+        tables: Vec<TableSnapshot>,
     ) {
         debug_assert_eq!(self.tables.len(), tables.len());
 

@@ -104,6 +104,7 @@ mod linker;
 mod memory;
 mod module;
 mod proof;
+mod snapshot;
 mod store;
 mod table;
 
@@ -155,4 +156,4 @@ pub use self::{
     table::{Table, TableType},
 };
 
-pub use self::instance::*;
+pub use self::{instance::*, snapshot::*};

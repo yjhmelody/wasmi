@@ -34,7 +34,7 @@ pub enum TrapInner {
     /// - current pc.
     /// - function start index
     /// - function end index
-    Halt(usize, usize, usize),
+    Halt(usize),
 }
 
 impl TrapInner {
@@ -52,7 +52,7 @@ impl TrapInner {
 
     #[inline]
     pub fn is_halt(&self) -> bool {
-        matches!(self, TrapInner::Halt(_, _, _))
+        matches!(self, TrapInner::Halt(..))
     }
 
     /// Returns a shared reference to the [`HostError`] if any.
@@ -126,6 +126,14 @@ impl Trap {
         self.inner.is_halt()
     }
 
+    #[inline]
+    pub fn pc(&self) -> Option<usize> {
+        match *self.inner {
+            TrapInner::Halt(pc) => Some(pc),
+            _ => None,
+        }
+    }
+
     /// Returns a shared reference to the [`HostError`] if any.
     #[inline]
     pub fn as_host(&self) -> Option<&dyn HostError> {
@@ -173,8 +181,8 @@ impl Display for TrapInner {
         match self {
             Self::Code(trap_code) => Display::fmt(trap_code, f),
             Self::Host(host_error) => Display::fmt(host_error, f),
-            Self::Halt(pc, start, end) => {
-                write!(f, "Halted at pc: {}, func: [{}:{}]", pc, start, end)
+            Self::Halt(pc) => {
+                write!(f, "Halted at pc: {}", pc)
             }
         }
     }

@@ -42,6 +42,7 @@ use crate::{
     arena::{GuardedEntity, Index},
     core::Trap,
     FuncType,
+    Instance,
 };
 
 pub use crate::engine::code_map::InstructionsRef;
@@ -59,10 +60,17 @@ pub enum CallOutcome {
     /// The function called another function.
     NestedCall(Func),
     // TODO: refine this
+    // TODO: support func index
     /// A halt by host.
     ///
-    /// Hold on pc and function body range
-    Halt(usize, usize, usize),
+    /// Hold on pc.
+    Halt(usize),
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct HaltSig {
+    pub(crate) pc: usize,
+    pub(crate) func_index: u32,
 }
 
 /// A unique engine index.
@@ -119,6 +127,10 @@ impl Default for Engine {
 }
 
 impl Engine {
+    pub fn restore_engine() {
+        todo!()
+    }
+
     /// Creates a new [`Engine`] with default configuration.
     ///
     /// # Note
@@ -221,6 +233,7 @@ impl Engine {
         self.inner.lock().execute_func(ctx, func, params, results)
     }
 
+    // TODO: docs
     pub(crate) fn execute_func_step_n<Params, Results>(
         &mut self,
         ctx: impl AsContextMut,
@@ -236,9 +249,56 @@ impl Engine {
         let mut engine = self.inner.lock();
         engine.initialize_args(params);
 
-        let signature = engine.execute_func_step_n(ctx, func, n)?;
+        let signature = engine.execute_func_step_n(ctx, func, n, &mut Default::default())?;
         let results = engine.write_results_back(signature, results);
         Ok(results)
+    }
+
+    // pub(crate) fn execute_step_n_at_pc<Results>(
+    //     &mut self,
+    //     ctx: impl AsContextMut,
+    //     func: Func,
+    //     results: Results,
+    //     n: Option<u64>,
+    // ) -> Result<<Results as CallResults>::Results, Trap>
+    //     where
+    //         Results: CallResults,
+    // {
+    //     let mut engine = self.inner.lock();
+    //
+    //     let signature = engine.execute_instruction_step_n(ctx, func, n)?;
+    //
+    //     let results = engine.write_results_back(signature, results);
+    //
+    //     let results = engine.write_results_back(signature, results);
+    //     Ok(results)
+    // }
+
+    // TODO: docs
+    pub fn execute_instruction_step_n(
+        &self,
+        mut ctx: impl AsContextMut,
+        start: usize,
+        instance: Instance,
+        n: Option<u64>,
+    ) -> Result<(), Trap> {
+        let mut engine = self.inner.lock();
+
+        let mut cache = InstanceCache::from(instance);
+        engine.execute_instruction_step_n(ctx, start, &mut cache, n)?;
+        Ok(())
+    }
+
+    pub fn write_results_back<Results>(
+        &self,
+        func_type: DedupFuncType,
+        results: Results,
+    ) -> <Results as CallResults>::Results
+    where
+        Results: CallResults,
+    {
+        let mut engine = self.inner.lock();
+        engine.write_results_back(func_type, results)
     }
 }
 
@@ -381,6 +441,7 @@ impl EngineInner {
         mut ctx: impl AsContextMut,
         func: Func,
         n: Option<u64>,
+        halt_sig: &mut HaltSig,
     ) -> Result<DedupFuncType, Trap> {
         // TODO: do not init
         // self.initialize_args(params);
@@ -390,7 +451,13 @@ impl EngineInner {
                 let mut frame = self.stack.call_wasm_root(wasm_func, &self.code_map)?;
                 let instance = wasm_func.instance();
                 let mut cache = InstanceCache::from(instance);
-                self.execute_wasm_func_step_n(ctx.as_context_mut(), &mut frame, &mut cache, n)?;
+                self.execute_wasm_func_step_n(
+                    ctx.as_context_mut(),
+                    &mut frame,
+                    &mut cache,
+                    n,
+                    halt_sig,
+                )?;
                 signature
             }
             // TODO: should `n` being used by host function?
@@ -503,6 +570,7 @@ impl EngineInner {
         frame: &mut FuncFrame,
         cache: &mut InstanceCache,
         n: Option<u64>,
+        halt_sig: &mut HaltSig,
     ) -> Result<(), Trap> {
         let mut n = match n {
             None => return self.execute_wasm_func(ctx, frame, cache),
@@ -538,8 +606,12 @@ impl EngineInner {
                     }
                 }
                 // should not destroy any engine state when halt for re-execution.
-                CallOutcome::Halt(pc, start, end) => {
-                    return Err(Trap::new(TrapInner::Halt(pc, start, end)))
+                // CallOutcome::Halt(pc, start, end) => {
+                //     return Err(Trap::new(TrapInner::Halt(pc, start, end)))
+                // }
+                CallOutcome::Halt(pc) => {
+                    halt_sig.pc = pc;
+                    return Err(Trap::new(TrapInner::Halt(pc)));
                 }
             }
         }
@@ -573,11 +645,12 @@ impl EngineInner {
             "The instruction len must be greater than start position"
         );
 
-        let mut frame = FuncFrame::new(iref, cache.instance());
+        let instance = cache.instance();
+        let mut frame = FuncFrame::new(iref, instance);
         frame.update_pc(start - iref.start);
         let frame = &mut frame;
 
-        self.execute_wasm_func_step_n(ctx, frame, cache, n)
+        self.execute_wasm_func_step_n(ctx, frame, cache, n, &mut Default::default())
     }
 
     /// Executes the given function `frame` and returns the result.

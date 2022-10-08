@@ -7,8 +7,8 @@ use super::{
     Module,
 };
 use crate::{
-    instance::InstanceSnapshot,
     module::{ImportName, ModuleImport, ModuleImportType},
+    snapshot::InstanceSnapshot,
     FuncType,
     GlobalType,
 };

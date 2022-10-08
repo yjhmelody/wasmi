@@ -1,6 +1,7 @@
-use crate::{byte32::Bytes32, memory::MemoryEntity, TableEntity};
+use crate::{byte32::Bytes32, GlobalEntity, InstanceSnapshot, MemorySnapshot, TableSnapshot};
+use codec::Encode;
 use core::convert::TryFrom;
-use digest::{typenum::Le, Digest};
+use digest::Digest;
 use sha3::Keccak256;
 
 pub const LEAF_SIZE: usize = 32;
@@ -33,11 +34,13 @@ pub enum MerkleType {
     Empty = 0,
     Value = 1,
     Function = 2,
+    // TODO: maybe support instruction proof
     Instruction = 3,
     Memory = 4,
     Table = 5,
     TableElement = 6,
     Module = 7,
+    Global = 8,
 }
 
 impl Default for MerkleType {
@@ -63,7 +66,7 @@ fn hash_node(ty: MerkleType, a: Bytes32, b: Bytes32) -> Bytes32 {
 }
 
 /// hash the memory bytes.
-fn hash_leaf(bytes: [u8; LEAF_SIZE]) -> Bytes32 {
+fn hash_memory_leaf(bytes: [u8; LEAF_SIZE]) -> Bytes32 {
     let mut h = Keccak256::new();
     h.update(bytes);
     h.finalize().into()
@@ -190,27 +193,45 @@ impl Merkle {
     }
 }
 
-impl MemoryEntity {
+impl InstanceSnapshot {
+    pub fn hash(&self) -> Bytes32 {
+        let mut h = Keccak256::new();
+        // TODO: should use this type?
+        h.update([MerkleType::Module as u8]);
+        h.update([self.initialized as u8]);
+
+        self.globals
+            .iter()
+            .for_each(|global| h.update(global_hash(global)));
+        self.memories.iter().for_each(|mem| h.update(mem.hash()));
+        self.tables.iter().for_each(|table| h.update(table.hash()));
+
+        h.finalize().into()
+    }
+}
+
+impl MemorySnapshot {
     pub fn merkle(&self) -> Merkle {
-        // Round the size up to 32 byte size leaves, then round up to the next power of two number of leaves
-        let leaves = round_up_to_power_of_two(div_round_up(self.data().len(), LEAF_SIZE));
+        // Round the size up to 32 bytes size leaves, then round up to the next power of two number of leaves
+        let leaves = round_up_to_power_of_two(div_round_up(self.bytes.len(), LEAF_SIZE));
         let mut leaf_hashes: Vec<Bytes32> = self
-            .data()
+            .bytes
             .chunks(LEAF_SIZE)
             .map(|leaf| {
                 let mut full_leaf = [0u8; LEAF_SIZE];
                 full_leaf[..leaf.len()].copy_from_slice(leaf);
-                hash_leaf(full_leaf)
+                hash_memory_leaf(full_leaf)
             })
             .collect();
         if leaf_hashes.len() < leaves {
-            let empty_hash = hash_leaf([0u8; LEAF_SIZE]);
+            let empty_hash = hash_memory_leaf([0u8; LEAF_SIZE]);
             leaf_hashes.resize(leaves, empty_hash);
         }
         Merkle::new_advanced(
             MerkleType::Memory,
             leaf_hashes,
-            hash_leaf([0u8; LEAF_SIZE]),
+            // TODO: should we relly use this as empty hash?
+            hash_memory_leaf([0u8; LEAF_SIZE]),
             MEMORY_LAYERS,
         )
     }
@@ -224,29 +245,29 @@ impl MemoryEntity {
     }
 }
 
-impl TableEntity {
+fn table_element_hash(elem: &Option<u32>) -> Bytes32 {
+    let mut h = Keccak256::new();
+    h.update([MerkleType::TableElement as u8]);
+    h.update(elem.encode());
+    h.finalize().into()
+}
+
+// TODO: define our own global state.
+fn global_hash(global: &GlobalEntity) -> Bytes32 {
+    let mut h = Keccak256::new();
+    h.update([MerkleType::Global as u8]);
+    h.update(global.encode());
+    h.finalize().into()
+}
+
+impl TableSnapshot {
     pub fn merkle(&self) -> Merkle {
-        todo!()
-        // // Round the size up to 32 byte size leaves, then round up to the next power of two number of leaves
-        // let leaves = round_up_to_power_of_two(div_round_up(self.data().len(), LEAF_SIZE));
-        // let mut leaf_hashes: Vec<Bytes32> = self
-        //     .data().chunks(LEAF_SIZE)
-        //     .map(|leaf| {
-        //         let mut full_leaf = [0u8; LEAF_SIZE];
-        //         full_leaf[..leaf.len()].copy_from_slice(leaf);
-        //         hash_leaf(full_leaf)
-        //     })
-        //     .collect();
-        // if leaf_hashes.len() < leaves {
-        //     let empty_hash = hash_leaf([0u8; LEAF_SIZE]);
-        //     leaf_hashes.resize(leaves, empty_hash);
-        // }
-        // Merkle::new_advanced(
-        //     MerkleType::Memory,
-        //     leaf_hashes,
-        //     hash_leaf([0u8; LEAF_SIZE]),
-        //     MEMORY_LAYERS,
-        // )
+        let hashes = self
+            .elements
+            .iter()
+            .map(table_element_hash)
+            .collect::<Vec<Bytes32>>();
+        Merkle::new(MerkleType::Table, hashes)
     }
 
     pub fn hash(&self) -> Bytes32 {
