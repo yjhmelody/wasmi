@@ -46,7 +46,7 @@ impl Default for MerkleType {
     }
 }
 
-// TODO: it's altered from arb. Should be replaced by a good crate and be generalized.
+// TODO: it's altered from arb. Should be generalized to be a good crate.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Merkle {
     ty: MerkleType,

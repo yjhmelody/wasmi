@@ -80,7 +80,7 @@ pub struct InstanceState<'a> {
     // pub exports: Vec<(&'a str, ExternState)>,
 }
 
-#[derive(Encode, Decode)]
+#[derive(Clone, Encode, Decode)]
 pub struct InstanceSnapshot {
     pub initialized: bool,
     // pub func_types: Vec<FuncType>,
@@ -92,14 +92,14 @@ pub struct InstanceSnapshot {
     // pub exports: Vec<(String, ExternState)>,
 }
 
-#[derive(Encode, Decode)]
+#[derive(Clone, Eq, PartialEq, Encode, Decode)]
 pub struct MemoryEntityState {
     pub memory_type: MemoryTypeState,
     pub current_pages: u32,
     pub bytes: Vec<u8>,
 }
 
-#[derive(Encode, Decode)]
+#[derive(Clone, Eq, PartialEq, Encode, Decode)]
 pub struct MemoryTypeState {
     pub initial_pages: u32,
     pub maximum_pages: Option<u32>,
@@ -154,14 +154,15 @@ impl<'a> Encode for InstanceState<'a> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Encode, Decode)]
+#[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
 pub struct TableState {
+    /// Table type
     pub table_type: TableTypeState,
-    // element index
+    /// Element index
     pub elements: Vec<Option<u32>>,
 }
 
-#[derive(Debug, Eq, PartialEq, Encode, Decode)]
+#[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
 pub struct TableTypeState {
     /// The initial size of the [`Table`].
     initial: u32,
@@ -192,7 +193,7 @@ pub enum ExternState {
 }
 
 impl InstanceEntity {
-    pub fn as_snapshot(&self, ctx: &impl AsContext) -> InstanceSnapshot {
+    pub fn make_snapshot(&self, ctx: &impl AsContext) -> InstanceSnapshot {
         let store = ctx.as_context().store;
         let tables = self
             .tables
@@ -635,16 +636,9 @@ impl Instance {
     }
 
     // TODO: docs
-    pub fn make_state<'a>(&self, store: &'a impl AsContext) -> InstanceState<'a> {
-        let ctx = store.as_context();
-        let instance = ctx.store.resolve_instance(*self);
-        instance.as_state(store)
-    }
-
-    // TODO: docs
     pub fn make_snapshot(&self, store: &impl AsContext) -> InstanceSnapshot {
         let ctx = store.as_context();
         let instance = ctx.store.resolve_instance(*self);
-        instance.clone().as_snapshot(store)
+        instance.clone().make_snapshot(store)
     }
 }

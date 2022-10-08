@@ -69,7 +69,7 @@ impl Module {
         Ok(InstancePre::new(handle, self, builder))
     }
 
-    // TODO: docs
+    /// Restore wasm instance by snapshot.
     pub(crate) fn restore_instance<I>(
         &self,
         mut context: impl AsContextMut,
