@@ -3,15 +3,14 @@ use codec::{Decode, Encode};
 use wasmi::{errors::InstantiationError, *};
 use wasmi_core::{Trap, TrapInner, Value};
 
-fn setup<T>(store: &mut Store<T>, wat: impl AsRef<str>) -> Result<Instance, Error> {
-    // let engine = Engine::default();
-    // let mut store = Store::new(&engine, ());
-
+fn setup_module<T>(store: &mut Store<T>, wat: impl AsRef<str>) -> Result<Module, Error> {
     let wasm = wat::parse_str(wat).expect("Illegal wat");
-    let module = Module::new(store.engine(), &mut &wasm[..])?;
+    Module::new(store.engine(), &mut &wasm[..])
+}
 
+fn instantiate<T>(store: &mut Store<T>, module: &Module) -> Result<Instance, Error> {
     let mut linker = <Linker<T>>::new();
-    let pre = linker.instantiate(store.as_context_mut(), &module)?;
+    let pre = linker.instantiate(store.as_context_mut(), module)?;
     let instance = pre.ensure_no_start(store.as_context_mut())?;
     Ok(instance)
 }
@@ -33,7 +32,7 @@ fn call_step_n<T>(
 }
 
 #[test]
-fn test_step_n() {
+fn test_snapshot() {
     let wat = r#"
 (module
   (func (export "add") (param $x i32) (param $y i32) (result i32) (i32.add (local.get $x) (local.get $y)))
@@ -51,10 +50,6 @@ fn test_step_n() {
   (func (export "shr_u") (param $x i32) (param $y i32) (result i32) (i32.shr_u (local.get $x) (local.get $y)))
   (func (export "rotl") (param $x i32) (param $y i32) (result i32) (i32.rotl (local.get $x) (local.get $y)))
   (func (export "rotr") (param $x i32) (param $y i32) (result i32) (i32.rotr (local.get $x) (local.get $y)))
-  (func (export "clz") (param $x i32) (result i32) (i32.clz (local.get $x)))
-  (func (export "ctz") (param $x i32) (result i32) (i32.ctz (local.get $x)))
-  (func (export "popcnt") (param $x i32) (result i32) (i32.popcnt (local.get $x)))
-  (func (export "eqz") (param $x i32) (result i32) (i32.eqz (local.get $x)))
   (func (export "eq") (param $x i32) (param $y i32) (result i32) (i32.eq (local.get $x) (local.get $y)))
   (func (export "ne") (param $x i32) (param $y i32) (result i32) (i32.ne (local.get $x) (local.get $y)))
   (func (export "lt_s") (param $x i32) (param $y i32) (result i32) (i32.lt_s (local.get $x) (local.get $y)))
@@ -69,25 +64,68 @@ fn test_step_n() {
     "#;
     let engine = Engine::default();
     let mut store = Store::new(&engine, ());
-    let instance = setup(&mut store, wat).unwrap();
-    let mut result = vec![Value::I32(0)];
+    let module = setup_module(&mut store, wat).unwrap();
+    let instance = instantiate(&mut store, &module).unwrap();
     let one_step = Some(1);
-    // 1. only run one instruction
-    let err = call_step_n(
-        &mut store,
-        instance,
-        "add",
-        &vec![Value::I32(1), Value::I32(2)],
-        &mut result,
-        one_step,
-    )
-    .unwrap_err();
-    // must meet halt
-    assert_halt(err);
-    // 2. make snapshot for instance.
-    let snapshot = instance.make_snapshot(&store);
-    let snapshot_bytes = snapshot.encode();
-    let snapshot = InstanceSnapshot::decode(&mut &snapshot_bytes[..]).unwrap();
+
+    let funcs = module
+        .exports()
+        .map(|exp| exp.name())
+        .collect::<Vec<&str>>();
+
+    for f in funcs {
+        let mut expected_result = vec![Value::I32(0)];
+
+        // 0. get expected result
+        call_step_n(
+            &mut store,
+            instance,
+            f,
+            &vec![Value::I32(1), Value::I32(2)],
+            &mut expected_result,
+            None,
+        )
+        .unwrap();
+
+        let mut result = vec![Value::I32(0)];
+        // 1. only run one instruction
+        let err = call_step_n(
+            &mut store,
+            instance,
+            f,
+            &vec![Value::I32(1), Value::I32(2)],
+            &mut result,
+            one_step,
+        )
+        .unwrap_err();
+        // must meet halt
+        assert_halt(err);
+        // 2. make snapshot for instance.
+        let snapshot = instance.make_snapshot(&store);
+        let snapshot_bytes = snapshot.encode();
+        // 3. decode snapshot
+        let snapshot = InstanceSnapshot::decode(&mut &snapshot_bytes[..]).unwrap();
+        let mut linker = Linker::<()>::new();
+        // 4. restore instance from snapshot
+        let instance = linker
+            .restore_instance(store.as_context_mut(), &module, snapshot)
+            .unwrap()
+            .ensure_no_start(store.as_context_mut())
+            .unwrap();
+
+        // 5. run the rest instructions
+        call_step_n(
+            &mut store,
+            instance,
+            f,
+            &vec![Value::I32(1), Value::I32(2)],
+            &mut result,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(expected_result, result, "`{}` failed", f);
+    }
 }
 
 fn assert_halt(err: Error) {

@@ -234,7 +234,7 @@ impl InstanceEntity {
             .globals
             .iter()
             .map(|global| {
-                let global= store.resolve_global(global.clone());
+                let global = store.resolve_global(global.clone());
                 global.clone()
             })
             .collect();
