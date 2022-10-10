@@ -391,3 +391,115 @@ impl Module {
         Ok(())
     }
 }
+
+mod snapshot {
+    use super::*;
+    use crate::{
+        snapshot::{InstanceSnapshot, TableSnapshot},
+        GlobalEntity,
+        MemoryEntity,
+    };
+
+    impl Module {
+        // TODO: define snapshot error.
+
+        /// Restore wasm instance by snapshot.
+        #[allow(unused)]
+        pub(crate) fn restore_instance<I>(
+            &self,
+            mut context: impl AsContextMut,
+            externals: I,
+            snapshot: InstanceSnapshot,
+        ) -> Result<InstancePre, Error>
+        where
+            I: IntoIterator<Item = Extern>,
+        {
+            let handle = context.as_context_mut().store.alloc_instance();
+            let mut builder = InstanceEntity::build();
+
+            self.extract_func_types(&mut context, &mut builder);
+            self.extract_imports(&mut context, &mut builder, externals)?;
+            self.extract_functions(&mut context, &mut builder, handle);
+
+            // table must be restored after func
+            debug_assert_eq!(self.tables.len(), snapshot.tables.len());
+            debug_assert_eq!(self.memories.len(), snapshot.memories.len());
+            debug_assert_eq!(self.globals.len(), snapshot.globals.len());
+
+            self.restore_tables(&mut context, &mut builder, snapshot.tables.into_iter());
+            self.restore_memories(
+                &mut context,
+                &mut builder,
+                snapshot.memories.into_iter().map(Into::into),
+            );
+            self.restore_globals(&mut context, &mut builder, snapshot.globals.into_iter());
+
+            self.extract_exports(&mut builder);
+            // TODO: check `initialized`
+            Ok(InstancePre::new(handle, self, builder))
+        }
+
+        fn restore_globals(
+            &self,
+            context: &mut impl AsContextMut,
+            builder: &mut InstanceEntityBuilder,
+            globals: impl Iterator<Item = GlobalEntity>,
+        ) {
+            for (global_type, global_entity) in
+                self.globals.iter().copied().zip(globals.into_iter())
+            {
+                assert_eq!(global_type, global_entity.global_type());
+
+                let global = Global::with_entity(context.as_context_mut(), global_entity);
+                builder.push_global(global);
+            }
+        }
+
+        fn restore_memories(
+            &self,
+            context: &mut impl AsContextMut,
+            builder: &mut InstanceEntityBuilder,
+            memories: impl Iterator<Item = MemoryEntity>,
+        ) {
+            for (memory_type, memory_entity) in
+                self.memories.iter().copied().zip(memories.into_iter())
+            {
+                assert_eq!(memory_type, memory_entity.memory_type());
+
+                let memory = Memory::with_entity(context.as_context_mut(), memory_entity);
+                builder.push_memory(memory);
+            }
+        }
+
+        fn restore_tables(
+            &self,
+            context: &mut impl AsContextMut,
+            builder: &mut InstanceEntityBuilder,
+            tables: impl Iterator<Item = TableSnapshot>,
+        ) {
+            for (table_type, table_state) in self.tables.iter().copied().zip(tables.into_iter()) {
+                // TODO:
+                // assert_eq!(table_type, table_state.table_type);
+                let table = Table::new(context.as_context_mut(), table_type);
+
+                // TODO:
+                for (i, func_index) in table_state.elements.iter().enumerate() {
+                    let func = func_index.and_then(|func_index| {
+                        Some(builder.get_func(func_index.clone()).unwrap_or_else(|| {
+                            panic!(
+                                "encountered missing function at index {} upon element initialization",
+                                func_index
+                            )
+                        }))
+                    });
+
+                    table
+                        .set(context.as_context_mut(), i, func)
+                        .expect("Table is illegal");
+                }
+
+                builder.push_table(table);
+            }
+        }
+    }
+}

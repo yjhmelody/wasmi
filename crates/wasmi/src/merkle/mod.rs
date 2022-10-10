@@ -1,7 +1,8 @@
+use crate::GlobalEntity;
 use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType, LEAF_SIZE};
 use codec::Encode;
 
-use crate::snapshot::{GlobalSnapshot, InstanceSnapshot, MemorySnapshot, TableSnapshot};
+use crate::snapshot::{InstanceSnapshot, MemorySnapshot, TableSnapshot};
 
 /// The number of layers in the memory merkle tree
 /// 1 + log2(2^32 / LEAF_SIZE) = 1 + log2(2^(32 - log2(LEAF_SIZE))) = 1 + 32 - 5
@@ -94,7 +95,7 @@ fn table_element_hash(elem: &Option<u32>) -> Bytes32 {
 }
 
 // TODO: define our own global state.
-fn global_hash(global: &GlobalSnapshot) -> Bytes32 {
+fn global_hash(global: &GlobalEntity) -> Bytes32 {
     let mut h = Keccak256::new();
     h.update([MerkleType::Global as u8]);
     h.update(global.encode());

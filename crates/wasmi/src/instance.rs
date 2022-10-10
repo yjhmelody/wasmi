@@ -93,7 +93,7 @@ impl InstanceEntity {
             .iter()
             .map(|global| {
                 let global = store.resolve_global(global.clone());
-                global.into()
+                global.clone()
             })
             .collect();
 
