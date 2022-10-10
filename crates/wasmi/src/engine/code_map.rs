@@ -141,6 +141,19 @@ pub struct InstructionPtr {
 }
 
 impl InstructionPtr {
+    /// Returns the logic offset from start instruction.
+    ///
+    /// # Safety
+    ///
+    /// The caller is responsible for calling this method only with valid
+    /// offset values so that the [`InstructionPtr`] never points out of valid
+    /// bounds of the instructions of the same compiled Wasm function.
+    pub unsafe fn current_pc(&self, start_inst: Self) -> usize {
+        let start = start_inst.ptr.as_ptr() as usize;
+        let cur = self.ptr.as_ptr() as usize;
+        (cur - start) / core::mem::size_of::<Instruction>()
+    }
+
     /// Creates a new [`InstructionPtr`] for `instr`.
     pub fn new(instr: &Instruction) -> Self {
         Self {

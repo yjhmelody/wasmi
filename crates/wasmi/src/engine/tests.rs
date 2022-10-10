@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     engine::{
         bytecode::{BranchOffset, BranchParams, Instruction},
+        code_map::InstructionPtr,
         DropKeep,
     },
     Engine,
@@ -540,6 +541,7 @@ fn loop_empty() {
     );
     let expected = [Instruction::Return(drop_keep(0, 0))];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -572,6 +574,7 @@ fn spec_as_br_if_value_cond() {
         /* 6 */ Instruction::Return(drop_keep(0, 1)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -598,6 +601,7 @@ fn br_table() {
         /* 4 */ Instruction::Return(drop_keep(0, 0)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -630,6 +634,7 @@ fn br_table_returns_result() {
         /* 7 */ Instruction::Return(drop_keep(0, 0)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -659,6 +664,7 @@ fn wabt_example() {
         /* 5 */ Instruction::Return(drop_keep(1, 1)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -675,6 +681,7 @@ fn br_return() {
     );
     let expected = [Instruction::Return(drop_keep(0, 0))];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -696,6 +703,7 @@ fn br_if_return() {
         Instruction::Return(drop_keep(1, 0)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -724,4 +732,18 @@ fn br_table_return() {
         /* 5 */ Instruction::Return(drop_keep(1, 0)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
+}
+
+// A extra semantic must be guaranteed.
+fn assert_pc(insts: &[Instruction]) {
+    let first_ptr = InstructionPtr::new(&insts[0]);
+
+    unsafe {
+        for (i, inst) in insts.iter().enumerate() {
+            let ptr = InstructionPtr::new(&inst);
+            let pc = ptr.current_pc(first_ptr);
+            assert_eq!(pc, i);
+        }
+    };
 }
