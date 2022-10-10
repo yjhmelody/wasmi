@@ -2,7 +2,7 @@ pub mod engine;
 
 use crate::{memory::ByteBuffer, GlobalEntity, MemoryEntity, MemoryType, TableType};
 use codec::{Decode, Encode};
-use wasmi_core::{memory_units::Pages, UntypedValue, ValueType};
+use wasmi_core::{memory_units::Pages, ValueType};
 
 /// The state has two purpose:
 /// 1. Generate merkle proof.
@@ -22,7 +22,7 @@ pub struct InstanceSnapshot {
 #[derive(Clone, Eq, PartialEq, Encode, Decode)]
 pub struct GlobalSnapshot {
     /// The current untyped value of the global variable.
-    pub value: UntypedValue,
+    pub value: u64,
     /// The value type of the global variable.
     pub value_type: ValueType,
     /// The mutability of the global variable.
@@ -38,7 +38,7 @@ impl From<GlobalEntity> for GlobalSnapshot {
 impl From<&GlobalEntity> for GlobalSnapshot {
     fn from(global: &GlobalEntity) -> Self {
         Self {
-            value: global.get_untyped(),
+            value: global.get_untyped().to_bits(),
             value_type: global.value_type(),
             is_mutable: global.is_mutable(),
         }

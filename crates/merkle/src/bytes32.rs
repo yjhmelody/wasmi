@@ -1,6 +1,5 @@
 use core::{
     borrow::Borrow,
-    fmt,
     ops::{Deref, DerefMut},
 };
 

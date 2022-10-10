@@ -1,6 +1,6 @@
-use crate::engine::bytecode::Instruction;
 use codec::{Decode, Encode};
-use wasmi_core::UntypedValue;
+
+use crate::engine::bytecode::Instruction;
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct EngineSnapshot {
@@ -12,8 +12,8 @@ pub struct EngineSnapshot {
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct ValueStack {
-    /// All currently live stack entries.
-    entries: Vec<UntypedValue>,
+    /// All currently live stack untyped entries.
+    entries: Vec<u64>,
     /// Index of the first free place in the stack.
     stack_ptr: u32,
     /// The maximum value stack height.
