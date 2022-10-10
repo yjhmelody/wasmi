@@ -9,3 +9,6 @@ mod merkle;
 
 pub use bytes32::*;
 pub use merkle::*;
+
+pub use digest;
+pub use sha3;

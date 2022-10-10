@@ -18,6 +18,7 @@ pub struct InstanceSnapshot {
     pub tables: Vec<TableSnapshot>,
 }
 
+/// A global variable entity.
 #[derive(Clone, Eq, PartialEq, Encode, Decode)]
 pub struct GlobalSnapshot {
     /// The current untyped value of the global variable.
@@ -44,6 +45,7 @@ impl From<&GlobalEntity> for GlobalSnapshot {
     }
 }
 
+/// A linear memory entity.
 #[derive(Clone, Eq, PartialEq, Encode, Decode)]
 pub struct MemorySnapshot {
     pub memory_type: MemoryTypeState,

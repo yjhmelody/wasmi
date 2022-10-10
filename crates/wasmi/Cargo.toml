@@ -17,6 +17,7 @@ codec = { package = "parity-scale-codec", version = "3.0", default-features = fa
 wasmparser = { version = "0.91", package = "wasmparser-nostd", default-features = false }
 wasmi_core = { version = "0.4", path = "../core", default-features = false }
 wasmi_arena = { version = "0.1", path = "../arena", default-features = false }
+accel_merkle = { version = "0.1", path = "../merkle", default-features = false }
 spin = { version = "0.9", default-features = false, features = [
     "mutex",
     "spin_mutex",

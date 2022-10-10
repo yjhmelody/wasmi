@@ -101,6 +101,7 @@ mod global;
 mod instance;
 mod linker;
 mod memory;
+mod merkle;
 mod module;
 mod snapshot;
 mod store;
