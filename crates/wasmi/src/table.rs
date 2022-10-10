@@ -153,6 +153,12 @@ pub struct TableEntity {
 }
 
 impl TableEntity {
+    pub fn elements(&self) -> &[Option<Func>] {
+        &self.elements
+    }
+}
+
+impl TableEntity {
     /// Creates a new table entity with the given resizable limits.
     pub fn new(table_type: TableType) -> Self {
         Self {

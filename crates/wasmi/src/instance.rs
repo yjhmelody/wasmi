@@ -9,6 +9,7 @@ use super::{
     Stored,
     Table,
 };
+use crate::snapshot::{InstanceSnapshot, TableSnapshot};
 use alloc::{
     collections::{btree_map, BTreeMap},
     string::{String, ToString},
@@ -44,6 +45,65 @@ pub struct InstanceEntity {
     memories: Vec<Memory>,
     globals: Vec<Global>,
     exports: BTreeMap<String, Extern>,
+}
+
+impl InstanceEntity {
+    #[allow(unused)]
+    pub fn make_snapshot(&self, ctx: &impl AsContext) -> InstanceSnapshot {
+        let store = ctx.as_context().store;
+        let tables = self
+            .tables
+            .iter()
+            .map(|table| {
+                let table = store.resolve_table(table.clone());
+
+                let mut elements_index = Vec::new();
+
+                // TODO: maybe it's better to downgrade it to O(n)
+                for elem in table.elements().iter() {
+                    match elem {
+                        None => elements_index.push(None),
+                        Some(func) => {
+                            let func_index = self
+                                .funcs
+                                .binary_search(func)
+                                .expect("function ref in table must exist in funcs");
+                            elements_index.push(Some(func_index as u32))
+                        }
+                    }
+                }
+                TableSnapshot {
+                    table_type: table.table_type().into(),
+                    elements: elements_index,
+                }
+            })
+            .collect();
+
+        let memories = self
+            .memories
+            .iter()
+            .map(|mem| {
+                let mem = store.resolve_memory(mem.clone()).clone();
+                mem.into()
+            })
+            .collect();
+
+        let globals = self
+            .globals
+            .iter()
+            .map(|global| {
+                let global = store.resolve_global(global.clone());
+                global.into()
+            })
+            .collect();
+
+        InstanceSnapshot {
+            initialized: self.initialized,
+            tables,
+            memories,
+            globals,
+        }
+    }
 }
 
 impl InstanceEntity {

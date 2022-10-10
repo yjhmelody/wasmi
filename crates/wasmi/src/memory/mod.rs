@@ -1,6 +1,6 @@
 mod byte_buffer;
 
-use self::byte_buffer::ByteBuffer;
+pub use self::byte_buffer::ByteBuffer;
 use super::{AsContext, AsContextMut, StoreContext, StoreContextMut, Stored};
 use core::{fmt, fmt::Display};
 use wasmi_arena::Index;
@@ -132,11 +132,11 @@ impl MemoryType {
 }
 
 /// A linear memory entity.
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct MemoryEntity {
-    bytes: ByteBuffer,
-    memory_type: MemoryType,
-    current_pages: Pages,
+    pub(crate) bytes: ByteBuffer,
+    pub(crate) memory_type: MemoryType,
+    pub(crate) current_pages: Pages,
 }
 
 impl MemoryEntity {

@@ -26,7 +26,7 @@ use wasmi_arena::{Arena, GuardedEntity, Index};
 /// # Note
 ///
 /// Used to protect against invalid entity indices.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StoreIdx(u32);
 
 impl Index for StoreIdx {

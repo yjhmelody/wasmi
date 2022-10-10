@@ -235,6 +235,7 @@ impl<T> HostFuncEntity<T> {
 /// A Wasm or host function reference.
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub struct Func(Stored<FuncIdx>);
 
 impl Func {

@@ -55,7 +55,7 @@ impl Display for GlobalError {
 }
 
 /// The mutability of a global variable.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 pub enum Mutability {
     /// The value of the global variable is a constant.
     Const,

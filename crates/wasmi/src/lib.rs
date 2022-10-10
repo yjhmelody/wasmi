@@ -102,6 +102,7 @@ mod instance;
 mod linker;
 mod memory;
 mod module;
+mod snapshot;
 mod store;
 mod table;
 
