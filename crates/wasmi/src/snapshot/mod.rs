@@ -49,19 +49,20 @@ pub struct InstanceSnapshot {
 /// A linear memory entity.
 #[derive(Clone, Eq, PartialEq, Encode, Decode)]
 pub struct MemorySnapshot {
-    pub memory_type: MemoryTypeState,
+    pub memory_type: MemoryTypeSnapshot,
     pub current_pages: u32,
     pub bytes: Vec<u8>,
 }
 
+/// The memory type of a linear memory.
 #[derive(Clone, Eq, PartialEq, Encode, Decode)]
-pub struct MemoryTypeState {
+pub struct MemoryTypeSnapshot {
     pub initial_pages: u32,
     pub maximum_pages: Option<u32>,
 }
 
-impl From<MemoryTypeState> for MemoryType {
-    fn from(t: MemoryTypeState) -> Self {
+impl From<MemoryTypeSnapshot> for MemoryType {
+    fn from(t: MemoryTypeSnapshot) -> Self {
         Self::new(t.initial_pages, t.maximum_pages)
     }
 }
@@ -79,7 +80,7 @@ impl From<MemorySnapshot> for MemoryEntity {
 impl From<MemoryEntity> for MemorySnapshot {
     fn from(mem: MemoryEntity) -> Self {
         Self {
-            memory_type: MemoryTypeState {
+            memory_type: MemoryTypeSnapshot {
                 initial_pages: mem.memory_type().initial_pages().0 as u32,
                 maximum_pages: mem.memory_type().maximum_pages().map(|x| x.0 as u32),
             },
@@ -89,24 +90,25 @@ impl From<MemoryEntity> for MemorySnapshot {
     }
 }
 
+/// A table snapshot.
 #[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
 pub struct TableSnapshot {
     /// Table type.
-    pub table_type: TableTypeState,
+    pub table_type: TableTypeSnapshot,
     /// Element index.
     pub elements: Vec<Option<u32>>,
 }
 
 /// A descriptor for a Table.
 #[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
-pub struct TableTypeState {
+pub struct TableTypeSnapshot {
     /// The initial size of the [`Table`].
     initial: u32,
     /// The optional maximum size fo the [`Table`].
     maximum: Option<u32>,
 }
 
-impl From<TableType> for TableTypeState {
+impl From<TableType> for TableTypeSnapshot {
     fn from(t: TableType) -> Self {
         Self {
             initial: t.initial() as u32,

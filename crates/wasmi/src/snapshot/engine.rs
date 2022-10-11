@@ -47,6 +47,7 @@ pub struct FuncFrameSnapshot {
 }
 
 impl Instruction {
+    #[allow(unused)]
     fn repr(&self) -> u16 {
         match self {
             Instruction::Unreachable => 0x00,
