@@ -268,6 +268,24 @@ impl<T> Default for Linker<T> {
     }
 }
 
+mod snapshot {
+    use super::*;
+    use crate::snapshot::InstanceSnapshot;
+
+    impl<T> Linker<T> {
+        /// Restore a wasm instance by snapshot.
+        pub fn restore_instance<'a>(
+            &mut self,
+            context: impl AsContextMut,
+            module: &'a Module,
+            snapshot: InstanceSnapshot,
+        ) -> Result<InstancePre<'a>, Error> {
+            self._instantiate(&context, module)?;
+            module.restore_instance(context, self.externals.drain(..), snapshot)
+        }
+    }
+}
+
 impl<T> Linker<T> {
     /// Creates a new linker.
     pub fn new() -> Self {
@@ -364,6 +382,15 @@ impl<T> Linker<T> {
         context: impl AsContextMut,
         module: &'a Module,
     ) -> Result<InstancePre<'a>, Error> {
+        self._instantiate(&context, module)?;
+        module.instantiate(context, self.externals.drain(..))
+    }
+
+    fn _instantiate<'a>(
+        &mut self,
+        context: &impl AsContextMut,
+        module: &'a Module,
+    ) -> Result<(), Error> {
         // Clear the cached externals buffer.
         self.externals.clear();
 
@@ -430,6 +457,7 @@ impl<T> Linker<T> {
             };
             self.externals.push(external);
         }
-        module.instantiate(context, self.externals.drain(..))
+
+        Ok(())
     }
 }

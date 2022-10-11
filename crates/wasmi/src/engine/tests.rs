@@ -742,7 +742,7 @@ fn assert_pc(insts: &[Instruction]) {
     unsafe {
         for (i, inst) in insts.iter().enumerate() {
             let ptr = InstructionPtr::new(&inst);
-            let pc = ptr.current_pc(first_ptr);
+            let pc = ptr.calculate_offset(first_ptr);
             assert_eq!(pc, i);
         }
     };

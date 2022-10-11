@@ -26,8 +26,8 @@ pub struct EngineConfig {
 pub struct ValueStackSnapshot {
     /// All currently live stack entries.
     pub entries: Vec<UntypedValue>,
-    /// The maximum value stack height.
-    pub maximum_len: u32,
+    // /// The maximum value stack height.
+    // pub maximum_len: u32,
 }
 
 /// The live function call stack storing the live function activation frames.

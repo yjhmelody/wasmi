@@ -39,6 +39,16 @@ pub fn execute_frame<'engine>(
     Executor::new(value_stack, ctx.as_context_mut(), cache, frame).execute()
 }
 
+/// Executes the given function `frame`.
+///
+/// # Note
+///
+/// This executes instructions sequentially until either the function
+/// calls into another function or the function returns to its caller.
+///
+/// # Errors
+///
+/// - If the execution of the function `frame` trapped.
 #[inline(always)]
 pub fn execute_frame_step<'engine>(
     mut ctx: impl AsContextMut,
@@ -70,28 +80,6 @@ struct Executor<'ctx, 'engine, 'func, HostData> {
 mod step {
     use super::*;
 
-    /// Executes the given function `frame` by step `n`.
-    ///
-    /// # Note
-    ///
-    /// This executes instructions sequentially until either the function
-    /// calls into another function or the function returns to its caller.
-    ///
-    /// # Errors
-    ///
-    /// - If the execution of the function `frame` trapped.
-    /// - If run out of steps.
-    #[inline(always)]
-    pub fn execute_frame_step<'engine>(
-        mut ctx: impl AsContextMut,
-        value_stack: &'engine mut ValueStack,
-        cache: &'engine mut InstanceCache,
-        frame: &mut FuncFrame,
-        n: &mut u64,
-    ) -> Result<CallOutcome, TrapCode> {
-        Executor::new(value_stack, ctx.as_context_mut(), cache, frame).execute_step(n)
-    }
-
     impl<'ctx, 'engine, 'func, HostData> Executor<'ctx, 'engine, 'func, HostData> {
         // TODO: reduce code by macro
         /// Executes the function frame until it returns or traps.
@@ -99,8 +87,10 @@ mod step {
         pub(crate) fn execute_step(mut self, n: &mut u64) -> Result<CallOutcome, TrapCode> {
             use Instruction as Instr;
             loop {
+                println!("execute_step: {}", n);
                 if *n == 0 {
-                    return Err(TrapCode::HaltedByHost(0));
+                    // TODO: fix
+                    return Err(TrapCode::HaltedByHost(self.ip.current_offset()));
                 }
                 *n -= 1;
                 match *self.instr() {

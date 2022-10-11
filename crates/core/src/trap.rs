@@ -248,6 +248,7 @@ pub enum TrapCode {
     /// expected by this indirect call, this trap is raised.
     UnexpectedSignature,
 
+    /// This hold the current offset of next instruction.
     HaltedByHost(usize),
 }
 

@@ -238,6 +238,49 @@ impl<T> HostFuncEntity<T> {
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub struct Func(Stored<FuncIdx>);
 
+mod step {
+    use super::*;
+    use crate::engine::StepResult;
+
+    impl Func {
+        pub fn call_step<T>(
+            &self,
+            mut ctx: impl AsContextMut<UserState = T>,
+            inputs: &[Value],
+            outputs: &mut [Value],
+            n: Option<u64>,
+        ) -> Result<StepResult<()>, Error> {
+            // Since [`Func`] is a dynamically typed function instance there is
+            // a need to verify that the given input parameters match the required
+            // types and that the given output slice matches the expected length.
+            //
+            // These checks can be avoided using the [`TypedFunc`] API.
+            let func_type = self.func_type(&ctx);
+            let (expected_inputs, expected_outputs) = func_type.params_results();
+            let actual_inputs = inputs.iter().map(Value::value_type);
+            if expected_inputs.iter().copied().ne(actual_inputs) {
+                return Err(FuncError::MismatchingParameters { func: *self }).map_err(Into::into);
+            }
+            if expected_outputs.len() != outputs.len() {
+                return Err(FuncError::MismatchingResults { func: *self }).map_err(Into::into);
+            }
+            // Note: Cloning an [`Engine`] is intentionally a cheap operation.
+            let res = ctx
+                .as_context()
+                .store
+                .engine()
+                .clone()
+                .inner
+                .lock()
+                .execute_func_step(ctx.as_context_mut(), *self, inputs, outputs, n)?;
+            Ok(match res {
+                StepResult::Results(_) => StepResult::Results(()),
+                StepResult::RunOutOfStep(pc) => StepResult::RunOutOfStep(pc),
+            })
+        }
+    }
+}
+
 impl Func {
     /// Creates a new Wasm or host function reference.
     pub(super) fn from_inner(stored: Stored<FuncIdx>) -> Self {

@@ -42,9 +42,9 @@ fn err_stack_overflow() -> TrapCode {
 #[derive(Debug, Copy, Clone)]
 pub struct StackLimits {
     /// The initial value stack height that the Wasm stack prepares.
-    initial_value_stack_height: usize,
+    pub(crate) initial_value_stack_height: usize,
     /// The maximum value stack height in use that the Wasm stack allows.
-    maximum_value_stack_height: usize,
+    pub(crate) maximum_value_stack_height: usize,
     /// The maximum number of nested calls that the Wasm stack allows.
     pub(crate) maximum_recursion_depth: usize,
 }

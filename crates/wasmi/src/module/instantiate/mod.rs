@@ -404,7 +404,6 @@ mod snapshot {
         // TODO: define snapshot error.
 
         /// Restore wasm instance by snapshot.
-        #[allow(unused)]
         pub(crate) fn restore_instance<I>(
             &self,
             mut context: impl AsContextMut,

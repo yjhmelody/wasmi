@@ -86,7 +86,6 @@ mod snapshot {
 
     impl<T> Store<T> {
         /// Make a module level instance snapshot.
-        #[allow(unused)]
         pub fn make_instance_snapshot(&self, instance: Instance) -> InstanceSnapshot {
             let entity_index = self.unwrap_index(instance.into_inner());
             let entity = self.instances.get(entity_index).unwrap_or_else(|| {
@@ -99,10 +98,13 @@ mod snapshot {
         }
 
         /// Make a engine level snapshot.
-        #[allow(unused)]
-        pub fn make_engine_snapshot(&self, instance: Instance) -> EngineSnapshot {
+        pub fn make_engine_snapshot(&self) -> EngineSnapshot {
             let engine = self.engine.inner.lock();
             engine.make_snapshot()
+        }
+
+        pub fn restore_engine(&mut self, snapshot: EngineSnapshot) {
+            let engine = self.engine.inner.lock();
         }
     }
 }

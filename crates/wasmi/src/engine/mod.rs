@@ -234,6 +234,8 @@ pub struct EngineInner {
 }
 
 mod snapshot {
+    use crate::engine::stack::CallStack;
+    use crate::Instance;
     use super::*;
     use crate::snapshot::{
         CallStackSnapshot,
@@ -254,7 +256,7 @@ mod snapshot {
                 .iter()
                 .map(|frame| unsafe {
                     let cur_inst = frame.ip();
-                    let pc = engine.code_map.current_pc(cur_inst) as u32;
+                    let pc = engine.code_map.get_offset(cur_inst) as u32;
                     FuncFrameSnapshot { pc }
                 })
                 .collect();
@@ -264,7 +266,7 @@ mod snapshot {
                 },
                 values: ValueStackSnapshot {
                     entries: engine.stack.values.entries().clone().into(),
-                    maximum_len: engine.stack.values.maximum_len() as u32,
+                    // maximum_len: engine.stack.values.maximum_len() as u32,
                 },
                 frames: CallStackSnapshot {
                     recursion_limit: engine.stack.frames.recursion_limit() as u32,
@@ -278,13 +280,125 @@ mod snapshot {
         pub fn make_snapshot(&self) -> EngineSnapshot {
             self.into()
         }
+
+        /// Restore engine state from snapshot.
+        ///
+        /// # Note
+        ///
+        /// This function assume the same wasm code are being used.
+        pub fn restore_engine(&mut self, snapshot: EngineSnapshot, instance: Instance) {
+            /// restore config first
+            self.config.stack_limits.maximum_recursion_depth = snapshot.config.maximum_recursion_depth as usize;
+            let limits = self.config.stack_limits;
+
+            let mut values = ValueStack::new(
+                limits.initial_value_stack_height,
+                limits.maximum_value_stack_height,
+            );
+            snapshot.values.entries.iter().for_each(|val| {
+                values.push(val);
+            });
+            self.stack.values = values;
+
+            // TODO: duplicated config source
+            let mut frames = CallStack::new(limits.maximum_recursion_depth);
+
+            snapshot.frames.frames.iter().for_each(|frame| {
+                frames.push(snapshot.frames.frames)
+
+            });
+
+            self.stack.frames = frames;
+        }
     }
 }
 
 mod step {
     use super::*;
-    use crate::engine::{code_map::InstructionPtr, executor::execute_frame_step};
-    use std::ptr::NonNull;
+    use crate::{
+        engine::{code_map::InstructionPtr, executor::execute_frame_step},
+        Instance,
+    };
+    use wasmi_core::ValueType;
+
+    impl Engine {
+        /// Executes the given [`Func`] using the given arguments `params` and stores the result into `results`.
+        ///
+        /// # Note
+        ///
+        /// This API assumes that the `params` and `results` are well typed and
+        /// therefore won't perform type checks.
+        /// Those checks are usually done at the [`Func::call`] API or when creating
+        /// a new [`TypedFunc`] instance via [`Func::typed`].
+        ///
+        /// # Errors
+        ///
+        /// - If the given `func` is not a Wasm function, e.g. if it is a host function.
+        /// - If the given arguments `params` do not match the expected parameters of `func`.
+        /// - If the given `results` do not match the the length of the expected results of `func`.
+        /// - When encountering a Wasm trap during the execution of `func`.
+        ///
+        /// [`TypedFunc`]: [`crate::TypedFunc`]
+        pub fn execute_func_step<Params, Results>(
+            &self,
+            ctx: impl AsContextMut,
+            func: Func,
+            params: Params,
+            results: Results,
+            step: Option<u64>,
+        ) -> Result<StepResult<<Results as CallResults>::Results>, Trap>
+        where
+            Params: CallParams,
+            Results: CallResults,
+        {
+            self.inner
+                .lock()
+                .execute_func_step(ctx, func, params, results, step)
+        }
+
+        /// Executes the code start from a pc.
+        pub fn execute_step_at_pc(
+            &self,
+            ctx: impl AsContextMut,
+            pc: usize,
+            instance: Instance,
+            step: Option<u64>,
+        ) -> Result<StepResult<()>, Trap> {
+            self.execute_step_at_pc_with_result(ctx, pc, instance, &[], (), step)
+        }
+
+        pub fn execute_step_at_pc_with_result<Results>(
+            &self,
+            ctx: impl AsContextMut,
+            pc: usize,
+            instance: Instance,
+            result_types: &[ValueType],
+            results: Results,
+            step: Option<u64>,
+        ) -> Result<StepResult<<Results as CallResults>::Results>, Trap>
+        where
+            Results: CallResults,
+        {
+            let mut engine = self.inner.lock();
+            let mut cache = InstanceCache::from(instance);
+
+            let info = engine.execute_step_at_pc(ctx, pc, &mut cache, step)?;
+            match info {
+                StepInfo::Nothing => Ok(StepResult::Results({
+                    results.feed_results(
+                        engine
+                            .stack
+                            .values
+                            .drain()
+                            .iter()
+                            .zip(result_types)
+                            .map(|(raw_value, value_type)| raw_value.with_type(*value_type)),
+                    )
+                })),
+                StepInfo::HaltedByHost(pc) => Ok(StepResult::RunOutOfStep(pc)),
+            }
+        }
+    }
 
     /// The step pattern result info.
     #[derive(Debug, Clone, Eq, PartialEq)]
@@ -333,6 +447,7 @@ mod step {
             };
 
             'outer: loop {
+                // println!("execute_wasm_func_step: {}", n);
                 match self.execute_frame_step(ctx.as_context_mut(), frame, cache, &mut n) {
                     Ok(CallOutcome::Return) => match self.stack.return_wasm() {
                         Some(caller) => {
@@ -358,7 +473,15 @@ mod step {
                             }
                         }
                     }
-                    Err(TrapCode::HaltedByHost(pc)) => {
+                    Err(TrapCode::HaltedByHost(offset)) => {
+                        println!("execute_wasm_func_step offset: {}", offset);
+                        let ip = InstructionPtr::new(unsafe {
+                            core::mem::transmute::<usize, &Instruction>(offset)
+                        });
+                        let pc = unsafe {
+                            self.code_map.get_offset(ip)
+                        };
+                        println!("execute_wasm_func_step pc: {}", pc);
                         return Ok(StepInfo::HaltedByHost(pc as u32))
                     }
                     Err(trap) => return Err(trap.into()),
@@ -405,9 +528,7 @@ mod step {
             cache: &mut InstanceCache,
             n: Option<u64>,
         ) -> Result<StepInfo, Trap> {
-            let ip = unsafe {
-                InstructionPtr::new_ptr(core::mem::transmute::<usize, NonNull<Instruction>>(pc))
-            };
+            let ip = self.code_map.get_inst(pc);
             self.execute_instruction_step(ctx, ip, cache, n)
         }
 
@@ -431,6 +552,8 @@ mod step {
             Results: CallResults,
         {
             self.initialize_args(params);
+            // println!("insts: {:#?}", self.code_map);
+
             let signature = match func.as_internal(ctx.as_context()) {
                 FuncEntityInternal::Wasm(wasm_func) => {
                     let signature = wasm_func.signature();
@@ -444,7 +567,7 @@ mod step {
                     )?;
                     match info {
                         StepInfo::Nothing => {}
-                        StepInfo::HaltedByHost(_) => return Ok(StepResult::RunOutOfStep),
+                        StepInfo::HaltedByHost(pc) => return Ok(StepResult::RunOutOfStep(pc)),
                     }
                     signature
                 }
@@ -462,11 +585,16 @@ mod step {
     }
 
     /// The result of step pattern.
+    #[derive(Clone, Debug, Eq, PartialEq)]
     pub enum StepResult<Results> {
+        /// The results of step call.
         Results(Results),
-        RunOutOfStep,
+        /// The current pc when step over.
+        RunOutOfStep(u32),
     }
 }
+
+pub use step::StepResult;
 
 impl EngineInner {
     /// Creates a new [`EngineInner`] with the given [`Config`].

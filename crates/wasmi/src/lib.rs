@@ -103,7 +103,6 @@ mod linker;
 mod memory;
 mod merkle;
 mod module;
-mod snapshot;
 mod store;
 mod table;
 
@@ -153,3 +152,6 @@ use self::{
     store::Stored,
     table::{TableEntity, TableIdx},
 };
+
+pub mod snapshot;
+pub use engine::StepResult;

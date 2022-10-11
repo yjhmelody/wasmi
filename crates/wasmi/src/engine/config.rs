@@ -7,7 +7,7 @@ use wasmparser::WasmFeatures;
 #[derive(Debug, Copy, Clone)]
 pub struct Config {
     /// The limits set on the value stack and call stack.
-    stack_limits: StackLimits,
+    pub(crate) stack_limits: StackLimits,
     /// Is `true` if the `mutable-global` Wasm proposal is enabled.
     mutable_global: bool,
     /// Is `true` if the `sign-extension` Wasm proposal is enabled.

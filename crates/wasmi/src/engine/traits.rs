@@ -93,3 +93,19 @@ impl<'a> CallResults for &'a mut [Value] {
         self
     }
 }
+
+impl CallResults for () {
+    type Results = ();
+
+    fn len_results(&self) -> usize {
+        0
+    }
+
+    fn feed_results<T>(self, _results: T) -> Self::Results
+    where
+        T: IntoIterator<Item = Value>,
+        T::IntoIter: ExactSizeIterator,
+    {
+        ()
+    }
+}
