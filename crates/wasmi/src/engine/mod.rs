@@ -289,7 +289,7 @@ mod step {
     /// The step pattern result info.
     #[derive(Debug, Clone, Eq, PartialEq)]
     pub enum StepInfo {
-        /// Nothing happen.
+        /// Nothing error happen.
         Nothing,
         /// The current pc when halted by host.
         HaltedByHost(u32),
@@ -332,8 +332,6 @@ mod step {
                 Some(n) => n,
             };
 
-            // TODO: this is start from a wasm function
-            // But we need to start from a wasm instruction
             'outer: loop {
                 match self.execute_frame_step(ctx.as_context_mut(), frame, cache, &mut n) {
                     Ok(CallOutcome::Return) => match self.stack.return_wasm() {
@@ -400,8 +398,7 @@ mod step {
         ///
         /// Caller should prepare the env.
         #[inline]
-        #[allow(unused)]
-        pub(crate) fn execute_step_at_pc(
+        pub fn execute_step_at_pc(
             &mut self,
             ctx: impl AsContextMut,
             pc: usize,
@@ -414,20 +411,41 @@ mod step {
             self.execute_instruction_step(ctx, ip, cache, n)
         }
 
-        /// Execute instruction
-        pub fn execute_step(
+        /// Executes the given [`Func`] using the given arguments `args` and stores the result into `results`.
+        ///
+        /// # Errors
+        ///
+        /// - If the given arguments `args` do not match the expected parameters of `func`.
+        /// - If the given `results` do not match the the length of the expected results of `func`.
+        /// - When encountering a Wasm trap during the execution of `func`.
+        pub fn execute_func_step<Params, Results>(
             &mut self,
             mut ctx: impl AsContextMut,
             func: Func,
-            n: Option<u64>,
-        ) -> Result<DedupFuncType, Trap> {
+            params: Params,
+            results: Results,
+            step: Option<u64>,
+        ) -> Result<StepResult<<Results as CallResults>::Results>, Trap>
+        where
+            Params: CallParams,
+            Results: CallResults,
+        {
+            self.initialize_args(params);
             let signature = match func.as_internal(ctx.as_context()) {
                 FuncEntityInternal::Wasm(wasm_func) => {
                     let signature = wasm_func.signature();
                     let mut frame = self.stack.call_wasm_root(wasm_func, &self.code_map)?;
-                    let instance = wasm_func.instance();
-                    let mut cache = InstanceCache::from(instance);
-                    self.execute_wasm_func_step(ctx.as_context_mut(), &mut frame, &mut cache, n)?;
+                    let mut cache = InstanceCache::from(frame.instance());
+                    let info = self.execute_wasm_func_step(
+                        ctx.as_context_mut(),
+                        &mut frame,
+                        &mut cache,
+                        step,
+                    )?;
+                    match info {
+                        StepInfo::Nothing => {}
+                        StepInfo::HaltedByHost(_) => return Ok(StepResult::RunOutOfStep),
+                    }
                     signature
                 }
                 FuncEntityInternal::Host(host_func) => {
@@ -438,10 +456,15 @@ mod step {
                     signature
                 }
             };
-            // TODO: do not write result
-            // let results = self.write_results_back(signature, results);
-            Ok(signature)
+            let results = self.write_results_back(signature, results);
+            Ok(StepResult::Results(results))
         }
+    }
+
+    /// The result of step pattern.
+    pub enum StepResult<Results> {
+        Results(Results),
+        RunOutOfStep,
     }
 }
 
