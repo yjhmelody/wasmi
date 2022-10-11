@@ -281,6 +281,170 @@ mod snapshot {
     }
 }
 
+mod step {
+    use super::*;
+    use crate::engine::{code_map::InstructionPtr, executor::execute_frame_step};
+    use std::ptr::NonNull;
+
+    /// The step pattern result info.
+    #[derive(Debug, Clone, Eq, PartialEq)]
+    pub enum StepInfo {
+        /// Nothing happen.
+        Nothing,
+        /// The current pc when halted by host.
+        HaltedByHost(u32),
+    }
+
+    impl EngineInner {
+        /// Executes the given function `frame` and returns the result.
+        ///
+        /// # Errors
+        ///
+        /// - If the execution of the function `frame` trapped.
+        #[inline(always)]
+        fn execute_frame_step(
+            &mut self,
+            ctx: impl AsContextMut,
+            frame: &mut FuncFrame,
+            cache: &mut InstanceCache,
+            n: &mut u64,
+        ) -> Result<CallOutcome, TrapCode> {
+            execute_frame_step(ctx, &mut self.stack.values, cache, frame, n)
+        }
+
+        /// Executes the given function `frame` and returns the step info result.
+        ///
+        /// # Errors
+        ///
+        /// - If the execution of the function `frame` trapped.
+        fn execute_wasm_func_step(
+            &mut self,
+            mut ctx: impl AsContextMut,
+            frame: &mut FuncFrame,
+            cache: &mut InstanceCache,
+            n: Option<u64>,
+        ) -> Result<StepInfo, Trap> {
+            let mut n = match n {
+                None => {
+                    self.execute_wasm_func(ctx, frame, cache)?;
+                    return Ok(StepInfo::Nothing);
+                }
+                Some(n) => n,
+            };
+
+            // TODO: this is start from a wasm function
+            // But we need to start from a wasm instruction
+            'outer: loop {
+                match self.execute_frame_step(ctx.as_context_mut(), frame, cache, &mut n) {
+                    Ok(CallOutcome::Return) => match self.stack.return_wasm() {
+                        Some(caller) => {
+                            *frame = caller;
+                            continue 'outer;
+                        }
+                        None => return Ok(StepInfo::Nothing),
+                    },
+                    Ok(CallOutcome::NestedCall(called_func)) => {
+                        match called_func.as_internal(ctx.as_context()) {
+                            FuncEntityInternal::Wasm(wasm_func) => {
+                                self.stack.call_wasm(frame, wasm_func, &self.code_map)?;
+                            }
+                            FuncEntityInternal::Host(host_func) => {
+                                cache.reset_default_memory_bytes();
+                                let host_func = host_func.clone();
+                                self.stack.call_host(
+                                    ctx.as_context_mut(),
+                                    frame,
+                                    host_func,
+                                    &self.func_types,
+                                )?;
+                            }
+                        }
+                    }
+                    Err(TrapCode::HaltedByHost(pc)) => {
+                        return Ok(StepInfo::HaltedByHost(pc as u32))
+                    }
+                    Err(trap) => return Err(trap.into()),
+                }
+            }
+        }
+
+        /// Execute code started from an instruction position.
+        ///
+        /// # Note
+        ///
+        /// The pc must be legal.
+        ///
+        /// It execute code without preparing function frame env.
+        ///
+        /// Caller should prepare the env.
+        pub(crate) fn execute_instruction_step(
+            &mut self,
+            ctx: impl AsContextMut,
+            inst_ptr: InstructionPtr,
+            cache: &mut InstanceCache,
+            n: Option<u64>,
+        ) -> Result<StepInfo, Trap> {
+            let instance = cache.instance();
+            let mut frame = FuncFrame::new(inst_ptr, instance);
+            let frame = &mut frame;
+
+            self.execute_wasm_func_step(ctx, frame, cache, n)
+        }
+        /// Execute code started from an instruction position.
+        ///
+        /// # Note
+        ///
+        /// The pc must be legal.
+        ///
+        /// It execute code without preparing function frame env.
+        ///
+        /// Caller should prepare the env.
+        #[inline]
+        #[allow(unused)]
+        pub(crate) fn execute_step_at_pc(
+            &mut self,
+            ctx: impl AsContextMut,
+            pc: usize,
+            cache: &mut InstanceCache,
+            n: Option<u64>,
+        ) -> Result<StepInfo, Trap> {
+            let ip = unsafe {
+                InstructionPtr::new_ptr(core::mem::transmute::<usize, NonNull<Instruction>>(pc))
+            };
+            self.execute_instruction_step(ctx, ip, cache, n)
+        }
+
+        /// Execute instruction
+        pub fn execute_step(
+            &mut self,
+            mut ctx: impl AsContextMut,
+            func: Func,
+            n: Option<u64>,
+        ) -> Result<DedupFuncType, Trap> {
+            let signature = match func.as_internal(ctx.as_context()) {
+                FuncEntityInternal::Wasm(wasm_func) => {
+                    let signature = wasm_func.signature();
+                    let mut frame = self.stack.call_wasm_root(wasm_func, &self.code_map)?;
+                    let instance = wasm_func.instance();
+                    let mut cache = InstanceCache::from(instance);
+                    self.execute_wasm_func_step(ctx.as_context_mut(), &mut frame, &mut cache, n)?;
+                    signature
+                }
+                FuncEntityInternal::Host(host_func) => {
+                    let signature = host_func.signature();
+                    let host_func = host_func.clone();
+                    self.stack
+                        .call_host_root(ctx.as_context_mut(), host_func, &self.func_types)?;
+                    signature
+                }
+            };
+            // TODO: do not write result
+            // let results = self.write_results_back(signature, results);
+            Ok(signature)
+        }
+    }
+}
+
 impl EngineInner {
     /// Creates a new [`EngineInner`] with the given [`Config`].
     pub fn new(config: &Config) -> Self {

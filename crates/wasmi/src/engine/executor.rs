@@ -39,6 +39,17 @@ pub fn execute_frame<'engine>(
     Executor::new(value_stack, ctx.as_context_mut(), cache, frame).execute()
 }
 
+#[inline(always)]
+pub fn execute_frame_step<'engine>(
+    mut ctx: impl AsContextMut,
+    value_stack: &'engine mut ValueStack,
+    cache: &'engine mut InstanceCache,
+    frame: &mut FuncFrame,
+    n: &mut u64,
+) -> Result<CallOutcome, TrapCode> {
+    Executor::new(value_stack, ctx.as_context_mut(), cache, frame).execute_step(n)
+}
+
 /// An execution context for executing a `wasmi` function frame.
 #[derive(Debug)]
 struct Executor<'ctx, 'engine, 'func, HostData> {
@@ -54,6 +65,231 @@ struct Executor<'ctx, 'engine, 'func, HostData> {
     cache: &'engine mut InstanceCache,
     /// The function frame that is being executed.
     frame: &'func mut FuncFrame,
+}
+
+mod step {
+    use super::*;
+
+    /// Executes the given function `frame` by step `n`.
+    ///
+    /// # Note
+    ///
+    /// This executes instructions sequentially until either the function
+    /// calls into another function or the function returns to its caller.
+    ///
+    /// # Errors
+    ///
+    /// - If the execution of the function `frame` trapped.
+    /// - If run out of steps.
+    #[inline(always)]
+    pub fn execute_frame_step<'engine>(
+        mut ctx: impl AsContextMut,
+        value_stack: &'engine mut ValueStack,
+        cache: &'engine mut InstanceCache,
+        frame: &mut FuncFrame,
+        n: &mut u64,
+    ) -> Result<CallOutcome, TrapCode> {
+        Executor::new(value_stack, ctx.as_context_mut(), cache, frame).execute_step(n)
+    }
+
+    impl<'ctx, 'engine, 'func, HostData> Executor<'ctx, 'engine, 'func, HostData> {
+        // TODO: reduce code by macro
+        /// Executes the function frame until it returns or traps.
+        #[inline(always)]
+        pub(crate) fn execute_step(mut self, n: &mut u64) -> Result<CallOutcome, TrapCode> {
+            use Instruction as Instr;
+            loop {
+                if *n == 0 {
+                    return Err(TrapCode::HaltedByHost(0));
+                }
+                *n -= 1;
+                match *self.instr() {
+                    Instr::LocalGet { local_depth } => self.visit_local_get(local_depth),
+                    Instr::LocalSet { local_depth } => self.visit_local_set(local_depth),
+                    Instr::LocalTee { local_depth } => self.visit_local_tee(local_depth),
+                    Instr::Br(target) => self.visit_br(target),
+                    Instr::BrIfEqz(target) => self.visit_br_if_eqz(target),
+                    Instr::BrIfNez(target) => self.visit_br_if_nez(target),
+                    Instr::ReturnIfNez(drop_keep) => {
+                        if let MaybeReturn::Return = self.visit_return_if_nez(drop_keep) {
+                            return Ok(CallOutcome::Return);
+                        }
+                    }
+                    Instr::BrTable { len_targets } => self.visit_br_table(len_targets),
+                    Instr::Unreachable => self.visit_unreachable()?,
+                    Instr::Return(drop_keep) => return self.visit_ret(drop_keep),
+                    Instr::Call(func) => return self.visit_call(func),
+                    Instr::CallIndirect(signature) => return self.visit_call_indirect(signature),
+                    Instr::Drop => self.visit_drop(),
+                    Instr::Select => self.visit_select(),
+                    Instr::GlobalGet(global_idx) => self.visit_global_get(global_idx),
+                    Instr::GlobalSet(global_idx) => self.visit_global_set(global_idx),
+                    Instr::I32Load(offset) => self.visit_i32_load(offset)?,
+                    Instr::I64Load(offset) => self.visit_i64_load(offset)?,
+                    Instr::F32Load(offset) => self.visit_f32_load(offset)?,
+                    Instr::F64Load(offset) => self.visit_f64_load(offset)?,
+                    Instr::I32Load8S(offset) => self.visit_i32_load_i8(offset)?,
+                    Instr::I32Load8U(offset) => self.visit_i32_load_u8(offset)?,
+                    Instr::I32Load16S(offset) => self.visit_i32_load_i16(offset)?,
+                    Instr::I32Load16U(offset) => self.visit_i32_load_u16(offset)?,
+                    Instr::I64Load8S(offset) => self.visit_i64_load_i8(offset)?,
+                    Instr::I64Load8U(offset) => self.visit_i64_load_u8(offset)?,
+                    Instr::I64Load16S(offset) => self.visit_i64_load_i16(offset)?,
+                    Instr::I64Load16U(offset) => self.visit_i64_load_u16(offset)?,
+                    Instr::I64Load32S(offset) => self.visit_i64_load_i32(offset)?,
+                    Instr::I64Load32U(offset) => self.visit_i64_load_u32(offset)?,
+                    Instr::I32Store(offset) => self.visit_i32_store(offset)?,
+                    Instr::I64Store(offset) => self.visit_i64_store(offset)?,
+                    Instr::F32Store(offset) => self.visit_f32_store(offset)?,
+                    Instr::F64Store(offset) => self.visit_f64_store(offset)?,
+                    Instr::I32Store8(offset) => self.visit_i32_store_8(offset)?,
+                    Instr::I32Store16(offset) => self.visit_i32_store_16(offset)?,
+                    Instr::I64Store8(offset) => self.visit_i64_store_8(offset)?,
+                    Instr::I64Store16(offset) => self.visit_i64_store_16(offset)?,
+                    Instr::I64Store32(offset) => self.visit_i64_store_32(offset)?,
+                    Instr::MemorySize => self.visit_current_memory(),
+                    Instr::MemoryGrow => self.visit_grow_memory(),
+                    Instr::Const(bytes) => self.visit_const(bytes),
+                    Instr::I32Eqz => self.visit_i32_eqz(),
+                    Instr::I32Eq => self.visit_i32_eq(),
+                    Instr::I32Ne => self.visit_i32_ne(),
+                    Instr::I32LtS => self.visit_i32_lt_s(),
+                    Instr::I32LtU => self.visit_i32_lt_u(),
+                    Instr::I32GtS => self.visit_i32_gt_s(),
+                    Instr::I32GtU => self.visit_i32_gt_u(),
+                    Instr::I32LeS => self.visit_i32_le_s(),
+                    Instr::I32LeU => self.visit_i32_le_u(),
+                    Instr::I32GeS => self.visit_i32_ge_s(),
+                    Instr::I32GeU => self.visit_i32_ge_u(),
+                    Instr::I64Eqz => self.visit_i64_eqz(),
+                    Instr::I64Eq => self.visit_i64_eq(),
+                    Instr::I64Ne => self.visit_i64_ne(),
+                    Instr::I64LtS => self.visit_i64_lt_s(),
+                    Instr::I64LtU => self.visit_i64_lt_u(),
+                    Instr::I64GtS => self.visit_i64_gt_s(),
+                    Instr::I64GtU => self.visit_i64_gt_u(),
+                    Instr::I64LeS => self.visit_i64_le_s(),
+                    Instr::I64LeU => self.visit_i64_le_u(),
+                    Instr::I64GeS => self.visit_i64_ge_s(),
+                    Instr::I64GeU => self.visit_i64_ge_u(),
+                    Instr::F32Eq => self.visit_f32_eq(),
+                    Instr::F32Ne => self.visit_f32_ne(),
+                    Instr::F32Lt => self.visit_f32_lt(),
+                    Instr::F32Gt => self.visit_f32_gt(),
+                    Instr::F32Le => self.visit_f32_le(),
+                    Instr::F32Ge => self.visit_f32_ge(),
+                    Instr::F64Eq => self.visit_f64_eq(),
+                    Instr::F64Ne => self.visit_f64_ne(),
+                    Instr::F64Lt => self.visit_f64_lt(),
+                    Instr::F64Gt => self.visit_f64_gt(),
+                    Instr::F64Le => self.visit_f64_le(),
+                    Instr::F64Ge => self.visit_f64_ge(),
+                    Instr::I32Clz => self.visit_i32_clz(),
+                    Instr::I32Ctz => self.visit_i32_ctz(),
+                    Instr::I32Popcnt => self.visit_i32_popcnt(),
+                    Instr::I32Add => self.visit_i32_add(),
+                    Instr::I32Sub => self.visit_i32_sub(),
+                    Instr::I32Mul => self.visit_i32_mul(),
+                    Instr::I32DivS => self.visit_i32_div_s()?,
+                    Instr::I32DivU => self.visit_i32_div_u()?,
+                    Instr::I32RemS => self.visit_i32_rem_s()?,
+                    Instr::I32RemU => self.visit_i32_rem_u()?,
+                    Instr::I32And => self.visit_i32_and(),
+                    Instr::I32Or => self.visit_i32_or(),
+                    Instr::I32Xor => self.visit_i32_xor(),
+                    Instr::I32Shl => self.visit_i32_shl(),
+                    Instr::I32ShrS => self.visit_i32_shr_s(),
+                    Instr::I32ShrU => self.visit_i32_shr_u(),
+                    Instr::I32Rotl => self.visit_i32_rotl(),
+                    Instr::I32Rotr => self.visit_i32_rotr(),
+                    Instr::I64Clz => self.visit_i64_clz(),
+                    Instr::I64Ctz => self.visit_i64_ctz(),
+                    Instr::I64Popcnt => self.visit_i64_popcnt(),
+                    Instr::I64Add => self.visit_i64_add(),
+                    Instr::I64Sub => self.visit_i64_sub(),
+                    Instr::I64Mul => self.visit_i64_mul(),
+                    Instr::I64DivS => self.visit_i64_div_s()?,
+                    Instr::I64DivU => self.visit_i64_div_u()?,
+                    Instr::I64RemS => self.visit_i64_rem_s()?,
+                    Instr::I64RemU => self.visit_i64_rem_u()?,
+                    Instr::I64And => self.visit_i64_and(),
+                    Instr::I64Or => self.visit_i64_or(),
+                    Instr::I64Xor => self.visit_i64_xor(),
+                    Instr::I64Shl => self.visit_i64_shl(),
+                    Instr::I64ShrS => self.visit_i64_shr_s(),
+                    Instr::I64ShrU => self.visit_i64_shr_u(),
+                    Instr::I64Rotl => self.visit_i64_rotl(),
+                    Instr::I64Rotr => self.visit_i64_rotr(),
+                    Instr::F32Abs => self.visit_f32_abs(),
+                    Instr::F32Neg => self.visit_f32_neg(),
+                    Instr::F32Ceil => self.visit_f32_ceil(),
+                    Instr::F32Floor => self.visit_f32_floor(),
+                    Instr::F32Trunc => self.visit_f32_trunc(),
+                    Instr::F32Nearest => self.visit_f32_nearest(),
+                    Instr::F32Sqrt => self.visit_f32_sqrt(),
+                    Instr::F32Add => self.visit_f32_add(),
+                    Instr::F32Sub => self.visit_f32_sub(),
+                    Instr::F32Mul => self.visit_f32_mul(),
+                    Instr::F32Div => self.visit_f32_div(),
+                    Instr::F32Min => self.visit_f32_min(),
+                    Instr::F32Max => self.visit_f32_max(),
+                    Instr::F32Copysign => self.visit_f32_copysign(),
+                    Instr::F64Abs => self.visit_f64_abs(),
+                    Instr::F64Neg => self.visit_f64_neg(),
+                    Instr::F64Ceil => self.visit_f64_ceil(),
+                    Instr::F64Floor => self.visit_f64_floor(),
+                    Instr::F64Trunc => self.visit_f64_trunc(),
+                    Instr::F64Nearest => self.visit_f64_nearest(),
+                    Instr::F64Sqrt => self.visit_f64_sqrt(),
+                    Instr::F64Add => self.visit_f64_add(),
+                    Instr::F64Sub => self.visit_f64_sub(),
+                    Instr::F64Mul => self.visit_f64_mul(),
+                    Instr::F64Div => self.visit_f64_div(),
+                    Instr::F64Min => self.visit_f64_min(),
+                    Instr::F64Max => self.visit_f64_max(),
+                    Instr::F64Copysign => self.visit_f64_copysign(),
+                    Instr::I32WrapI64 => self.visit_i32_wrap_i64(),
+                    Instr::I32TruncSF32 => self.visit_i32_trunc_f32()?,
+                    Instr::I32TruncUF32 => self.visit_u32_trunc_f32()?,
+                    Instr::I32TruncSF64 => self.visit_i32_trunc_f64()?,
+                    Instr::I32TruncUF64 => self.visit_u32_trunc_f64()?,
+                    Instr::I64ExtendSI32 => self.visit_i64_extend_i32(),
+                    Instr::I64ExtendUI32 => self.visit_i64_extend_u32(),
+                    Instr::I64TruncSF32 => self.visit_i64_trunc_f32()?,
+                    Instr::I64TruncUF32 => self.visit_u64_trunc_f32()?,
+                    Instr::I64TruncSF64 => self.visit_i64_trunc_f64()?,
+                    Instr::I64TruncUF64 => self.visit_u64_trunc_f64()?,
+                    Instr::F32ConvertSI32 => self.visit_f32_convert_i32(),
+                    Instr::F32ConvertUI32 => self.visit_f32_convert_u32(),
+                    Instr::F32ConvertSI64 => self.visit_f32_convert_i64(),
+                    Instr::F32ConvertUI64 => self.visit_f32_convert_u64(),
+                    Instr::F32DemoteF64 => self.visit_f32_demote_f64(),
+                    Instr::F64ConvertSI32 => self.visit_f64_convert_i32(),
+                    Instr::F64ConvertUI32 => self.visit_f64_convert_u32(),
+                    Instr::F64ConvertSI64 => self.visit_f64_convert_i64(),
+                    Instr::F64ConvertUI64 => self.visit_f64_convert_u64(),
+                    Instr::F64PromoteF32 => self.visit_f64_promote_f32(),
+                    Instr::I32ReinterpretF32 => self.visit_i32_reinterpret_f32(),
+                    Instr::I64ReinterpretF64 => self.visit_i64_reinterpret_f64(),
+                    Instr::F32ReinterpretI32 => self.visit_f32_reinterpret_i32(),
+                    Instr::F64ReinterpretI64 => self.visit_f64_reinterpret_i64(),
+                    Instr::I32TruncSatF32S => self.visit_i32_trunc_sat_f32(),
+                    Instr::I32TruncSatF32U => self.visit_u32_trunc_sat_f32(),
+                    Instr::I32TruncSatF64S => self.visit_i32_trunc_sat_f64(),
+                    Instr::I32TruncSatF64U => self.visit_u32_trunc_sat_f64(),
+                    Instr::I64TruncSatF32S => self.visit_i64_trunc_sat_f32(),
+                    Instr::I64TruncSatF32U => self.visit_u64_trunc_sat_f32(),
+                    Instr::I64TruncSatF64S => self.visit_i64_trunc_sat_f64(),
+                    Instr::I64TruncSatF64U => self.visit_u64_trunc_sat_f64(),
+                    Instr::I32Extend8S => self.visit_i32_sign_extend8(),
+                    Instr::I32Extend16S => self.visit_i32_sign_extend16(),
+                    Instr::I64Extend8S => self.visit_i64_sign_extend8(),
+                    Instr::I64Extend16S => self.visit_i64_sign_extend16(),
+                    Instr::I64Extend32S => self.visit_i64_sign_extend32(),
+                }
+            }
+        }
+    }
 }
 
 impl<'ctx, 'engine, 'func, HostData> Executor<'ctx, 'engine, 'func, HostData> {

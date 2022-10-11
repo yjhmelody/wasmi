@@ -1,5 +1,5 @@
 //! Engine level snapshot.
-use crate::engine::{bytecode::Instruction};
+use crate::engine::bytecode::Instruction;
 use codec::{Decode, Encode};
 use wasmi_core::UntypedValue;
 

@@ -63,7 +63,7 @@ impl FuncHeader {
 #[derive(Debug, Default)]
 pub struct CodeMap {
     /// The headers of all compiled functions.
-    headers: Vec<FuncHeader>,
+    pub(crate) headers: Vec<FuncHeader>,
     /// The instructions of all allocated function bodies.
     ///
     /// By storing all `wasmi` bytecode instructions in a single
@@ -159,6 +159,11 @@ impl InstructionPtr {
         let start = start_inst.ptr.as_ptr() as usize;
         let cur = self.ptr.as_ptr() as usize;
         (cur - start) / core::mem::size_of::<Instruction>()
+    }
+
+    /// Creates a new [`InstructionPtr`] for `instr`.
+    pub fn new_ptr(ptr: NonNull<Instruction>) -> Self {
+        Self { ptr }
     }
 
     /// Creates a new [`InstructionPtr`] for `instr`.
