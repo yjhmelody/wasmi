@@ -80,6 +80,33 @@ pub struct Store<T> {
     user_state: T,
 }
 
+mod snapshot {
+    use super::*;
+    use crate::snapshot::{EngineSnapshot, InstanceSnapshot};
+
+    impl<T> Store<T> {
+        /// Make a module level instance snapshot.
+        #[allow(unused)]
+        pub fn make_instance_snapshot(&self, instance: Instance) -> InstanceSnapshot {
+            let entity_index = self.unwrap_index(instance.into_inner());
+            let entity = self.instances.get(entity_index).unwrap_or_else(|| {
+                panic!(
+                    "the store has no reference to the given instance: {:?}",
+                    instance,
+                )
+            });
+            entity.make_snapshot(self)
+        }
+
+        /// Make a engine level snapshot.
+        #[allow(unused)]
+        pub fn make_engine_snapshot(&self, instance: Instance) -> EngineSnapshot {
+            let engine = self.engine.inner.lock();
+            engine.make_snapshot()
+        }
+    }
+}
+
 impl<T> Store<T> {
     /// Creates a new store.
     pub fn new(engine: &Engine, user_state: T) -> Self {

@@ -51,6 +51,7 @@ mod snapshot {
     use crate::snapshot::{InstanceSnapshot, TableSnapshot};
 
     impl InstanceEntity {
+        /// Make a module level instance snapshot.
         #[allow(unused)]
         pub fn make_snapshot(&self, ctx: &impl AsContext) -> InstanceSnapshot {
             let store = ctx.as_context().store;

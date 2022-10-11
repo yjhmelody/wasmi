@@ -46,7 +46,7 @@ pub struct StackLimits {
     /// The maximum value stack height in use that the Wasm stack allows.
     maximum_value_stack_height: usize,
     /// The maximum number of nested calls that the Wasm stack allows.
-    maximum_recursion_depth: usize,
+    pub(crate) maximum_recursion_depth: usize,
 }
 
 /// An error that may occur when configuring [`StackLimits`].
@@ -107,7 +107,7 @@ pub struct Stack {
     /// The value stack.
     pub(crate) values: ValueStack,
     /// The frame stack.
-    frames: CallStack,
+    pub(crate) frames: CallStack,
 }
 
 impl Stack {

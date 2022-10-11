@@ -77,6 +77,13 @@ pub struct CodeMap {
 }
 
 impl CodeMap {
+    /// Returns the logic offset for current instruction.
+    pub unsafe fn current_pc(&self, inst: InstructionPtr) -> usize {
+        let start_inst = InstructionPtr::new(&self.insts[0]);
+
+        inst.current_pc(start_inst)
+    }
+
     /// Allocates a new function body to the [`CodeMap`].
     ///
     /// Returns a reference to the allocated function body that can

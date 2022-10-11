@@ -1,4 +1,5 @@
 pub mod engine;
+pub use engine::*;
 
 use crate::{memory::ByteBuffer, GlobalEntity, MemoryEntity, MemoryType, TableType};
 use codec::{Decode, Encode};
@@ -96,6 +97,7 @@ pub struct TableSnapshot {
     pub elements: Vec<Option<u32>>,
 }
 
+/// A descriptor for a Table.
 #[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
 pub struct TableTypeState {
     /// The initial size of the [`Table`].

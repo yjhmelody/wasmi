@@ -1,41 +1,49 @@
-use crate::engine::bytecode::Instruction;
+//! Engine level snapshot.
+use crate::engine::{bytecode::Instruction};
 use codec::{Decode, Encode};
 use wasmi_core::UntypedValue;
 
+/// The engine context snapshot.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct EngineSnapshot {
+    pub config: EngineConfig,
     /// The value stack.
-    pub values: ValueStack,
+    pub values: ValueStackSnapshot,
     /// The frame stack.
-    pub frames: CallStack,
+    pub frames: CallStackSnapshot,
 }
+
+// TODO: consider some inherent configs.
+/// The configured limits of the engine.
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct EngineConfig {
+    /// The maximum number of nested calls that the Wasm stack allows.
+    pub maximum_recursion_depth: u32,
+}
+
 /// The value stack that is used to execute Wasm bytecode.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct ValueStack {
+pub struct ValueStackSnapshot {
     /// All currently live stack entries.
-    entries: Vec<UntypedValue>,
-    /// Index of the first free place in the stack.
-    stack_ptr: u32,
+    pub entries: Vec<UntypedValue>,
     /// The maximum value stack height.
-    maximum_len: u32,
+    pub maximum_len: u32,
 }
 
 /// The live function call stack storing the live function activation frames.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct CallStack {
+pub struct CallStackSnapshot {
     /// The call stack featuring the function frames in order.
-    frames: Vec<FuncFrame>,
+    pub frames: Vec<FuncFrameSnapshot>,
     /// The maximum allowed depth of the `frames` stack.
-    recursion_limit: u32,
+    pub recursion_limit: u32,
 }
 
 /// A function frame of a function on the call stack.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct FuncFrame {
-    /// The start index in the instructions array.
-    pub(crate) start: u32,
+pub struct FuncFrameSnapshot {
     /// The current value of the program counter.
-    pub(crate) pc: u32,
+    pub pc: u32,
 }
 
 impl Instruction {

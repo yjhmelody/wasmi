@@ -84,6 +84,14 @@ impl FromIterator<UntypedValue> for ValueStack {
 }
 
 impl ValueStack {
+    pub fn entries(&self) -> &[UntypedValue] {
+        &self.entries[..self.stack_ptr]
+    }
+
+    pub fn maximum_len(&self) -> usize {
+        self.maximum_len
+    }
+
     /// Creates a new empty [`ValueStack`].
     ///
     /// # Panics

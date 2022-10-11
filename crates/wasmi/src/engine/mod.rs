@@ -100,7 +100,7 @@ type Guarded<Idx> = GuardedEntity<EngineIdx, Idx>;
 ///   Most of its API has a `&self` receiver, so can be shared easily.
 #[derive(Debug, Clone)]
 pub struct Engine {
-    inner: Arc<Mutex<EngineInner>>,
+    pub(crate) inner: Arc<Mutex<EngineInner>>,
 }
 
 impl Default for Engine {
@@ -231,6 +231,54 @@ pub struct EngineInner {
     /// The engine deduplicates function types to make the equality
     /// comparison very fast. This helps to speed up indirect calls.
     func_types: FuncTypeRegistry,
+}
+
+mod snapshot {
+    use super::*;
+    use crate::snapshot::{
+        CallStackSnapshot,
+        EngineConfig,
+        EngineSnapshot,
+        FuncFrameSnapshot,
+        ValueStackSnapshot,
+    };
+
+    impl From<&EngineInner> for EngineSnapshot {
+        fn from(engine: &EngineInner) -> Self {
+            let maximum_recursion_depth =
+                engine.config.stack_limits().maximum_recursion_depth as u32;
+            let frames = engine
+                .stack
+                .frames
+                .frames()
+                .iter()
+                .map(|frame| unsafe {
+                    let cur_inst = frame.ip();
+                    let pc = engine.code_map.current_pc(cur_inst) as u32;
+                    FuncFrameSnapshot { pc }
+                })
+                .collect();
+            EngineSnapshot {
+                config: EngineConfig {
+                    maximum_recursion_depth,
+                },
+                values: ValueStackSnapshot {
+                    entries: engine.stack.values.entries().clone().into(),
+                    maximum_len: engine.stack.values.maximum_len() as u32,
+                },
+                frames: CallStackSnapshot {
+                    recursion_limit: engine.stack.frames.recursion_limit() as u32,
+                    frames,
+                },
+            }
+        }
+    }
+
+    impl EngineInner {
+        pub fn make_snapshot(&self) -> EngineSnapshot {
+            self.into()
+        }
+    }
 }
 
 impl EngineInner {

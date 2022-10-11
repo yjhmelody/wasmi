@@ -58,6 +58,14 @@ impl Default for CallStack {
 }
 
 impl CallStack {
+    pub fn recursion_limit(&self) -> usize {
+        self.recursion_limit
+    }
+
+    pub fn frames(&self) -> &[FuncFrame] {
+        &self.frames
+    }
+
     /// Creates a new [`CallStack`] using the given recursion limit.
     pub fn new(recursion_limit: usize) -> Self {
         Self {
