@@ -1,6 +1,6 @@
-use codec::{Decode, Encode};
-
 use crate::engine::bytecode::Instruction;
+use codec::{Decode, Encode};
+use wasmi_core::UntypedValue;
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct EngineSnapshot {
@@ -9,11 +9,11 @@ pub struct EngineSnapshot {
     /// The frame stack.
     pub frames: CallStack,
 }
-
+/// The value stack that is used to execute Wasm bytecode.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct ValueStack {
-    /// All currently live stack untyped entries.
-    entries: Vec<u64>,
+    /// All currently live stack entries.
+    entries: Vec<UntypedValue>,
     /// Index of the first free place in the stack.
     stack_ptr: u32,
     /// The maximum value stack height.
@@ -34,8 +34,6 @@ pub struct CallStack {
 pub struct FuncFrame {
     /// The start index in the instructions array.
     pub(crate) start: u32,
-    /// The end index in the instructions array.
-    pub(crate) end: u32,
     /// The current value of the program counter.
     pub(crate) pc: u32,
 }
@@ -45,16 +43,19 @@ impl Instruction {
         match self {
             Instruction::Unreachable => 0x00,
             Instruction::Br(..) => 0x0C,
-            Instruction::LocalGet { .. } => 0x20,
-            Instruction::LocalSet { .. } => 0x21,
-            Instruction::GlobalGet { .. } => 0x23,
-            Instruction::GlobalSet { .. } => 0x24,
             Instruction::BrTable { .. } => 0x0E,
             Instruction::Return { .. } => 0x0F,
             Instruction::Call { .. } => 0x10,
             Instruction::CallIndirect { .. } => 0x11,
             Instruction::Drop => 0x1A,
             Instruction::Select => 0x1B,
+
+            Instruction::LocalGet { .. } => 0x20,
+            Instruction::LocalSet { .. } => 0x21,
+            Instruction::LocalTee { .. } => 0x22,
+            Instruction::GlobalGet { .. } => 0x23,
+            Instruction::GlobalSet { .. } => 0x24,
+
             // load
             Instruction::I32Load(..) => 0x28,
             Instruction::I64Load(..) => 0x29,
@@ -80,6 +81,10 @@ impl Instruction {
             Instruction::I64Store8(..) => 0x3C,
             Instruction::I64Store16(..) => 0x3D,
             Instruction::I64Store32(..) => 0x3E,
+            // memory
+            Instruction::MemorySize => 0x3F,
+            Instruction::MemoryGrow => 0x40,
+            // const op is not defined here.
             // arith
             Instruction::I32Eqz => 0x45,
             Instruction::I32Eq => 0x46,
@@ -187,17 +192,53 @@ impl Instruction {
             Instruction::F64Max => 0xA5,
             Instruction::F64Copysign => 0xA6,
 
-            // memory
-            Instruction::MemorySize => 0x3F,
-            Instruction::MemoryGrow => 0x40,
+            Instruction::I32WrapI64 => 0xA7,
+            Instruction::I32TruncSF32 => 0xA8,
+            Instruction::I32TruncUF32 => 0xA9,
+            Instruction::I32TruncSF64 => 0xAA,
+            Instruction::I32TruncUF64 => 0xAB,
+            Instruction::I64ExtendSI32 => 0xAC,
+            Instruction::I64ExtendUI32 => 0xAD,
+            Instruction::I64TruncSF32 => 0xAE,
+            Instruction::I64TruncUF32 => 0xAF,
+            Instruction::I64TruncSF64 => 0xB0,
+            Instruction::I64TruncUF64 => 0xB1,
+            Instruction::F32ConvertSI32 => 0xB2,
+            Instruction::F32ConvertUI32 => 0xB3,
+            Instruction::F32ConvertSI64 => 0xB4,
+            Instruction::F32ConvertUI64 => 0xB5,
+            Instruction::F32DemoteF64 => 0xB6,
+            Instruction::F64ConvertSI32 => 0xB7,
+            Instruction::F64ConvertUI32 => 0xB8,
+            Instruction::F64ConvertSI64 => 0xB9,
+            Instruction::F64ConvertUI64 => 0xBA,
+            Instruction::F64PromoteF32 => 0xBB,
+            Instruction::I32ReinterpretF32 => 0xBC,
+            Instruction::I64ReinterpretF64 => 0xBD,
+            Instruction::F32ReinterpretI32 => 0xBE,
+            Instruction::F64ReinterpretI64 => 0xBF,
+
+            Instruction::I32Extend8S => 0xC0,
+            Instruction::I32Extend16S => 0xC1,
+            Instruction::I64Extend8S => 0xC2,
+            Instruction::I64Extend16S => 0xC3,
+            Instruction::I64Extend32S => 0xC4,
+
+            // TODO:
+            Instruction::I32TruncSatF32S
+            | Instruction::I32TruncSatF32U
+            | Instruction::I32TruncSatF64S
+            | Instruction::I32TruncSatF64U
+            | Instruction::I64TruncSatF32S
+            | Instruction::I64TruncSatF32U
+            | Instruction::I64TruncSatF64S
+            | Instruction::I64TruncSatF64U => 0xFC,
 
             // Internal instruction that is not in wasm spec.
             Instruction::BrIfEqz(..) => 0x8001,
             Instruction::BrIfNez(..) => 0x8002,
             Instruction::ReturnIfNez(..) => 0x8003,
             Instruction::Const(..) => 0x8004,
-
-            _ => todo!(),
         }
     }
 }
