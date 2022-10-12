@@ -103,8 +103,9 @@ mod snapshot {
             engine.make_snapshot()
         }
 
-        pub fn restore_engine(&mut self, snapshot: EngineSnapshot) {
-            let engine = self.engine.inner.lock();
+        pub fn restore_engine(&mut self, snapshot: &EngineSnapshot, instance: Instance) {
+            let mut engine = self.engine.inner.lock();
+            engine.restore_engine(snapshot, instance)
         }
     }
 }

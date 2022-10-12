@@ -243,7 +243,7 @@ mod step {
     use crate::engine::StepResult;
 
     impl Func {
-        pub fn call_step<T>(
+        pub fn step_call<T>(
             &self,
             mut ctx: impl AsContextMut<UserState = T>,
             inputs: &[Value],
@@ -261,6 +261,7 @@ mod step {
             if expected_inputs.iter().copied().ne(actual_inputs) {
                 return Err(FuncError::MismatchingParameters { func: *self }).map_err(Into::into);
             }
+            // TODO: step call do not support outputs
             if expected_outputs.len() != outputs.len() {
                 return Err(FuncError::MismatchingResults { func: *self }).map_err(Into::into);
             }
@@ -274,7 +275,7 @@ mod step {
                 .lock()
                 .execute_func_step(ctx.as_context_mut(), *self, inputs, outputs, n)?;
             Ok(match res {
-                StepResult::Results(_) => StepResult::Results(()),
+                StepResult::Results(_r) => StepResult::Results(()),
                 StepResult::RunOutOfStep(pc) => StepResult::RunOutOfStep(pc),
             })
         }

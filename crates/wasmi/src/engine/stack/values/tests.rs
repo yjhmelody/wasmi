@@ -5,21 +5,6 @@ fn drop_keep(drop: usize, keep: usize) -> DropKeep {
     DropKeep::new(drop, keep).unwrap()
 }
 
-impl<'a> IntoIterator for &'a ValueStackRef<'a> {
-    type Item = &'a UntypedValue;
-    type IntoIter = core::slice::Iter<'a, UntypedValue>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.values[0..self.stack_ptr].iter()
-    }
-}
-
-impl<'a> ValueStackRef<'a> {
-    pub fn iter(&'a self) -> core::slice::Iter<'a, UntypedValue> {
-        self.into_iter()
-    }
-}
-
 #[test]
 fn drop_keep_works() {
     fn assert_drop_keep<E>(stack: &ValueStack, drop_keep: DropKeep, expected: E)

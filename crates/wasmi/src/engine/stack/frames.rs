@@ -46,7 +46,7 @@ impl FuncFrame {
 #[derive(Debug)]
 pub struct CallStack {
     /// The call stack featuring the function frames in order.
-    pub(crate) frames: Vec<FuncFrame>,
+    frames: Vec<FuncFrame>,
     /// The maximum allowed depth of the `frames` stack.
     recursion_limit: usize,
 }
@@ -60,6 +60,14 @@ impl Default for CallStack {
 impl CallStack {
     pub fn recursion_limit(&self) -> usize {
         self.recursion_limit
+    }
+
+    pub(crate) fn push_frame(&mut self, frame: FuncFrame) -> Result<(), TrapCode> {
+        if self.len() == self.recursion_limit {
+            return Err(err_stack_overflow());
+        }
+        self.frames.push(frame);
+        Ok(())
     }
 
     pub fn frames(&self) -> &[FuncFrame] {
@@ -80,7 +88,6 @@ impl CallStack {
         FuncFrame::new(ip, instance)
     }
 
-    // TODO:
     /// Pushes a Wasm function onto the [`CallStack`].
     pub(crate) fn push(
         &mut self,

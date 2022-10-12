@@ -9,10 +9,25 @@ use crate::{
 /// This allows for a more efficient access to the [`ValueStack`] during execution.
 #[derive(Debug)]
 pub struct ValueStackRef<'a> {
-    pub(super) stack_ptr: usize,
+    pub(crate) stack_ptr: usize,
     pub(super) values: &'a mut [UntypedValue],
     /// The original stack pointer required to keep in sync.
     orig_sp: &'a mut usize,
+}
+
+impl<'a> IntoIterator for &'a ValueStackRef<'a> {
+    type Item = &'a UntypedValue;
+    type IntoIter = core::slice::Iter<'a, UntypedValue>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.values[0..self.stack_ptr].iter()
+    }
+}
+
+impl<'a> ValueStackRef<'a> {
+    pub fn iter(&'a self) -> core::slice::Iter<'a, UntypedValue> {
+        self.into_iter()
+    }
 }
 
 impl<'a> ValueStackRef<'a> {
@@ -24,6 +39,7 @@ impl<'a> ValueStackRef<'a> {
     /// when necessary.
     pub fn new(stack: &'a mut ValueStack) -> Self {
         let sp = &mut stack.stack_ptr;
+        // TODO: bug
         let stack_ptr = *sp;
         Self {
             stack_ptr,

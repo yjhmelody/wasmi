@@ -87,8 +87,9 @@ mod step {
         pub(crate) fn execute_step(mut self, n: &mut u64) -> Result<CallOutcome, TrapCode> {
             use Instruction as Instr;
             loop {
-                println!("execute_step: {}", n);
                 if *n == 0 {
+                    // Note: it's import to update current stack data.
+                    self.sync_stack_ptr();
                     // TODO: fix
                     return Err(TrapCode::HaltedByHost(self.ip.current_offset()));
                 }

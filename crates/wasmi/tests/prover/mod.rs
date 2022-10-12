@@ -11,7 +11,7 @@ use wasmi::{
     StepResult,
     Store,
 };
-use wasmi_core::{Value};
+use wasmi_core::{Value, ValueType};
 
 fn setup_module<T>(store: &mut Store<T>, wat: impl AsRef<str>) -> Result<Module, Error> {
     let wasm = wat::parse_str(wat).expect("Illegal wat");
@@ -21,6 +21,17 @@ fn setup_module<T>(store: &mut Store<T>, wat: impl AsRef<str>) -> Result<Module,
 fn instantiate<T>(store: &mut Store<T>, module: &Module) -> Result<Instance, Error> {
     let mut linker = <Linker<T>>::new();
     let pre = linker.instantiate(store.as_context_mut(), module)?;
+    let instance = pre.ensure_no_start(store.as_context_mut())?;
+    Ok(instance)
+}
+
+fn restore_instantiate<T>(
+    store: &mut Store<T>,
+    module: &Module,
+    snapshot: InstanceSnapshot,
+) -> Result<Instance, Error> {
+    let mut linker = <Linker<T>>::new();
+    let pre = linker.restore_instance(store.as_context_mut(), module, snapshot)?;
     let instance = pre.ensure_no_start(store.as_context_mut())?;
     Ok(instance)
 }
@@ -38,7 +49,7 @@ fn call_step<T>(
         .and_then(Extern::into_func)
         .expect("Could find export function");
 
-    f.call_step(store.as_context_mut(), inputs, outputs, n)
+    f.step_call(store.as_context_mut(), inputs, outputs, n)
 }
 
 #[test]
@@ -75,30 +86,20 @@ fn test_snapshot() {
     let engine = Engine::default();
     let mut store = Store::new(&engine, ());
     let module = setup_module(&mut store, wat).unwrap();
-    let one_step = Some(2);
+    let instance = instantiate(&mut store, &module).unwrap();
 
+    let one_step = Some(1);
     let funcs = module
         .exports()
         .map(|exp| exp.name())
         .collect::<Vec<&str>>();
 
     for f in funcs {
+        // 0. get expected result
         let mut expected_result = vec![Value::I32(0)];
 
-        // 0. get expected result
-        let instance = instantiate(&mut store, &module).unwrap();
-
-        let res = call_step(
-            &mut store,
-            instance,
-            f,
-            &vec![Value::I32(1), Value::I32(2)],
-            &mut expected_result,
-            None,
-        )
-        .unwrap();
-
-        println!("expected_result: {:?}", expected_result);
+        let inputs = vec![Value::I32(1), Value::I32(2)];
+        let res = call_step(&mut store, instance, f, &inputs, &mut expected_result, None).unwrap();
 
         match res {
             StepResult::Results(()) => {}
@@ -107,23 +108,13 @@ fn test_snapshot() {
 
         let mut result = vec![Value::I32(0)];
         // 1. only run one instruction
-        let res = call_step(
-            &mut store,
-            instance,
-            f,
-            &vec![Value::I32(1), Value::I32(2)],
-            &mut result,
-            one_step,
-        )
-        .unwrap();
-
-        // println!("res: {:?}", res);
+        let res = call_step(&mut store, instance, f, &inputs, &mut result, one_step).unwrap();
+        drop(result);
 
         let pc = match res {
             StepResult::Results(()) => unreachable!(),
             StepResult::RunOutOfStep(pc) => pc,
         };
-        // println!("pc: {}", pc);
 
         // 2. make snapshot for instance.
         let snapshot_instance = store.make_instance_snapshot(instance).encode();
@@ -134,33 +125,31 @@ fn test_snapshot() {
         let snapshot_instance = InstanceSnapshot::decode(&mut &snapshot_instance[..]).unwrap();
         let snapshot_engine = EngineSnapshot::decode(&mut &snapshot_engine[..]).unwrap();
 
-        let mut linker = Linker::<()>::new();
+        // creates new engine/store
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let module = setup_module(&mut store, wat).unwrap();
         // 5. restore instance from snapshot
-        let instance = linker
-            .restore_instance(store.as_context_mut(), &module, snapshot_instance)
-            .unwrap()
-            .ensure_no_start(store.as_context_mut())
-            .unwrap();
-        // 6. restore engine from snapshot
-        store.make_engine_snapshot()
+        let instance = restore_instantiate(&mut store, &module, snapshot_instance).unwrap();
+        // 6. restore engine from snapshot by instance.
+        store.restore_engine(&snapshot_engine, instance);
 
-        // println!("instance: {:?}", instance);
+        let mut result = vec![Value::I32(0)];
 
+        // TODO: improve this api
+        // 7. run engine using previous pc.
+        // we should use the restored instance.
         engine
-            .execute_step_at_pc(store.as_context_mut(), pc as usize, instance, None)
+            .execute_step_at_pc_with_result(
+                store.as_context_mut(),
+                pc as usize,
+                instance,
+                &[ValueType::I32],
+                &mut result[..],
+                None,
+            )
             .unwrap();
 
-        // // 5. run the instructions
-        // call_step_n(
-        //     &mut store,
-        //     instance,
-        //     f,
-        //     &vec![Value::I32(1), Value::I32(2)],
-        //     &mut result,
-        //     None,
-        // )
-        // .unwrap();
-        //
-        // assert_eq!(expected_result, result, "`{}` failed", f);
+        assert_eq!(expected_result, result, "`{}` failed", f);
     }
 }
