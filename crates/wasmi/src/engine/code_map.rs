@@ -78,13 +78,17 @@ pub struct CodeMap {
 
 impl CodeMap {
     /// Returns the logic offset for current instruction.
-    pub unsafe fn get_offset(&self, inst: InstructionPtr) -> usize {
+    pub fn get_offset(&self, inst: InstructionPtr) -> usize {
         let start_inst = InstructionPtr::new(&self.insts[0]);
 
         inst.calculate_offset(start_inst)
     }
 
     /// Get the underline instruction ptr according to offset.
+    ///
+    /// # Note
+    ///
+    /// Panic when offset overflow.
     pub fn get_inst(&self, offset: usize) -> InstructionPtr {
         InstructionPtr::new(&self.insts[offset])
     }
@@ -154,13 +158,7 @@ pub struct InstructionPtr {
 
 impl InstructionPtr {
     /// Returns the logic offset from start instruction.
-    ///
-    /// # Safety
-    ///
-    /// The caller is responsible for calling this method only with valid
-    /// offset values so that the [`InstructionPtr`] never points out of valid
-    /// bounds of the instructions of the same compiled Wasm function.
-    pub unsafe fn calculate_offset(&self, start_inst: Self) -> usize {
+    pub fn calculate_offset(&self, start_inst: Self) -> usize {
         let start = start_inst.ptr.as_ptr() as usize;
         let cur = self.ptr.as_ptr() as usize;
         (cur - start) / core::mem::size_of::<Instruction>()

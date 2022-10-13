@@ -256,19 +256,20 @@ mod snapshot {
                 .frames
                 .frames()
                 .iter()
-                .map(|frame| unsafe {
+                .map(|frame| {
                     let cur_inst = frame.ip();
                     let pc = engine.code_map.get_offset(cur_inst) as u32;
                     FuncFrameSnapshot { pc }
                 })
                 .collect();
 
+            let entries = engine.stack.values.entries().into_iter().copied().collect();
             EngineSnapshot {
                 config: EngineConfig {
                     maximum_recursion_depth,
                 },
                 values: ValueStackSnapshot {
-                    entries: engine.stack.values.entries().clone().into(),
+                    entries,
                     // maximum_len: engine.stack.values.maximum_len() as u32,
                 },
                 frames: CallStackSnapshot {
@@ -495,7 +496,7 @@ mod step {
                         let ip = InstructionPtr::new(unsafe {
                             core::mem::transmute::<usize, &Instruction>(offset)
                         });
-                        let pc = unsafe { self.code_map.get_offset(ip) };
+                        let pc = self.code_map.get_offset(ip);
                         return Ok(StepInfo::HaltedByHost(pc as u32));
                     }
                     Err(trap) => return Err(trap.into()),

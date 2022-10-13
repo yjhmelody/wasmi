@@ -107,6 +107,7 @@ fn implicit_return_no_value() {
     );
     let expected = [Instruction::Return(drop_keep(0, 0))];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -125,6 +126,7 @@ fn implicit_return_with_value() {
         Instruction::Return(drop_keep(0, 1)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -139,6 +141,7 @@ fn implicit_return_param() {
     );
     let expected = [Instruction::Return(drop_keep(1, 0))];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -157,6 +160,7 @@ fn get_local() {
         Instruction::Return(drop_keep(1, 1)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -179,6 +183,7 @@ fn get_local_2() {
         Instruction::Return(drop_keep(2, 1)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -203,6 +208,7 @@ fn get_local_3() {
         Instruction::Return(drop_keep(2, 0)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -222,6 +228,7 @@ fn explicit_return() {
         Instruction::Return(drop_keep(1, 1)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -244,6 +251,7 @@ fn simple_add() {
         Instruction::Return(drop_keep(2, 1)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -274,6 +282,7 @@ fn simple_mul_add() {
         Instruction::Return(drop_keep(2, 1)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -295,6 +304,7 @@ fn drop_locals() {
         Instruction::Return(drop_keep(2, 0)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 macro_rules! params {
@@ -328,6 +338,7 @@ fn if_without_else() {
         /* 5 */ Instruction::Return(drop_keep(1, 1)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -360,6 +371,7 @@ fn if_else() {
         /* 7 */ Instruction::Return(drop_keep(1, 0)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -389,6 +401,7 @@ fn if_else_returns_result() {
         /* 6 */ Instruction::Return(drop_keep(0, 0)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -426,6 +439,7 @@ fn if_else_branch_from_true_branch() {
         /* 10 */ Instruction::Return(drop_keep(0, 0)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -463,6 +477,7 @@ fn if_else_branch_from_false_branch() {
         /* 10 */ Instruction::Return(drop_keep(0, 0)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -499,6 +514,7 @@ fn if_else_both_unreachable_before_end() {
         /* 8 */ Instruction::Return(drop_keep(1, 1)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -525,6 +541,7 @@ fn loop_() {
         /* 4 */ Instruction::Return(drop_keep(0, 0)),
     ];
     assert_func_bodies(&wasm, [expected]);
+    assert_pc(&expected);
 }
 
 #[test]
@@ -739,11 +756,9 @@ fn br_table_return() {
 fn assert_pc(insts: &[Instruction]) {
     let first_ptr = InstructionPtr::new(&insts[0]);
 
-    unsafe {
-        for (i, inst) in insts.iter().enumerate() {
-            let ptr = InstructionPtr::new(&inst);
-            let pc = ptr.calculate_offset(first_ptr);
-            assert_eq!(pc, i);
-        }
-    };
+    for (i, inst) in insts.iter().enumerate() {
+        let ptr = InstructionPtr::new(&inst);
+        let pc = ptr.calculate_offset(first_ptr);
+        assert_eq!(pc, i);
+    }
 }
