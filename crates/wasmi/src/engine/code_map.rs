@@ -159,13 +159,13 @@ pub struct InstructionPtr {
 impl InstructionPtr {
     /// Returns the logic offset from start instruction.
     pub fn calculate_offset(&self, start_inst: Self) -> usize {
-        let start = start_inst.ptr.as_ptr() as usize;
-        let cur = self.ptr.as_ptr() as usize;
+        let start = start_inst.ptr();
+        let cur = self.ptr();
         (cur - start) / core::mem::size_of::<Instruction>()
     }
 
     #[inline]
-    pub fn current_offset(&self) -> usize {
+    pub fn ptr(&self) -> usize {
         self.ptr.as_ptr() as usize
     }
 

@@ -90,7 +90,7 @@ mod step {
                 if *n == 0 {
                     // Note: it's import to update current stack data.
                     self.sync_stack_ptr();
-                    return Err(TrapCode::HaltedByHost(self.ip.current_offset()));
+                    return Err(TrapCode::HaltedByHost(self.ip.ptr()));
                 }
                 *n -= 1;
                 match *self.instr() {

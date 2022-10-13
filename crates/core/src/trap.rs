@@ -248,7 +248,7 @@ pub enum TrapCode {
     /// expected by this indirect call, this trap is raised.
     UnexpectedSignature,
 
-    /// This hold the current offset of next instruction.
+    /// This hold the pointer of next instruction.
     HaltedByHost(usize),
 }
 
@@ -270,7 +270,7 @@ impl TrapCode {
             Self::InvalidConversionToInt => "invalid conversion to integer",
             Self::StackOverflow => "call stack exhausted",
             Self::UnexpectedSignature => "indirect call type mismatch",
-            Self::HaltedByHost(..) => "halted by host at pc[{}]",
+            Self::HaltedByHost(..) => "halted by host",
         }
     }
 }

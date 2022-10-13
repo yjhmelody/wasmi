@@ -39,7 +39,6 @@ impl<'a> ValueStackRef<'a> {
     /// when necessary.
     pub fn new(stack: &'a mut ValueStack) -> Self {
         let sp = &mut stack.stack_ptr;
-        // TODO: bug
         let stack_ptr = *sp;
         Self {
             stack_ptr,

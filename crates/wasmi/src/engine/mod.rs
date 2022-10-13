@@ -332,6 +332,15 @@ mod step {
     };
     use wasmi_core::ValueType;
 
+    /// The result of step pattern.
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub enum StepResult<Results> {
+        /// The results of step call.
+        Results(Results),
+        /// engine stopped at current pc.
+        RunOutOfStep(u32),
+    }
+
     impl Engine {
         /// Executes the given [`Func`] using the given arguments `params` and stores the result into `results`.
         ///
@@ -395,7 +404,7 @@ mod step {
 
             let info = engine.execute_step_at_pc(ctx, pc, &mut cache, step)?;
             match info {
-                StepInfo::Nothing => Ok(StepResult::Results({
+                StepResult::Results(()) => Ok(StepResult::Results({
                     results.feed_results(
                         engine
                             .stack
@@ -406,27 +415,9 @@ mod step {
                             .map(|(raw_value, value_type)| raw_value.with_type(*value_type)),
                     )
                 })),
-                StepInfo::HaltedByHost(pc) => Ok(StepResult::RunOutOfStep(pc)),
+                StepResult::RunOutOfStep(pc) => Ok(StepResult::RunOutOfStep(pc)),
             }
         }
-    }
-
-    /// The step pattern result info.
-    #[derive(Debug, Clone, Eq, PartialEq)]
-    pub enum StepInfo {
-        /// Nothing error happen.
-        Nothing,
-        /// The current pc when halted by host.
-        HaltedByHost(u32),
-    }
-
-    /// The result of step pattern.
-    #[derive(Clone, Debug, Eq, PartialEq)]
-    pub enum StepResult<Results> {
-        /// The results of step call.
-        Results(Results),
-        /// The current pc when step over.
-        RunOutOfStep(u32),
     }
 
     impl EngineInner {
@@ -457,11 +448,11 @@ mod step {
             frame: &mut FuncFrame,
             cache: &mut InstanceCache,
             n: Option<u64>,
-        ) -> Result<StepInfo, Trap> {
+        ) -> Result<StepResult<()>, Trap> {
             let mut n = match n {
                 None => {
                     self.execute_wasm_func(ctx, frame, cache)?;
-                    return Ok(StepInfo::Nothing);
+                    return Ok(StepResult::Results(()));
                 }
                 Some(n) => n,
             };
@@ -473,7 +464,7 @@ mod step {
                             *frame = caller;
                             continue 'outer;
                         }
-                        None => return Ok(StepInfo::Nothing),
+                        None => return Ok(StepResult::Results(())),
                     },
                     Ok(CallOutcome::NestedCall(called_func)) => {
                         match called_func.as_internal(ctx.as_context()) {
@@ -492,12 +483,12 @@ mod step {
                             }
                         }
                     }
-                    Err(TrapCode::HaltedByHost(offset)) => {
+                    Err(TrapCode::HaltedByHost(ptr)) => {
                         let ip = InstructionPtr::new(unsafe {
-                            core::mem::transmute::<usize, &Instruction>(offset)
+                            core::mem::transmute::<usize, &Instruction>(ptr)
                         });
                         let pc = self.code_map.get_offset(ip);
-                        return Ok(StepInfo::HaltedByHost(pc as u32));
+                        return Ok(StepResult::RunOutOfStep(pc as u32));
                     }
                     Err(trap) => return Err(trap.into()),
                 }
@@ -519,7 +510,7 @@ mod step {
             inst_ptr: InstructionPtr,
             cache: &mut InstanceCache,
             n: Option<u64>,
-        ) -> Result<StepInfo, Trap> {
+        ) -> Result<StepResult<()>, Trap> {
             let instance = cache.instance();
             let mut frame = FuncFrame::new(inst_ptr, instance);
             let frame = &mut frame;
@@ -542,7 +533,7 @@ mod step {
             pc: usize,
             cache: &mut InstanceCache,
             n: Option<u64>,
-        ) -> Result<StepInfo, Trap> {
+        ) -> Result<StepResult<()>, Trap> {
             let ip = self.code_map.get_inst(pc);
             self.execute_instruction_step(ctx, ip, cache, n)
         }
@@ -575,18 +566,15 @@ mod step {
                         &mut cache,
                         step,
                     )?;
-                    match info {
-                        StepInfo::Nothing => {}
-                        StepInfo::HaltedByHost(pc) => return Ok(StepResult::RunOutOfStep(pc)),
-                    }
+                    return Ok(info);
                 }
                 FuncEntityInternal::Host(host_func) => {
                     let host_func = host_func.clone();
                     self.stack
                         .call_host_root(ctx.as_context_mut(), host_func, &self.func_types)?;
+                    Ok(StepResult::Results(()))
                 }
-            };
-            Ok(StepResult::Results(()))
+            }
         }
 
         pub fn execute_func_step<Params, Results>(
@@ -614,8 +602,8 @@ mod step {
                         step,
                     )?;
                     match info {
-                        StepInfo::Nothing => {}
-                        StepInfo::HaltedByHost(pc) => return Ok(StepResult::RunOutOfStep(pc)),
+                        StepResult::Results(()) => {}
+                        StepResult::RunOutOfStep(pc) => return Ok(StepResult::RunOutOfStep(pc)),
                     }
                     signature
                 }
