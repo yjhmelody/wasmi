@@ -164,9 +164,20 @@ impl InstructionPtr {
         (cur - start) / core::mem::size_of::<Instruction>()
     }
 
+    /// Returns a usize pointer to the currently pointed at [`Instruction`].
     #[inline]
     pub fn ptr(&self) -> usize {
         self.ptr.as_ptr() as usize
+    }
+
+    /// Creates a new [`InstructionPtr`] for `instr`.
+    ///
+    /// # Note
+    ///
+    /// The pointer must a legal instruction ref.
+    #[inline]
+    pub fn with_ptr(ptr: usize) -> Self {
+        Self::new(unsafe { core::mem::transmute::<usize, &Instruction>(ptr) })
     }
 
     /// Creates a new [`InstructionPtr`] for `instr`.

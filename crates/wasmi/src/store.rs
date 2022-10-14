@@ -82,9 +82,34 @@ pub struct Store<T> {
 
 mod snapshot {
     use super::*;
-    use crate::snapshot::{EngineSnapshot, InstanceSnapshot};
+    use crate::{
+        snapshot::{EngineSnapshot, InstanceSnapshot, SnapshotV0},
+        Error,
+        Linker,
+        Module,
+    };
 
     impl<T> Store<T> {
+        pub fn make_snapshot(&self, instance: Instance, pc: u32) -> SnapshotV0 {
+            SnapshotV0 {
+                instance: self.make_instance_snapshot(instance),
+                engine: self.make_engine_snapshot(),
+                pc,
+            }
+        }
+
+        pub fn restore_instance(
+            &mut self,
+            linker: &mut Linker<T>,
+            module: &Module,
+            snapshot: SnapshotV0,
+        ) -> Result<Instance, Error> {
+            let pre = linker.restore_instance(self.as_context_mut(), module, snapshot.instance)?;
+            let instance = pre.no_start(self.as_context_mut())?;
+            self.restore_engine(&snapshot.engine, instance);
+            Ok(instance)
+        }
+
         /// Make a module level instance snapshot.
         pub fn make_instance_snapshot(&self, instance: Instance) -> InstanceSnapshot {
             let entity_index = self.unwrap_index(instance.into_inner());
@@ -97,12 +122,14 @@ mod snapshot {
             entity.make_snapshot(self)
         }
 
+        // TODO: check
         /// Make a engine level snapshot.
         pub fn make_engine_snapshot(&self) -> EngineSnapshot {
             let engine = self.engine.inner.lock();
             engine.make_snapshot()
         }
 
+        // TODO: check
         pub fn restore_engine(&mut self, snapshot: &EngineSnapshot, instance: Instance) {
             let mut engine = self.engine.inner.lock();
             engine.restore_engine(snapshot, instance)

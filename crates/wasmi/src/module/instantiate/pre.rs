@@ -75,13 +75,23 @@ impl<'a> InstancePre<'a> {
     /// # Errors
     ///
     /// If a `start` function exists that needs to be called for conformant module instantiation.
+    /// Finishes instantiation ensuring that no `start` function exists.
+    ///
+    /// # Errors
+    ///
+    /// If a `start` function exists that needs to be called for conformant module instantiation.
     pub fn ensure_no_start(
         self,
-        mut context: impl AsContextMut,
+        context: impl AsContextMut,
     ) -> Result<Instance, InstantiationError> {
         if let Some(index) = self.start_fn() {
             return Err(InstantiationError::FoundStartFn { index });
         }
+        self.no_start(context)
+    }
+
+    /// Finishes instantiation but not check and run `start` function.
+    pub fn no_start(self, mut context: impl AsContextMut) -> Result<Instance, InstantiationError> {
         context
             .as_context_mut()
             .store

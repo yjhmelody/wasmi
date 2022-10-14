@@ -111,7 +111,6 @@ mod snapshot {
                 .collect();
 
             InstanceSnapshot {
-                initialized: self.initialized,
                 tables,
                 memories,
                 globals,

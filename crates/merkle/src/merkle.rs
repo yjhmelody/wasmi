@@ -5,8 +5,6 @@ use sha3::Keccak256;
 
 use crate::bytes32::Bytes32;
 
-pub const LEAF_SIZE: usize = 32;
-
 #[derive(Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum ProofKind {

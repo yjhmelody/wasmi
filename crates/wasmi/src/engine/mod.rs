@@ -47,6 +47,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 pub use func_types::DedupFuncType;
 use spin::mutex::Mutex;
 use wasmi_arena::{GuardedEntity, Index};
+use wasmi_core::ValueType;
 
 /// The outcome of a `wasmi` function execution.
 #[derive(Debug, Copy, Clone)]
@@ -324,13 +325,14 @@ mod snapshot {
     }
 }
 
+pub use step::StepResult;
+
 mod step {
     use super::*;
     use crate::{
         engine::{code_map::InstructionPtr, executor::execute_frame_step},
         Instance,
     };
-    use wasmi_core::ValueType;
 
     /// The result of step pattern.
     #[derive(Clone, Debug, Eq, PartialEq)]
@@ -484,9 +486,7 @@ mod step {
                         }
                     }
                     Err(TrapCode::HaltedByHost(ptr)) => {
-                        let ip = InstructionPtr::new(unsafe {
-                            core::mem::transmute::<usize, &Instruction>(ptr)
-                        });
+                        let ip = InstructionPtr::with_ptr(ptr);
                         let pc = self.code_map.get_offset(ip);
                         return Ok(StepResult::RunOutOfStep(pc as u32));
                     }
@@ -620,9 +620,6 @@ mod step {
         }
     }
 }
-
-pub use step::StepResult;
-use wasmi_core::ValueType;
 
 impl EngineInner {
     /// Creates a new [`EngineInner`] with the given [`Config`].

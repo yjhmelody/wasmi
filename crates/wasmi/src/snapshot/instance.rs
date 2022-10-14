@@ -12,7 +12,6 @@ use wasmi_core::memory_units::Pages;
 /// And then diff the merkle hash.
 #[derive(Clone, Encode, Decode)]
 pub struct InstanceSnapshot {
-    pub initialized: bool,
     pub globals: Vec<GlobalEntity>,
     pub memories: Vec<MemorySnapshot>,
     pub tables: Vec<TableSnapshot>,
