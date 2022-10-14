@@ -21,14 +21,15 @@ pub trait ProofGenerator {
     fn write_proof(&self, proof_buf: &mut Vec<u8>);
 }
 
+/// The merkle node type for different wasm part state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 #[non_exhaustive]
 pub enum MerkleType {
+    // TODO: remove this type.
     Empty = 0,
     Value = 1,
     Function = 2,
-    // TODO: maybe support instruction proof
     Instruction = 3,
     Memory = 4,
     Table = 5,
@@ -60,6 +61,10 @@ fn hash_node(ty: MerkleType, a: Bytes32, b: Bytes32) -> Bytes32 {
 }
 
 impl Merkle {
+    pub fn ty(&self) -> MerkleType {
+        self.ty
+    }
+
     pub fn new(ty: MerkleType, hashes: Vec<Bytes32>) -> Self {
         Self::new_advanced(ty, hashes, Bytes32::default(), 0)
     }

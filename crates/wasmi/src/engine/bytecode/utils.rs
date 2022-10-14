@@ -2,7 +2,7 @@ use crate::engine::Instr;
 use core::fmt::Display;
 
 /// Defines how many stack values are going to be dropped and kept after branching.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 pub struct DropKeep {
     /// The amount of stack values dropped.
     drop: u16,
@@ -175,7 +175,7 @@ impl Offset {
 /// This also specifies how many values on the stack
 /// need to be dropped and kept in order to maintain
 /// value stack integrity.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 pub struct BranchParams {
     /// The branching offset.
     ///
@@ -223,7 +223,7 @@ impl BranchParams {
 ///
 /// This defines how much the instruction pointer is offset
 /// upon taking the respective branch.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 pub struct BranchOffset(i32);
 
 impl BranchOffset {

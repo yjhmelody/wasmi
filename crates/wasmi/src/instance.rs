@@ -61,7 +61,6 @@ mod snapshot {
 
     impl InstanceEntity {
         /// Make a module level snapshot for the instance.
-        #[allow(unused)]
         pub fn make_snapshot(&self, ctx: &impl AsContext) -> InstanceSnapshot {
             let store = ctx.as_context().store;
             let tables = self

@@ -36,13 +36,14 @@ fn div_round_up(num: usize, denom: usize) -> usize {
     res
 }
 
-// TODO: design cache for some merkle proof.
+// TODO: design cache for some merkle nodes.
 
 impl InstanceSnapshot {
     pub fn hash(&self) -> Bytes32 {
         let mut h = Keccak256::new();
         // TODO: should use this type?
         h.update([MerkleType::Module as u8]);
+        // TODO: add func merkle root
 
         self.globals
             .iter()
@@ -105,6 +106,7 @@ fn table_element_hash(elem: &Option<u32>) -> Bytes32 {
 // TODO: define our own global state.
 fn global_hash(global: &GlobalEntity) -> Bytes32 {
     let mut h = Keccak256::new();
+    // TODO: should remove?
     h.update([MerkleType::Global as u8]);
     h.update(global.encode());
     h.finalize().into()
@@ -122,9 +124,10 @@ impl TableSnapshot {
 
     pub fn hash(&self) -> Bytes32 {
         let mut h = Keccak256::new();
+        let merkle = self.merkle();
         h.update([MerkleType::Table as u8]);
         // TODO: add other memory data to hash.
-        h.update(self.merkle().root());
+        h.update(merkle.root());
         h.finalize().into()
     }
 }

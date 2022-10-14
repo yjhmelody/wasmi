@@ -9,7 +9,9 @@ use crate::{
     },
     GlobalEntity,
 };
+use codec::{Encode, Output};
 
+use crate::engine::code_map::CodeMap;
 use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType};
 
 impl EngineSnapshot {
@@ -24,7 +26,250 @@ impl ValueStackSnapshot {
     }
 }
 
+// Note: For static state(such as instructions), we just need to generate merkle once and keep it in memory.
+
+impl CodeMap {
+    pub fn merkle(&self) -> Merkle {
+        Merkle::new(
+            MerkleType::Instruction,
+            self.insts.iter().map(|i| i.hash()).collect(),
+        )
+    }
+}
+
+impl Encode for Instruction {
+    fn size_hint(&self) -> usize {
+        core::mem::size_of::<Self>()
+    }
+
+    fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {
+        dest.write(&self.repr().to_le_bytes());
+
+        match self {
+            Instruction::MemorySize |
+            Instruction::MemoryGrow |
+            // const op is not defined here.
+            // arith
+            Instruction::I32Eqz |
+            Instruction::I32Eq |
+            Instruction::I32Ne |
+            Instruction::I32LtS |
+            Instruction::I32LtU |
+            Instruction::I32GtS |
+            Instruction::I32GtU |
+            Instruction::I32LeS |
+            Instruction::I32LeU |
+            Instruction::I32GeS |
+            Instruction::I32GeU |
+
+            Instruction::I64Eqz |
+            Instruction::I64Eq |
+            Instruction::I64Ne |
+            Instruction::I64LtS |
+            Instruction::I64LtU |
+            Instruction::I64GtS |
+            Instruction::I64GtU |
+            Instruction::I64LeS |
+            Instruction::I64LeU |
+            Instruction::I64GeS |
+            Instruction::I64GeU |
+
+            Instruction::F32Eq |
+            Instruction::F32Ne |
+            Instruction::F32Lt |
+            Instruction::F32Gt |
+            Instruction::F32Le |
+            Instruction::F32Ge |
+
+            Instruction::F64Eq |
+            Instruction::F64Ne |
+            Instruction::F64Lt |
+            Instruction::F64Gt |
+            Instruction::F64Le |
+            Instruction::F64Ge |
+
+            Instruction::I32Clz |
+            Instruction::I32Ctz |
+            Instruction::I32Popcnt |
+            Instruction::I32Add |
+            Instruction::I32Sub |
+            Instruction::I32Mul |
+            Instruction::I32DivS |
+            Instruction::I32DivU |
+            Instruction::I32RemS |
+            Instruction::I32RemU |
+            Instruction::I32And |
+            Instruction::I32Or |
+            Instruction::I32Xor |
+            Instruction::I32Shl |
+            Instruction::I32ShrS |
+            Instruction::I32ShrU |
+            Instruction::I32Rotl |
+            Instruction::I32Rotr |
+
+            Instruction::I64Clz |
+            Instruction::I64Ctz |
+            Instruction::I64Popcnt |
+            Instruction::I64Add |
+            Instruction::I64Sub |
+            Instruction::I64Mul |
+            Instruction::I64DivS |
+            Instruction::I64DivU |
+            Instruction::I64RemS |
+            Instruction::I64RemU |
+            Instruction::I64And |
+            Instruction::I64Or |
+            Instruction::I64Xor |
+            Instruction::I64Shl |
+            Instruction::I64ShrS |
+            Instruction::I64ShrU |
+            Instruction::I64Rotl |
+            Instruction::I64Rotr |
+
+            Instruction::F32Abs |
+            Instruction::F32Neg |
+            Instruction::F32Ceil |
+            Instruction::F32Floor |
+            Instruction::F32Trunc |
+            Instruction::F32Nearest |
+            Instruction::F32Sqrt |
+            Instruction::F32Add |
+            Instruction::F32Sub |
+            Instruction::F32Mul |
+            Instruction::F32Div |
+            Instruction::F32Min |
+            Instruction::F32Max |
+            Instruction::F32Copysign |
+
+            Instruction::F64Abs |
+            Instruction::F64Neg |
+            Instruction::F64Ceil|
+            Instruction::F64Floor |
+            Instruction::F64Trunc |
+            Instruction::F64Nearest |
+            Instruction::F64Sqrt |
+            Instruction::F64Add |
+            Instruction::F64Sub |
+            Instruction::F64Mul |
+            Instruction::F64Div  |
+            Instruction::F64Min |
+            Instruction::F64Max |
+            Instruction::F64Copysign |
+
+            Instruction::I32WrapI64 |
+            Instruction::I32TruncSF32 |
+            Instruction::I32TruncUF32 |
+            Instruction::I32TruncSF64 |
+            Instruction::I32TruncUF64 |
+            Instruction::I64ExtendSI32 |
+            Instruction::I64ExtendUI32 |
+            Instruction::I64TruncSF32 |
+            Instruction::I64TruncUF32 |
+            Instruction::I64TruncSF64 |
+            Instruction::I64TruncUF64 |
+            Instruction::F32ConvertSI32 |
+            Instruction::F32ConvertUI32 |
+            Instruction::F32ConvertSI64 |
+            Instruction::F32ConvertUI64 |
+            Instruction::F32DemoteF64 |
+            Instruction::F64ConvertSI32 |
+            Instruction::F64ConvertUI32 |
+            Instruction::F64ConvertSI64 |
+            Instruction::F64ConvertUI64 |
+            Instruction::F64PromoteF32 |
+            Instruction::I32ReinterpretF32 |
+            Instruction::I64ReinterpretF64 |
+            Instruction::F32ReinterpretI32 |
+            Instruction::F64ReinterpretI64 |
+
+            Instruction::I32Extend8S |
+            Instruction::I32Extend16S |
+            Instruction::I64Extend8S |
+            Instruction::I64Extend16S |
+            Instruction::I64Extend32S  => {
+                // nop
+            },
+
+            Instruction::LocalGet { local_depth } |
+            Instruction::LocalSet { local_depth } |
+            Instruction::LocalTee { local_depth }  => {
+                (local_depth.into_inner() as u32).encode_to(dest);
+            },
+
+            Instruction::Br (param) |
+            Instruction::BrIfEqz (param) |
+            Instruction::BrIfNez (param)  => {
+                param.encode_to(dest);
+            },
+
+            Instruction::Return (drop_keep) |
+            Instruction::ReturnIfNez (drop_keep)  => {
+                drop_keep.encode().encode_to(dest);
+            }
+
+            Instruction::BrTable {len_targets}  => {
+                (*len_targets as u32).encode_to(dest);
+            }
+
+            Instruction::Call(idx) => {
+                idx.into_inner().encode_to(dest)
+            }
+
+            Instruction::CallIndirect(idx) => {
+                idx.into_inner().encode_to(dest)
+            }
+
+            Instruction::GlobalGet(idx) |
+            Instruction::GlobalSet(idx)
+            => {
+                idx.into_inner().encode_to(dest)
+            },
+
+            Instruction::I32Load(offset) |
+            Instruction::I64Load(offset) |
+            Instruction::F32Load(offset) |
+            Instruction::F64Load(offset) |
+            Instruction::I32Load8S(offset) |
+            Instruction::I32Load8U(offset) |
+            Instruction::I32Load16S(offset) |
+            Instruction::I32Load16U(offset) |
+            Instruction::I64Load8S(offset) |
+            Instruction::I64Load8U(offset) |
+            Instruction::I64Load16S(offset) |
+            Instruction::I64Load16U(offset) |
+            Instruction::I64Load32S(offset) |
+            Instruction::I64Load32U(offset) |
+            Instruction::I32Store(offset) |
+            Instruction::I64Store(offset) |
+            Instruction::F32Store(offset) |
+            Instruction::F64Store(offset) |
+            Instruction::I32Store8(offset) |
+            Instruction::I32Store16(offset) |
+            Instruction::I64Store8(offset) |
+            Instruction::I64Store16(offset) |
+            Instruction::I64Store32(offset)
+            => {
+                offset.into_inner().encode_to(dest)
+            },
+
+            Instruction::Const(val)
+            => {
+                val.encode_to(dest)
+            },
+            _ => {}
+        }
+    }
+}
+
 impl Instruction {
+    pub fn hash(&self) -> Bytes32 {
+        let mut h = Keccak256::new();
+        // Variable length encoding according to the concrete instruction.
+        h.update(self.encode());
+
+        h.finalize().into()
+    }
+
     #[allow(unused)]
     fn repr(&self) -> u16 {
         match self {
@@ -211,17 +456,17 @@ impl Instruction {
             Instruction::I64Extend16S => 0xC3,
             Instruction::I64Extend32S => 0xC4,
 
-            // TODO:
-            Instruction::I32TruncSatF32S
-            | Instruction::I32TruncSatF32U
-            | Instruction::I32TruncSatF64S
-            | Instruction::I32TruncSatF64U
-            | Instruction::I64TruncSatF32S
-            | Instruction::I64TruncSatF32U
-            | Instruction::I64TruncSatF64S
-            | Instruction::I64TruncSatF64U => 0xFC,
-
             // Internal instruction that is not in wasm spec.
+            // TODO: make sure these instructions.
+            Instruction::I32TruncSatF32S => 0x8005,
+            Instruction::I32TruncSatF32U => 0x8006,
+            Instruction::I32TruncSatF64S => 0x8007,
+            Instruction::I32TruncSatF64U => 0x8008,
+            Instruction::I64TruncSatF32S => 0x8009,
+            Instruction::I64TruncSatF32U => 0x800A,
+            Instruction::I64TruncSatF64S => 0x800B,
+            Instruction::I64TruncSatF64U => 0x800C,
+
             Instruction::BrIfEqz(..) => 0x8001,
             Instruction::BrIfNez(..) => 0x8002,
             Instruction::ReturnIfNez(..) => 0x8003,

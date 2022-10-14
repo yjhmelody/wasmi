@@ -1,4 +1,5 @@
 //! Engine level snapshot.
+use crate::engine::{bytecode::Instruction, code_map::CodeMap};
 use codec::{Decode, Encode};
 use wasmi_core::UntypedValue;
 
@@ -7,11 +8,14 @@ use wasmi_core::UntypedValue;
 /// Note: The snapshot lack of current pc data.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct EngineSnapshot {
+    /// The configured limits of the engine.
     pub config: EngineConfig,
     /// The value stack.
     pub values: ValueStackSnapshot,
     /// The frame stack.
     pub frames: CallStackSnapshot,
+    // /// The engine instructions.
+    // pub insts: Vec<Instruction>,
 }
 
 // TODO: consider some inherent configs.
