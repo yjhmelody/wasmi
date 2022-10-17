@@ -9,27 +9,83 @@ use crate::{
     },
     GlobalEntity,
 };
-use codec::{Encode, Output};
+use codec::{Decode, Encode, Output};
 
 use crate::engine::code_map::CodeMap;
 use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType};
+use wasmi_core::UntypedValue;
 
 impl EngineSnapshot {
-    pub fn hash(&self) -> Bytes32 {
+    pub fn make_proof(&self) -> EngineProof {
         todo!()
     }
+}
+
+pub struct EngineProof {
+    config: EngineConfig,
+    value_proof: ValueStackProof,
+    call_proof: CallStackProof,
 }
 
 impl ValueStackSnapshot {
-    pub fn hash(&self) -> Bytes32 {
-        todo!()
+    /// Make a value stack proof.
+    ///
+    /// Keep the top N stack value original and not be part of hash.
+    pub fn make_proof(&self, keep_len: usize) -> ValueStackProof {
+        debug_assert!(self.entries.len() >= keep_len);
+        let len = self.entries.len() - keep_len;
+
+        // Note: we scan the stack from bottom to top.
+        let mut h = Keccak256::new();
+        let mut entries = Vec::with_capacity(keep_len);
+        for (i, val) in self.entries.iter().enumerate() {
+            if i >= len {
+                entries.push(val.clone());
+            } else {
+                h.update(val.to_bits().to_le_bytes());
+            }
+        }
+        let remaining_hash = h.finalize().into();
+
+        ValueStackProof {
+            entries,
+            remaining_hash,
+        }
     }
 }
 
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct ValueStackProof {
+    /// The top N entries in value stack.
+    ///
+    /// These entries will be used when execute osp.
+    pub entries: Vec<UntypedValue>,
+    /// The hash of entries excepting the top N.
+    pub remaining_hash: Bytes32,
+}
+
 impl CallStackSnapshot {
-    pub fn hash(&self) -> Bytes32 {
-        todo!()
+    // TODO: should consider current pc as part of proof ?
+    pub fn make_proof(&self) -> CallStackProof {
+        let mut h = Keccak256::new();
+        self.frames.iter().for_each(|frame| {
+            h.update(frame.encode());
+        });
+
+        let frames_hash = h.finalize().into();
+        CallStackProof {
+            frames_hash,
+            recursion_limit: self.recursion_limit,
+        }
     }
+}
+
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct CallStackProof {
+    /// The call stack.
+    pub frames_hash: Bytes32,
+    /// The maximum allowed depth of the `frames` stack.
+    pub recursion_limit: u32,
 }
 
 // Note: For static state(such as instructions), we just need to generate merkle once and keep it in memory.
@@ -258,7 +314,7 @@ impl Instruction {
         let bytes = self.encode();
         let len = bytes.len();
         let mut b = [0u8; 32];
-        b[(32-len)..].copy_from_slice(&bytes);
+        b[(32 - len)..].copy_from_slice(&bytes);
         Bytes32::from(b)
     }
 

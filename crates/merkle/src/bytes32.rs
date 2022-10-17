@@ -1,12 +1,11 @@
+use codec::{Decode, Encode};
 use core::{
     borrow::Borrow,
     ops::{Deref, DerefMut},
 };
-
 type GenericBytes32 = digest::generic_array::GenericArray<u8, digest::generic_array::typenum::U32>;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(C)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct Bytes32(pub [u8; 32]);
 
 impl Deref for Bytes32 {

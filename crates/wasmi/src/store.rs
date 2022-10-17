@@ -83,12 +83,12 @@ pub struct Store<T> {
 mod snapshot {
     use super::*;
     use crate::{
+        engine::bytecode::Instruction,
         snapshot::{EngineSnapshot, InstanceSnapshot, SnapshotV0},
         Error,
         Linker,
         Module,
     };
-    use crate::engine::bytecode::Instruction;
 
     impl<T> Store<T> {
         pub fn make_snapshot(&self, instance: Instance, pc: u32) -> SnapshotV0 {
@@ -130,9 +130,9 @@ mod snapshot {
             engine.make_snapshot()
         }
 
-        pub fn instructions_ref(&self) -> &[Instruction] {
+        pub fn instructions(&self) -> Vec<Instruction> {
             let engine = self.engine.inner.lock();
-            engine.instructions_ref()
+            engine.instructions_ref().to_vec()
         }
 
         // TODO: check error
