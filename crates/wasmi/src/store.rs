@@ -88,6 +88,7 @@ mod snapshot {
         Linker,
         Module,
     };
+    use crate::engine::bytecode::Instruction;
 
     impl<T> Store<T> {
         pub fn make_snapshot(&self, instance: Instance, pc: u32) -> SnapshotV0 {
@@ -122,14 +123,19 @@ mod snapshot {
             entity.make_snapshot(self)
         }
 
-        // TODO: check
+        // TODO: check error
         /// Make a engine level snapshot.
         pub fn make_engine_snapshot(&self) -> EngineSnapshot {
             let engine = self.engine.inner.lock();
             engine.make_snapshot()
         }
 
-        // TODO: check
+        pub fn instructions_ref(&self) -> &[Instruction] {
+            let engine = self.engine.inner.lock();
+            engine.instructions_ref()
+        }
+
+        // TODO: check error
         pub fn restore_engine(&mut self, snapshot: &EngineSnapshot, instance: Instance) {
             let mut engine = self.engine.inner.lock();
             engine.restore_engine(snapshot, instance)

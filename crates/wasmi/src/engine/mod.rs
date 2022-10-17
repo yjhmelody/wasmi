@@ -286,6 +286,10 @@ mod snapshot {
             self.into()
         }
 
+        pub fn instructions_ref(&self) -> &[Instruction] {
+            &self.code_map.insts
+        }
+
         /// Restore engine state from snapshot.
         ///
         /// # Note
