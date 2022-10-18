@@ -1,5 +1,9 @@
+use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType};
+use codec::{Decode, Encode, Output};
+use wasmi_core::{UntypedValue, ValueType};
+
 use crate::{
-    engine::bytecode::Instruction,
+    engine::{bytecode::Instruction, code_map::CodeMap},
     snapshot::{
         CallStackSnapshot,
         EngineConfig,
@@ -9,22 +13,65 @@ use crate::{
     },
     GlobalEntity,
 };
-use codec::{Decode, Encode, Output};
-
-use crate::engine::code_map::CodeMap;
-use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType};
-use wasmi_core::UntypedValue;
 
 impl EngineSnapshot {
-    pub fn make_proof(&self) -> EngineProof {
-        todo!()
+    pub fn make_proof(&self, current_pc: u32) -> EngineProof {
+        // TODO: config this size
+        let value_proof = self.values.make_proof(10);
+        let call_proof = self.frames.make_proof();
+
+        EngineProof {
+            config: self.config.clone(),
+            // next_inst,
+            value_proof,
+            call_proof,
+        }
     }
 }
 
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct EngineProof {
-    config: EngineConfig,
-    value_proof: ValueStackProof,
-    call_proof: CallStackProof,
+    pub config: EngineConfig,
+    // pub next_inst: InstructionProof,
+    pub value_proof: ValueStackProof,
+    pub call_proof: CallStackProof,
+}
+
+#[derive(Encode, Debug, Clone, Eq, PartialEq)]
+pub struct InstructionProof {
+    current_pc: u32,
+    inst: Instruction,
+    extra: ExtraProof,
+}
+
+impl CodeMap {
+    pub fn make_inst_proof(&self, current_pc: u32) -> InstructionProof {
+        let inst = self.insts[current_pc as usize];
+        let extra = match inst {
+            Instruction::CallIndirect(idx) => {
+                todo!()
+            }
+            _ => ExtraProof::Empty,
+        };
+        InstructionProof {
+            current_pc,
+            inst,
+            extra,
+        }
+    }
+}
+
+/// This struct contains extra proof data needed for some special instructions.
+#[derive(Encode, Debug, Clone, Eq, PartialEq)]
+pub enum ExtraProof {
+    Empty,
+    CallIndirect(FuncType),
+}
+
+#[derive(Encode, Debug, Clone, Eq, PartialEq)]
+pub struct FuncType {
+    params: Vec<ValueType>,
+    results: Vec<ValueType>,
 }
 
 impl ValueStackSnapshot {
@@ -32,8 +79,7 @@ impl ValueStackSnapshot {
     ///
     /// Keep the top N stack value original and not be part of hash.
     pub fn make_proof(&self, keep_len: usize) -> ValueStackProof {
-        debug_assert!(self.entries.len() >= keep_len);
-        let len = self.entries.len() - keep_len;
+        let len = self.entries.len().saturating_sub(keep_len);
 
         // Note: we scan the stack from bottom to top.
         let mut h = Keccak256::new();
@@ -73,30 +119,24 @@ impl CallStackSnapshot {
         });
 
         let frames_hash = h.finalize().into();
-        CallStackProof {
-            frames_hash,
-            recursion_limit: self.recursion_limit,
-        }
+        CallStackProof { frames_hash }
     }
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct CallStackProof {
-    /// The call stack.
+    /// The call stack hash.
     pub frames_hash: Bytes32,
-    /// The maximum allowed depth of the `frames` stack.
-    pub recursion_limit: u32,
 }
 
 // Note: For static state(such as instructions), we just need to generate merkle once and keep it in memory.
 
-impl CodeMap {
-    pub fn merkle(&self) -> Merkle {
-        Merkle::new(
-            MerkleType::Instruction,
-            self.insts.iter().map(|i| i.to_bytes32()).collect(),
-        )
-    }
+/// Generate a merkle for instructions.
+pub fn instructions_merkle(insts: &[Instruction]) -> Merkle {
+    Merkle::new(
+        MerkleType::Instruction,
+        insts.iter().map(|i| i.to_bytes32()).collect(),
+    )
 }
 
 impl Encode for Instruction {
@@ -272,6 +312,7 @@ impl Encode for Instruction {
 
             Instruction::Call(idx) => idx.into_inner().encode_to(dest),
 
+            // TODO: update this instruction for wasm2.0
             Instruction::CallIndirect(idx) => idx.into_inner().encode_to(dest),
 
             Instruction::GlobalGet(idx) | Instruction::GlobalSet(idx) => {

@@ -15,6 +15,7 @@ pub struct EngineSnapshot {
     pub values: ValueStackSnapshot,
     /// The frame stack.
     pub frames: CallStackSnapshot,
+    // // TODO: maybe use COW
     // /// The engine instructions.
     // pub insts: Vec<Instruction>,
 }
@@ -41,8 +42,6 @@ pub struct ValueStackSnapshot {
 pub struct CallStackSnapshot {
     /// The call stack featuring the function frames in order.
     pub frames: Vec<FuncFrameSnapshot>,
-    /// The maximum allowed depth of the `frames` stack.
-    pub recursion_limit: u32,
 }
 
 /// A function frame of a function on the call stack.

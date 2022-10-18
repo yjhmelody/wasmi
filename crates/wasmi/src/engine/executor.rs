@@ -706,6 +706,8 @@ impl<'ctx, 'engine, 'func, HostData> Executor<'ctx, 'engine, 'func, HostData> {
 
     fn branch_to(&mut self, params: BranchParams) {
         self.value_stack.drop_keep(params.drop_keep());
+        // TODO: maybe meet segment fault when used for prover.
+        // Because the op code may be illegal.
         self.ip_add(params.offset().into_i32() as isize)
     }
 
@@ -789,6 +791,8 @@ impl<'ctx, 'engine, 'func, HostData> Executor<'ctx, 'engine, 'func, HostData> {
         // A normalized index will always yield a target without panicking.
         let normalized_index = cmp::min(index as usize, max_index);
         // Update `pc`:
+        // TODO: maybe meet segment fault when used for prover.
+        // Because the op code may be illegal.
         unsafe {
             self.ip.offset((normalized_index + 1) as isize);
         }

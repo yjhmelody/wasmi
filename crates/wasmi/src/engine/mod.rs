@@ -273,10 +273,8 @@ mod snapshot {
                     entries,
                     // maximum_len: engine.stack.values.maximum_len() as u32,
                 },
-                frames: CallStackSnapshot {
-                    recursion_limit: engine.stack.frames.recursion_limit() as u32,
-                    frames,
-                },
+                frames: CallStackSnapshot { frames },
+                // insts: engine.code_map.insts.clone(),
             }
         }
     }
@@ -301,7 +299,8 @@ mod snapshot {
             // restore config first
             self.config.stack_limits.maximum_recursion_depth =
                 snapshot.config.maximum_recursion_depth as usize;
-            let limits = self.config.stack_limits;
+
+            let limits = &self.config.stack_limits;
 
             let mut values = ValueStack::new(
                 limits.initial_value_stack_height,
@@ -343,6 +342,7 @@ mod step {
     pub enum StepResult<Results> {
         /// The results of step call.
         Results(Results),
+        // TODO: pass result by params
         /// engine stopped at current pc.
         RunOutOfStep(u32),
     }
