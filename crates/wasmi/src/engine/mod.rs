@@ -463,6 +463,7 @@ mod step {
                 Some(n) => n,
             };
 
+            // TODO: we need to consider the last instruction return value as parts of proof.
             'outer: loop {
                 match self.execute_frame_step(ctx.as_context_mut(), frame, cache, &mut n) {
                     Ok(CallOutcome::Return) => match self.stack.return_wasm() {

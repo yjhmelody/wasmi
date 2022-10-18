@@ -50,3 +50,15 @@ pub struct FuncFrameSnapshot {
     /// The current value of the program counter.
     pub pc: u32,
 }
+
+impl From<u32> for FuncFrameSnapshot {
+    fn from(pc: u32) -> Self {
+        Self { pc }
+    }
+}
+
+impl From<usize> for FuncFrameSnapshot {
+    fn from(pc: usize) -> Self {
+        Self { pc: pc as u32 }
+    }
+}
