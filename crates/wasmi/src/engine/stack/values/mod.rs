@@ -88,10 +88,6 @@ impl ValueStack {
         &self.entries[..self.stack_ptr]
     }
 
-    pub fn maximum_len(&self) -> usize {
-        self.maximum_len
-    }
-
     /// Creates a new empty [`ValueStack`].
     ///
     /// # Panics

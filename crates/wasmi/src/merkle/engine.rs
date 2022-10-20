@@ -1,9 +1,13 @@
+use core::fmt::Debug;
+
 use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType};
-use codec::{Decode, Encode, Output};
 use wasmi_core::{UntypedValue, ValueType};
+
+use codec::{Codec, Decode, Encode, Output};
 
 use crate::{
     engine::{bytecode::Instruction, code_map::CodeMap},
+    merkle::MEMORY_LEAF_SIZE,
     snapshot::{
         CallStackSnapshot,
         EngineConfig,
@@ -15,10 +19,11 @@ use crate::{
 };
 
 impl EngineSnapshot {
-    pub fn make_proof(&self, current_pc: u32) -> EngineProof {
+    pub fn make_proof(&self, inst_info: InstructionInfo) -> EngineProof {
         // TODO: config this size
-        let value_proof = self.values.make_proof(10);
-        let call_proof = self.frames.make_proof();
+        // TODO: arb always use 3. But we could use different len for different instructions.
+        let value_proof = self.values.make_proof(3);
+        let call_proof = self.frames.make_proof(1);
 
         EngineProof {
             config: self.config.clone(),
@@ -27,6 +32,11 @@ impl EngineSnapshot {
             call_proof,
         }
     }
+}
+
+pub struct InstructionInfo {
+    pub pc: u32,
+    pub inst: Instruction,
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
@@ -39,33 +49,58 @@ pub struct EngineProof {
 
 #[derive(Encode, Debug, Clone, Eq, PartialEq)]
 pub struct InstructionProof {
-    current_pc: u32,
-    inst: Instruction,
-    extra: ExtraProof,
+    pub(crate) current_pc: u32,
+    pub(crate) inst: Instruction,
+    pub(crate) extra: ExtraProof,
 }
 
-impl CodeMap {
-    pub fn make_inst_proof(&self, current_pc: u32) -> InstructionProof {
-        let inst = self.insts[current_pc as usize];
-        let extra = match inst {
-            Instruction::CallIndirect(idx) => {
-                todo!()
-            }
-            _ => ExtraProof::Empty,
-        };
-        InstructionProof {
-            current_pc,
-            inst,
-            extra,
-        }
-    }
-}
+// pub fn make_inst_proof(
+//     engine: &EngineProof,
+//     insts: &[Instruction],
+//     current_pc: u32,
+// ) -> InstructionProof {
+//     let inst = insts[current_pc as usize];
+//     let extra = match inst {
+//         Instruction::CallIndirect(idx) => {
+//             let func_index: u32 = engine.value_proof.last_as();
+//             todo!()
+//         }
+//         Instruction::GlobalGet(idx) => {}
+//         _ => ExtraProof::Empty,
+//     };
+//     InstructionProof {
+//         current_pc,
+//         inst,
+//         extra,
+//     }
+// }
 
 /// This struct contains extra proof data needed for some special instructions.
 #[derive(Encode, Debug, Clone, Eq, PartialEq)]
 pub enum ExtraProof {
     Empty,
+    GlobalGetSet(UntypedValue, Vec<u8>),
+    MemoryStoreSibling(MemoryStoreSibling),
+    MemoryStore(MemoryStore),
     CallIndirect(FuncType),
+}
+
+/// The contains a proof that a memory store instruction touch two leaves which have `not` same parent.
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct MemoryStoreSibling {
+    pub leaf: [u8; MEMORY_LEAF_SIZE],
+    pub next_leaf: [u8; MEMORY_LEAF_SIZE],
+    pub prove_data: Vec<u8>,
+    pub leaf_sibling: Bytes32,
+    pub next_leaf_sibling: Bytes32,
+}
+
+/// The contains a proof that a memory store instruction touch two leaves which have same parent.
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct MemoryStore {
+    pub leaf: [u8; MEMORY_LEAF_SIZE],
+    pub next_leaf: [u8; MEMORY_LEAF_SIZE],
+    pub prove_data: Vec<u8>,
 }
 
 #[derive(Encode, Debug, Clone, Eq, PartialEq)]
@@ -76,7 +111,7 @@ pub struct FuncType {
 
 // TODO: borrowed from arb. Need to consider a new design?
 // TODO: need to know the solidity keccak256 api usage firstly.
-fn hash_stack<I, D>(stack: I, init_hash: Bytes32) -> Bytes32
+fn hash_stack_with_init<I, D>(stack: I, init_hash: Bytes32) -> Bytes32
 where
     I: IntoIterator<Item = D>,
     D: AsRef<[u8]>,
@@ -92,14 +127,9 @@ where
     hash
 }
 
-fn hash_value_stack(stack: &[UntypedValue]) -> Bytes32 {
+fn hash_stack<V: Encode>(stack: &[V]) -> Bytes32 {
     let iter = stack.iter().map(|v| v.encode());
-    hash_stack(iter, Default::default())
-}
-
-fn hash_call_stack(stack: &[FuncFrameSnapshot]) -> Bytes32 {
-    let iter = stack.iter().map(|v| v.encode());
-    hash_stack(iter, Default::default())
+    hash_stack_with_init(iter, Default::default())
 }
 
 impl ValueStackSnapshot {
@@ -107,92 +137,141 @@ impl ValueStackSnapshot {
     ///
     /// Keep the top N stack value original and not be part of hash.
     pub fn make_proof(&self, keep_len: usize) -> ValueStackProof {
+        // TODO: return error ?
+        debug_assert!(keep_len > 0);
         let len = self.entries.len().saturating_sub(keep_len);
         let (bottoms, tops) = self.entries.split_at(len);
-        let remaining_hash = hash_value_stack(bottoms);
+        let remaining_hash = hash_stack(bottoms);
         let entries = tops.iter().copied().collect();
 
-        // Note: we scan the stack from bottom to top.
-        // let mut h = Keccak256::new();
-        // let mut entries = Vec::with_capacity(keep_len);
-        // for (i, val) in self.entries.iter().enumerate() {
-        //     if i >= len {
-        //         entries.push(val.clone());
-        //     } else {
-        //         h.update(val.to_bits().to_le_bytes());
-        //     }
-        // }
-        // let remaining_hash = h.finalize().into();
-
-        ValueStackProof {
+        ValueStackProof(StackProof {
             entries,
             remaining_hash,
-        }
+        })
     }
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct ValueStackProof {
+pub struct StackProof<T> {
     /// The hash of entries excepting the top N.
     pub remaining_hash: Bytes32,
     /// The top N entries in value stack.
     ///
     /// These entries will be used when execute osp.
-    pub entries: Vec<UntypedValue>,
+    pub entries: Vec<T>,
 }
 
-impl ValueStackProof {
+impl<T> StackProof<T>
+where
+    T: Codec,
+{
     /// Returns the finally hash.
     pub fn hash(&self) -> Bytes32 {
-        hash_stack(self.entries.iter().map(|v| v.encode()), self.remaining_hash)
+        hash_stack_with_init(self.entries.iter().map(|v| v.encode()), self.remaining_hash)
+    }
+
+    /// Pop and return the last value. Panic if len is 0.
+    pub fn pop(&mut self) -> T {
+        self.entries.pop().expect("Must exist")
+    }
+
+    /// Note: depth must be great than 0.
+    pub fn peek(&self, depth: usize) -> &T {
+        let len = self.entries.len();
+        &self.entries[len - depth]
+    }
+
+    // Panic if len is 0.
+    pub fn last(&self) -> &T {
+        self.peek(1)
+    }
+
+    /// Panic if len is less than depth.
+    pub fn peek_mut(&mut self, depth: usize) -> &mut T {
+        let len = self.entries.len();
+        &mut self.entries[len - depth]
+    }
+
+    pub fn push(&mut self, val: T) {
+        self.entries.push(val)
+    }
+}
+
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct ValueStackProof(pub(crate) StackProof<UntypedValue>);
+
+impl ValueStackProof {
+    pub fn hash(&self) -> Bytes32 {
+        self.0.hash()
+    }
+
+    pub fn pop(&mut self) -> UntypedValue {
+        self.0.pop()
+    }
+
+    pub fn pop_as<T>(&mut self) -> T
+    where
+        T: From<UntypedValue>,
+    {
+        T::from(self.pop())
+    }
+
+    pub fn peek(&self, depth: usize) -> &UntypedValue {
+        self.0.peek(depth)
+    }
+
+    pub fn last(&self) -> &UntypedValue {
+        self.0.last()
+    }
+
+    // Panic if len is 0.
+    pub fn last_as<T>(&self) -> T
+    where
+        T: From<UntypedValue>,
+    {
+        T::from(self.last().clone())
+    }
+
+    pub fn peek_mut(&mut self, depth: usize) -> &mut UntypedValue {
+        self.0.peek_mut(depth)
+    }
+
+    pub fn push(&mut self, val: UntypedValue) {
+        self.0.push(val)
     }
 }
 
 impl CallStackSnapshot {
     // TODO: should consider current pc as part of proof ?
-    pub fn make_proof(&self) -> CallStackProof {
-        let mut h = Keccak256::new();
-        self.frames.iter().for_each(|frame| {
-            h.update(frame.encode());
-        });
+    pub fn make_proof(&self, keep_len: usize) -> CallStackProof {
+        debug_assert!(keep_len > 0);
+        let len = self.frames.len().saturating_sub(keep_len);
+        let (bottoms, tops) = self.frames.split_at(len);
+        let remaining_hash = hash_stack(bottoms);
+        let entries = tops.iter().map(|f| f.clone()).collect();
 
-        if self.frames.is_empty() {
-            return CallStackProof {
-                remaining_hash: Bytes32::default(),
-                frame: None,
-            };
-        }
-
-        let top_frame = self
-            .frames
-            .last()
-            .expect("frames len must not be zero; qed");
-        let (bottoms, _) = self.frames.split_at(self.frames.len() - 1);
-        let remaining_hash = hash_call_stack(bottoms);
-
-        CallStackProof {
+        CallStackProof(StackProof {
             remaining_hash,
-            frame: Some(top_frame.clone()),
-        }
+            entries,
+        })
     }
 }
 
-// TODO: need to consider more.
+// TODO: need to consider more, maybe contain the current pc in it.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct CallStackProof {
-    /// The call stack hash excepting the top 1.
-    pub(crate) remaining_hash: Bytes32,
-    /// The top 1 frame in call stack.
-    pub(crate) frame: Option<FuncFrameSnapshot>,
-}
+pub struct CallStackProof(pub StackProof<FuncFrameSnapshot>);
 
 impl CallStackProof {
-    /// Returns the finally hash.
     pub fn hash(&self) -> Bytes32 {
-        match &self.frame {
-            None => self.remaining_hash,
-            Some(frame) => hash_stack(&[frame.encode()], self.remaining_hash),
-        }
+        self.0.hash()
+    }
+
+    pub fn push(&mut self, val: FuncFrameSnapshot) {
+        self.0.push(val)
+    }
+
+    pub fn pop(&mut self) -> FuncFrameSnapshot {
+        self.0.pop()
     }
 }
 
@@ -213,7 +292,7 @@ mod tests {
             ],
         };
 
-        for i in 0..snapshot.entries.len() - 1 {
+        for i in 1..snapshot.entries.len() - 1 {
             let a = snapshot.make_proof(i);
             let b = snapshot.make_proof(i + 1);
 
@@ -231,9 +310,12 @@ mod tests {
             ],
         };
 
-        let proof = snapshot.make_proof();
-        let hash = hash_call_stack(&snapshot.frames);
-        assert_eq!(proof.hash(), hash);
+        for i in 1..snapshot.frames.len() - 1 {
+            let a = snapshot.make_proof(i);
+            let b = snapshot.make_proof(i + 1);
+
+            assert_eq!(a.hash(), b.hash(), "call stack finally hash must be equal")
+        }
     }
 }
 

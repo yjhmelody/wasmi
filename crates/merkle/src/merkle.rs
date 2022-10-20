@@ -139,6 +139,28 @@ impl Merkle {
         Some(proof)
     }
 
+    /// A variant prove that not contains the leaf node.
+    pub fn prove_without_leaf(&self, mut idx: usize) -> Option<Vec<u8>> {
+        if idx >= self.leaves().len() {
+            return None;
+        }
+        let mut proof = vec![];
+        for (layer_i, layer) in self.layers.iter().enumerate() {
+            if layer_i == self.layers.len() - 1 {
+                break;
+            }
+            let counterpart = idx ^ 1;
+            proof.extend(
+                layer
+                    .get(counterpart)
+                    .cloned()
+                    .unwrap_or_else(|| self.empty_layers[layer_i]),
+            );
+            idx >>= 1;
+        }
+        Some(proof)
+    }
+
     pub fn set(&mut self, mut idx: usize, hash: Bytes32) {
         if self.layers[0][idx] == hash {
             return;

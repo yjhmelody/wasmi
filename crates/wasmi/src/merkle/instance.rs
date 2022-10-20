@@ -5,7 +5,7 @@ use crate::{
 use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType};
 use codec::Encode;
 
-const MEMORY_LEAF_SIZE: usize = 32;
+pub const MEMORY_LEAF_SIZE: usize = 32;
 /// The number of layers in the memory merkle tree
 /// 1 + log2(2^32 / LEAF_SIZE) = 1 + log2(2^(32 - log2(LEAF_SIZE))) = 1 + 32 - 5
 const MEMORY_LAYERS: usize = 1 + 32 - 5;

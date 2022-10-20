@@ -8,6 +8,7 @@ pub mod executor;
 mod func_args;
 mod func_builder;
 mod func_types;
+mod inst_executor;
 pub mod stack;
 mod traits;
 
@@ -622,6 +623,127 @@ mod step {
             };
             let results = self.write_results_back(signature, results);
             Ok(StepResult::Results(results))
+        }
+    }
+}
+
+mod proof {
+    use super::*;
+    use crate::{
+        merkle::{
+            get_memory_leaf,
+            EngineProof,
+            ExtraProof,
+            InstructionProof,
+            MemoryStore,
+            MemoryStoreSibling,
+            MEMORY_LEAF_SIZE,
+        },
+        AsContext,
+        Global,
+        Instance,
+        Store,
+    };
+    use accel_merkle::Merkle;
+
+    impl EngineInner {
+        pub fn make_inst_proof<T>(
+            &self,
+            store: &mut Store<T>,
+            current_pc: u32,
+            instance: Instance,
+            // TODO: pass by some other ways
+            global_merkle: &Merkle,
+            memory_merkle: &Merkle,
+            cache: &mut InstanceCache,
+        ) -> InstructionProof {
+            let inst = self.code_map.insts[current_pc as usize];
+            let extra = match inst {
+                Instruction::CallIndirect(idx) => {
+                    // let func_index: u32 = self.stack.values;
+                    todo!()
+                }
+                Instruction::GlobalSet(idx) | Instruction::GlobalGet(idx) => {
+                    let idx = idx.into_inner();
+                    let global = cache.get_global(store.as_context_mut(), idx).clone();
+
+                    // TODO: opt: use cached merkle here
+                    // TODO: return error
+                    let prove_data = global_merkle
+                        .prove(idx as usize)
+                        .expect("the global index must be legal in merkle");
+                    ExtraProof::GlobalGetSet(global, prove_data)
+                    // let global = store.resolve_instance(instance)
+                    //     .get_global(index);
+                }
+                // Note: we use our own design here.
+                Instruction::I32Load(offset)
+                | Instruction::I64Load(offset)
+                | Instruction::F32Load(offset)
+                | Instruction::F64Load(offset)
+                | Instruction::I32Load8S(offset)
+                | Instruction::I32Load8U(offset)
+                | Instruction::I32Load16S(offset)
+                | Instruction::I32Load16U(offset)
+                | Instruction::I64Load8S(offset)
+                | Instruction::I64Load8U(offset)
+                | Instruction::I64Load16S(offset)
+                | Instruction::I64Load16U(offset)
+                | Instruction::I64Load32S(offset)
+                | Instruction::I64Load32U(offset) => ExtraProof::Empty,
+                Instruction::I32Store(offset)
+                | Instruction::I64Store(offset)
+                | Instruction::F32Store(offset)
+                | Instruction::F64Store(offset)
+                | Instruction::I32Store8(offset)
+                | Instruction::I32Store16(offset)
+                | Instruction::I64Store8(offset)
+                | Instruction::I64Store16(offset)
+                | Instruction::I64Store32(offset) => {
+                    let offset = offset.into_inner() as u64;
+                    let entries = self.stack.values.entries();
+                    let top = self.stack.values.len() - 1;
+                    let val = entries[top];
+                    let base = entries[top - 1].to_bits();
+                    // TODO: handle error
+                    let mut idx = base.checked_add(offset).expect("") as usize;
+
+                    idx /= MEMORY_LEAF_SIZE;
+                    let memory = cache.default_memory(store.as_context_mut());
+                    let memory = store.resolve_memory(memory);
+                    let leaf = get_memory_leaf(memory, idx);
+                    let next_leaf_idx = idx.saturating_add(1);
+                    let next_leaf = get_memory_leaf(memory, next_leaf_idx);
+                    let prove_data = memory_merkle.prove_without_leaf(idx).expect("must exist");
+                    // if the number is odd
+                    if idx % 2 == 1 {
+                        let leaf_sibling = memory_merkle.leaves()[idx - 1];
+                        let next_leaf_sibling =
+                            memory_merkle.leaves()[next_leaf_idx.saturating_add(1)];
+                        ExtraProof::MemoryStoreSibling(MemoryStoreSibling {
+                            leaf,
+                            next_leaf,
+                            prove_data,
+                            leaf_sibling,
+                            next_leaf_sibling,
+                        })
+                    } else {
+                        ExtraProof::MemoryStore(MemoryStore {
+                            leaf,
+                            next_leaf,
+                            prove_data,
+                        })
+                    }
+                }
+                // TODO: arb do not have this, but I think they are missing it.
+                Instruction::MemoryGrow => ExtraProof::Empty,
+                _ => ExtraProof::Empty,
+            };
+            InstructionProof {
+                current_pc,
+                inst,
+                extra,
+            }
         }
     }
 }
