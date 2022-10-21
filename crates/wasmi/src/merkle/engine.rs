@@ -36,7 +36,6 @@ impl EngineSnapshot {
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct EngineProof {
     pub config: EngineConfig,
-    // pub next_inst: InstructionProof,
     pub value_proof: ValueStackProof,
     pub call_proof: CallStackProof,
 }

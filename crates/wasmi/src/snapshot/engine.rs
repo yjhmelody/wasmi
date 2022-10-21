@@ -15,9 +15,6 @@ pub struct EngineSnapshot {
     pub values: ValueStackSnapshot,
     /// The frame stack.
     pub frames: CallStackSnapshot,
-    // // TODO: maybe use COW
-    // /// The engine instructions.
-    // pub insts: Vec<Instruction>,
 }
 
 // TODO: consider some inherent configs.
@@ -33,8 +30,6 @@ pub struct EngineConfig {
 pub struct ValueStackSnapshot {
     /// All currently live stack entries.
     pub entries: Vec<UntypedValue>,
-    // /// The maximum value stack height.
-    // pub maximum_len: u32,
 }
 
 /// The live function call stack storing the live function activation frames.
