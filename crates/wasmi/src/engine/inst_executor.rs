@@ -38,6 +38,7 @@ impl InstExecutor {
 
             Instr::Call(func) => self.visit_call(func),
             Instr::CallIndirect(signature) => self.visit_call_indirect(signature),
+            Instr::BrTable {len_targets} => self.visit_br_table(len_targets),
 
             _ => todo!(),
         }
@@ -81,23 +82,30 @@ impl InstExecutor {
         self.next_instr()
     }
 
-    fn visit_call(&mut self, func_index: FuncIdx) {
-        // now it point to the next instruction after call.
-        self.next_instr();
-        // let _ = self.call_stack().pop();
+    fn visit_br_table(&mut self, len_targets: usize) {
+        let index: u32 = self.value_stack().pop_as();
+        // The index of the default target which is the last target of the slice.
+        let max_index = len_targets - 1;
+        // A normalized index will always yield a target without panicking.
+        let normalized_index = cmp::min(index as usize, max_index);
+
+        self.set_pc(self.pc() + normalized_index + 1);
+    }
+
+    fn visit_call(&mut self, _func_index: FuncIdx) {
         // update current frame pc
         let pc = self.pc();
-        self.call_stack().push(FuncFrameSnapshot::from(pc));
+        self.call_stack().push(FuncFrameSnapshot::from(pc + 1));
         match &self.inst.extra {
             ExtraProof::CallWasm(pc) => {
                 self.set_pc(*pc);
             }
             ExtraProof::CallHost => {
+                // nop
                 // TODO
             }
             _ => unreachable!(),
         }
-        todo!()
     }
 
     fn visit_call_indirect(&mut self, signature_index: SignatureIdx) {

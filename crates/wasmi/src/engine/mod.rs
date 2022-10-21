@@ -701,7 +701,7 @@ mod proof {
                         FuncEntityInternal::Host(host_func) => {
                             // let signature = host_func.signature();
                             // let func_type = self.func_types.resolve_func_type(signature);
-
+                            // TODO
                             ExtraProof::CallHost
                         }
                     }

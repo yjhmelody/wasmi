@@ -105,7 +105,6 @@ mod merkle;
 mod module;
 mod store;
 mod table;
-// mod inst_executor;
 
 /// Definitions from the `wasmi_core` crate.
 #[doc(inline)]
