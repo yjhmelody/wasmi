@@ -38,7 +38,7 @@ impl InstExecutor {
 
             Instr::Call(func) => self.visit_call(func),
             Instr::CallIndirect(signature) => self.visit_call_indirect(signature),
-            Instr::BrTable {len_targets} => self.visit_br_table(len_targets),
+            Instr::BrTable { len_targets } => self.visit_br_table(len_targets),
 
             _ => todo!(),
         }
