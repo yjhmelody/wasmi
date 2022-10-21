@@ -1,6 +1,4 @@
 //! Engine level snapshot.
-use crate::engine::{bytecode::Instruction, code_map::CodeMap};
-use accel_merkle::Bytes32;
 use codec::{Decode, Encode};
 use wasmi_core::UntypedValue;
 

@@ -3,10 +3,10 @@ use core::fmt::Debug;
 use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType};
 use wasmi_core::{UntypedValue, ValueType};
 
-use codec::{Codec, Decode, Encode, Output};
+use codec::{Codec, Decode, Encode, Error, Input, Output};
 
 use crate::{
-    engine::{bytecode::Instruction, code_map::CodeMap},
+    engine::bytecode::Instruction,
     merkle::MEMORY_LEAF_SIZE,
     snapshot::{
         CallStackSnapshot,
@@ -15,7 +15,6 @@ use crate::{
         FuncFrameSnapshot,
         ValueStackSnapshot,
     },
-    GlobalEntity,
 };
 
 impl EngineSnapshot {
@@ -54,11 +53,15 @@ pub struct InstructionProof {
 /// This struct contains extra proof data needed for some special instructions.
 #[derive(Encode, Debug, Clone, Eq, PartialEq)]
 pub enum ExtraProof {
+    /// Now we do not support extra proof for host function.
+    CallHost,
     Empty,
     GlobalGetSet(UntypedValue, Vec<u8>),
     MemoryStoreNeighbor(MemoryStoreNeighbor),
     MemoryStoreSibling(MemoryStoreSibling),
-    // TODO: maybe still need some other data
+    /// The pc that call jump to.
+    CallWasm(u32),
+    // TODO: Still need to design this proof.
     CallIndirect(FuncType),
 }
 
@@ -308,6 +311,7 @@ mod tests {
 // Note: For static state(such as instructions), we just need to generate merkle once and keep it in memory.
 
 /// Generate a merkle for instructions.
+#[allow(unused)]
 pub fn instructions_merkle(insts: &[Instruction]) -> Merkle {
     Merkle::new(
         MerkleType::Instruction,
@@ -523,6 +527,24 @@ impl Encode for Instruction {
         }
     }
 }
+
+// impl Decode for Instruction {
+//     fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
+//         let b1 = input.read_byte()? as u16;
+//         let b2 = input.read_byte()? as u16;
+//         let repr = b2 << 16 | b1;
+//         let inst = match repr {
+//             0x00 => Instruction::Unreachable,
+//             ox0C => {
+//
+//             }
+//
+//             _ => todo!(),
+//         };
+//
+//         Ok(inst)
+//     }
+// }
 
 impl Instruction {
     // TODO: since instruction is less than byte32, should we keep the origin content as hash?

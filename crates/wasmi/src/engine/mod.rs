@@ -270,12 +270,8 @@ mod snapshot {
                 config: EngineConfig {
                     maximum_recursion_depth,
                 },
-                values: ValueStackSnapshot {
-                    entries,
-                    // maximum_len: engine.stack.values.maximum_len() as u32,
-                },
+                values: ValueStackSnapshot { entries },
                 frames: CallStackSnapshot { frames },
-                // insts: engine.code_map.insts.clone(),
             }
         }
     }
@@ -635,20 +631,15 @@ mod proof {
         engine::bytecode::Offset,
         merkle::{
             get_memory_leaf,
-            EngineProof,
             ExtraProof,
+            InstanceMerkle,
             InstructionProof,
             MemoryStoreNeighbor,
             MemoryStoreSibling,
             MEMORY_LEAF_SIZE,
         },
-        AsContext,
-        Global,
         Instance,
-        MemoryEntity,
-        Store,
     };
-    use accel_merkle::Merkle;
 
     #[derive(Debug)]
     pub enum ProofError {
@@ -666,15 +657,14 @@ mod proof {
     impl Engine {
         pub fn make_inst_proof(
             &self,
-            mut store: impl AsContextMut,
+            store: impl AsContextMut,
             current_pc: u32,
-            global_merkle: &Merkle,
-            memory_merkle: Option<&Merkle>,
+            instance_merkle: &InstanceMerkle,
             instance: Instance,
         ) -> Result<InstructionProof, ProofError> {
             let engine = self.inner.lock();
             let mut cache = InstanceCache::from(instance);
-            engine.make_inst_proof(store, current_pc, global_merkle, memory_merkle, &mut cache)
+            engine.make_inst_proof(store, current_pc, instance_merkle, &mut cache)
         }
     }
 
@@ -683,13 +673,40 @@ mod proof {
             &self,
             mut store: impl AsContextMut,
             current_pc: u32,
-            // TODO: pass by some other ways
-            global_merkle: &Merkle,
-            memory_merkle: Option<&Merkle>,
+            instance_merkle: &InstanceMerkle,
             cache: &mut InstanceCache,
         ) -> Result<InstructionProof, ProofError> {
             let inst = self.code_map.insts[current_pc as usize];
             let extra = match inst {
+                Instruction::Call(func_idx) => {
+                    let func_idx = func_idx.into_inner();
+                    let func = cache
+                        .instance()
+                        .get_func(store.as_context(), func_idx)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing func at index {} for instance: {:?}",
+                                func_idx,
+                                cache.instance()
+                            )
+                        });
+
+                    match func.as_internal(store.as_context()) {
+                        FuncEntityInternal::Wasm(entity) => {
+                            let body = entity.func_body();
+                            let header = self.code_map.header(body);
+                            let next_pc = header.start();
+                            ExtraProof::CallWasm(next_pc as u32)
+                        }
+                        FuncEntityInternal::Host(host_func) => {
+                            // let signature = host_func.signature();
+                            // let func_type = self.func_types.resolve_func_type(signature);
+
+                            ExtraProof::CallHost
+                        }
+                    }
+                }
+
                 Instruction::CallIndirect(idx) => {
                     let len = self.stack.values.len();
                     let func_index = u32::from(self.stack.values.entries()[len - 1]);
@@ -708,7 +725,8 @@ mod proof {
                     // TODO: this should be as_context
                     let global = cache.get_global(store.as_context_mut(), idx).clone();
 
-                    let prove_data = global_merkle
+                    let prove_data = instance_merkle
+                        .globals
                         .prove(idx as usize)
                         .ok_or(ProofError::GlobalNotFound)?;
 
@@ -739,7 +757,10 @@ mod proof {
                 | Instruction::I64Store16(offset)
                 | Instruction::I64Store32(offset) => {
                     // Wasm module must import memory when meet these instruction.
-                    let memory_merkle = memory_merkle.ok_or(ProofError::MemoryNotImported)?;
+                    let memory_merkle = instance_merkle
+                        .memories
+                        .first()
+                        .ok_or(ProofError::MemoryNotImported)?;
 
                     let is_store = matches!(
                         inst,

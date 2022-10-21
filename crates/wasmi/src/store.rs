@@ -145,7 +145,10 @@ mod snapshot {
 
 mod proof {
     use super::*;
-    use crate::{engine::ProofError, merkle::InstructionProof};
+    use crate::{
+        engine::ProofError,
+        merkle::{InstanceMerkle, InstructionProof},
+    };
 
     impl<T> Store<T> {
         pub fn make_inst_proof(
@@ -156,14 +159,12 @@ mod proof {
             let instance_entity = self.resolve_instance(instance);
             let instance_snapshot = instance_entity.make_snapshot(self);
 
-            let memories_merkle = instance_snapshot.memories_merkle();
-            let globals_merkle = instance_snapshot.globals_merkle();
+            let instance_merkle = InstanceMerkle::new_by_snapshot(instance_snapshot);
 
             self.engine().clone().make_inst_proof(
                 self.as_context_mut(),
                 current_pc,
-                &globals_merkle,
-                memories_merkle.first(),
+                &instance_merkle,
                 instance,
             )
         }

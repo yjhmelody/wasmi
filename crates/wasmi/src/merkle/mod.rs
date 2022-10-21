@@ -19,6 +19,7 @@ pub fn get_memory_leaf(memory: &MemoryEntity, leaf_idx: usize) -> [u8; MEMORY_LE
     buf
 }
 
+// TODO: consider functions type as merkle
 #[derive(Debug)]
 pub struct InstanceMerkle {
     pub globals: Merkle,

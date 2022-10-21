@@ -38,6 +38,10 @@ pub struct FuncHeader {
 }
 
 impl FuncHeader {
+    pub fn start(&self) -> usize {
+        self.iref.start
+    }
+
     /// Returns a reference to the instructions of the function.
     pub fn iref(&self) -> InstructionsRef {
         self.iref
