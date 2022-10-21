@@ -757,7 +757,7 @@ fn assert_pc(insts: &[Instruction]) {
     let first_ptr = InstructionPtr::new(&insts[0]);
 
     for (i, inst) in insts.iter().enumerate() {
-        let ptr = InstructionPtr::new(&inst);
+        let ptr = InstructionPtr::new(inst as *const Instruction);
         let pc = ptr.calculate_offset(first_ptr);
         assert_eq!(pc, i);
     }

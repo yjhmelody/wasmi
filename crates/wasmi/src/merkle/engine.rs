@@ -432,25 +432,25 @@ impl Encode for Instruction {
             | Instruction::F64Max
             | Instruction::F64Copysign
             | Instruction::I32WrapI64
-            | Instruction::I32TruncSF32
-            | Instruction::I32TruncUF32
-            | Instruction::I32TruncSF64
-            | Instruction::I32TruncUF64
-            | Instruction::I64ExtendSI32
-            | Instruction::I64ExtendUI32
-            | Instruction::I64TruncSF32
-            | Instruction::I64TruncUF32
-            | Instruction::I64TruncSF64
-            | Instruction::I64TruncUF64
-            | Instruction::F32ConvertSI32
-            | Instruction::F32ConvertUI32
-            | Instruction::F32ConvertSI64
-            | Instruction::F32ConvertUI64
+            | Instruction::I32TruncF32S
+            | Instruction::I32TruncF32U
+            | Instruction::I32TruncF64S
+            | Instruction::I32TruncF64U
+            | Instruction::I64ExtendI32S
+            | Instruction::I64ExtendI32U
+            | Instruction::I64TruncF32S
+            | Instruction::I64TruncF32U
+            | Instruction::I64TruncF64S
+            | Instruction::I64TruncF64U
+            | Instruction::F32ConvertI32S
+            | Instruction::F32ConvertI32U
+            | Instruction::F32ConvertI64S
+            | Instruction::F32ConvertI64U
             | Instruction::F32DemoteF64
-            | Instruction::F64ConvertSI32
-            | Instruction::F64ConvertUI32
-            | Instruction::F64ConvertSI64
-            | Instruction::F64ConvertUI64
+            | Instruction::F64ConvertI32S
+            | Instruction::F64ConvertI32U
+            | Instruction::F64ConvertI64S
+            | Instruction::F64ConvertI64U
             | Instruction::F64PromoteF32
             | Instruction::I32ReinterpretF32
             | Instruction::I64ReinterpretF64
@@ -712,25 +712,25 @@ impl Instruction {
             Instruction::F64Copysign => 0xA6,
 
             Instruction::I32WrapI64 => 0xA7,
-            Instruction::I32TruncSF32 => 0xA8,
-            Instruction::I32TruncUF32 => 0xA9,
-            Instruction::I32TruncSF64 => 0xAA,
-            Instruction::I32TruncUF64 => 0xAB,
-            Instruction::I64ExtendSI32 => 0xAC,
-            Instruction::I64ExtendUI32 => 0xAD,
-            Instruction::I64TruncSF32 => 0xAE,
-            Instruction::I64TruncUF32 => 0xAF,
-            Instruction::I64TruncSF64 => 0xB0,
-            Instruction::I64TruncUF64 => 0xB1,
-            Instruction::F32ConvertSI32 => 0xB2,
-            Instruction::F32ConvertUI32 => 0xB3,
-            Instruction::F32ConvertSI64 => 0xB4,
-            Instruction::F32ConvertUI64 => 0xB5,
+            Instruction::I32TruncF32S => 0xA8,
+            Instruction::I32TruncF32U => 0xA9,
+            Instruction::I32TruncF64S => 0xAA,
+            Instruction::I32TruncF64U => 0xAB,
+            Instruction::I64ExtendI32S => 0xAC,
+            Instruction::I64ExtendI32U => 0xAD,
+            Instruction::I64TruncF32S => 0xAE,
+            Instruction::I64TruncF32U => 0xAF,
+            Instruction::I64TruncF64S => 0xB0,
+            Instruction::I64TruncF64U => 0xB1,
+            Instruction::F32ConvertI32S => 0xB2,
+            Instruction::F32ConvertI32U => 0xB3,
+            Instruction::F32ConvertI64S => 0xB4,
+            Instruction::F32ConvertI64U => 0xB5,
             Instruction::F32DemoteF64 => 0xB6,
-            Instruction::F64ConvertSI32 => 0xB7,
-            Instruction::F64ConvertUI32 => 0xB8,
-            Instruction::F64ConvertSI64 => 0xB9,
-            Instruction::F64ConvertUI64 => 0xBA,
+            Instruction::F64ConvertI32S => 0xB7,
+            Instruction::F64ConvertI32U => 0xB8,
+            Instruction::F64ConvertI64S => 0xB9,
+            Instruction::F64ConvertI64U => 0xBA,
             Instruction::F64PromoteF32 => 0xBB,
             Instruction::I32ReinterpretF32 => 0xBC,
             Instruction::I64ReinterpretF64 => 0xBD,

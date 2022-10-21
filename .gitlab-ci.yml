@@ -7,16 +7,12 @@ stages:
 default:
   retry:
     max: 2
-    when:
-      - runner_system_failure
-      - unknown_failure
-      - api_failure
 
 .docker-env:                       &docker-env
   image:                           "paritytech/ci-linux:staging"
   interruptible:                   true
   tags:
-    - linux-docker-benches
+    - benchmark
 
 .kubernetes-env:                   &kubernetes-env
   image:                           "paritytech/tools:latest"
@@ -86,6 +82,7 @@ wasmtime-benchmark:
     - wasmtime run --dir=. ../../target/ci/benches-master.wasm -- --bench --save-baseline master-wasm | tee ../../target/ci/wasmtime-master
     - popd
     - git submodule deinit --all -f
+    - rm -rf target/wasm32-wasi
 
     # `wasmtime` Branch: `pr`
     - git checkout $CI_COMMIT_SHA

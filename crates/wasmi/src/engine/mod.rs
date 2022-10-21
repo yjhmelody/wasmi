@@ -387,7 +387,7 @@ mod step {
             instance: Instance,
             step: Option<u64>,
         ) -> Result<StepResult<()>, Trap> {
-            self.execute_step_at_pc_with_result(ctx, pc, instance, &[], (), step)
+            self.execute_step_at_pc_with_result(ctx, pc, instance, (), step)
         }
 
         pub fn execute_step_at_pc_with_result<Results>(
@@ -395,7 +395,6 @@ mod step {
             ctx: impl AsContextMut,
             pc: usize,
             instance: Instance,
-            result_types: &[ValueType],
             results: Results,
             step: Option<u64>,
         ) -> Result<StepResult<<Results as CallResults>::Results>, Trap>
@@ -408,15 +407,7 @@ mod step {
             let info = engine.execute_step_at_pc(ctx, pc, &mut cache, step)?;
             match info {
                 StepResult::Results(()) => Ok(StepResult::Results({
-                    results.feed_results(
-                        engine
-                            .stack
-                            .values
-                            .drain()
-                            .iter()
-                            .zip(result_types)
-                            .map(|(raw_value, value_type)| raw_value.with_type(*value_type)),
-                    )
+                    results.call_results(engine.stack.values.drain())
                 })),
                 StepResult::RunOutOfStep(pc) => Ok(StepResult::RunOutOfStep(pc)),
             }
@@ -592,7 +583,7 @@ mod step {
             Results: CallResults,
         {
             self.initialize_args(params);
-            let signature = match func.as_internal(ctx.as_context()) {
+            match func.as_internal(ctx.as_context()) {
                 FuncEntityInternal::Wasm(wasm_func) => {
                     let signature = wasm_func.signature();
                     let mut frame = self.stack.call_wasm_root(wasm_func, &self.code_map)?;
@@ -617,7 +608,7 @@ mod step {
                     signature
                 }
             };
-            let results = self.write_results_back(signature, results);
+            let results = self.write_results_back(results);
             Ok(StepResult::Results(results))
         }
     }
@@ -888,23 +879,19 @@ impl EngineInner {
         Results: CallResults,
     {
         self.initialize_args(params);
-        let signature = match func.as_internal(ctx.as_context()) {
+        match func.as_internal(ctx.as_context()) {
             FuncEntityInternal::Wasm(wasm_func) => {
-                let signature = wasm_func.signature();
                 let mut frame = self.stack.call_wasm_root(wasm_func, &self.code_map)?;
                 let mut cache = InstanceCache::from(frame.instance());
                 self.execute_wasm_func(ctx.as_context_mut(), &mut frame, &mut cache)?;
-                signature
             }
             FuncEntityInternal::Host(host_func) => {
-                let signature = host_func.signature();
                 let host_func = host_func.clone();
                 self.stack
                     .call_host_root(ctx.as_context_mut(), host_func, &self.func_types)?;
-                signature
             }
         };
-        let results = self.write_results_back(signature, results);
+        let results = self.write_results_back(results);
         Ok(results)
     }
 
@@ -914,9 +901,7 @@ impl EngineInner {
         Params: CallParams,
     {
         self.stack.clear();
-        for param in params.feed_params() {
-            self.stack.values.push(param);
-        }
+        self.stack.values.extend(params.call_params());
     }
 
     /// Writes the results of the function execution back into the `results` buffer.
@@ -928,57 +913,11 @@ impl EngineInner {
     /// # Panics
     ///
     /// - If the `results` buffer length does not match the remaining amount of stack values.
-    pub fn write_results_back<Results>(
-        &mut self,
-        func_type: DedupFuncType,
-        results: Results,
-    ) -> <Results as CallResults>::Results
+    fn write_results_back<Results>(&mut self, results: Results) -> <Results as CallResults>::Results
     where
         Results: CallResults,
     {
-        let result_types = self.func_types.resolve_func_type(func_type).results();
-        assert_eq!(
-            self.stack.values.len(),
-            results.len_results(),
-            "expected {} values on the stack after function execution but found {}",
-            results.len_results(),
-            self.stack.values.len(),
-        );
-        assert_eq!(results.len_results(), result_types.len());
-        results.feed_results(
-            self.stack
-                .values
-                .drain()
-                .iter()
-                .zip(result_types)
-                .map(|(raw_value, value_type)| raw_value.with_type(*value_type)),
-        )
-    }
-
-    pub fn write_results<Results>(
-        &mut self,
-        result_types: &[ValueType],
-        results: Results,
-    ) -> <Results as CallResults>::Results
-    where
-        Results: CallResults,
-    {
-        assert_eq!(
-            self.stack.values.len(),
-            results.len_results(),
-            "expected {} values on the stack after function execution but found {}",
-            results.len_results(),
-            self.stack.values.len(),
-        );
-        assert_eq!(results.len_results(), result_types.len());
-        results.feed_results(
-            self.stack
-                .values
-                .drain()
-                .iter()
-                .zip(result_types)
-                .map(|(raw_value, value_type)| raw_value.with_type(*value_type)),
-        )
+        results.call_results(self.stack.values.drain())
     }
 
     /// Executes the top most Wasm function on the [`Stack`] until the [`Stack`] is empty.

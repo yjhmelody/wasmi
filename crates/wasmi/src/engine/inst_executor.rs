@@ -85,9 +85,9 @@ impl InstExecutor {
     fn visit_br_table(&mut self, len_targets: usize) {
         let index: u32 = self.value_stack().pop_as();
         // The index of the default target which is the last target of the slice.
-        let max_index = len_targets - 1;
+        let max_index = len_targets as u32 - 1;
         // A normalized index will always yield a target without panicking.
-        let normalized_index = cmp::min(index as usize, max_index);
+        let normalized_index = cmp::min(index, max_index);
 
         self.set_pc(self.pc() + normalized_index + 1);
     }

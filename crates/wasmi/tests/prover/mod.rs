@@ -19,7 +19,7 @@ fn setup_module<T>(store: &mut Store<T>, wat: impl AsRef<str>) -> Result<Module,
 }
 
 fn instantiate<T>(store: &mut Store<T>, module: &Module) -> Result<Instance, Error> {
-    let mut linker = <Linker<T>>::new();
+    let linker = <Linker<T>>::new();
     let pre = linker.instantiate(store.as_context_mut(), module)?;
     let instance = pre.ensure_no_start(store.as_context_mut())?;
     Ok(instance)
@@ -147,7 +147,6 @@ fn test_snapshot() {
                 store.as_context_mut(),
                 pc as usize,
                 instance,
-                &[ValueType::I32],
                 &mut result[..],
                 None,
             )
