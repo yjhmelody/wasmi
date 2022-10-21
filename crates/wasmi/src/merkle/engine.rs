@@ -19,7 +19,7 @@ use crate::{
 };
 
 impl EngineSnapshot {
-    pub fn make_proof(&self, inst_info: InstructionInfo) -> EngineProof {
+    pub fn make_proof(&self) -> EngineProof {
         // TODO: config this size
         // TODO: arb always use 3. But we could use different len for different instructions.
         let value_proof = self.values.make_proof(3);
@@ -27,16 +27,10 @@ impl EngineSnapshot {
 
         EngineProof {
             config: self.config.clone(),
-            // next_inst,
             value_proof,
             call_proof,
         }
     }
-}
-
-pub struct InstructionInfo {
-    pub pc: u32,
-    pub inst: Instruction,
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
@@ -47,47 +41,31 @@ pub struct EngineProof {
     pub call_proof: CallStackProof,
 }
 
+/// Instruction level proof.
+///
+/// It includes engine proof.
 #[derive(Encode, Debug, Clone, Eq, PartialEq)]
 pub struct InstructionProof {
+    pub(crate) engine_proof: EngineProof,
     pub(crate) current_pc: u32,
     pub(crate) inst: Instruction,
     pub(crate) extra: ExtraProof,
 }
-
-// pub fn make_inst_proof(
-//     engine: &EngineProof,
-//     insts: &[Instruction],
-//     current_pc: u32,
-// ) -> InstructionProof {
-//     let inst = insts[current_pc as usize];
-//     let extra = match inst {
-//         Instruction::CallIndirect(idx) => {
-//             let func_index: u32 = engine.value_proof.last_as();
-//             todo!()
-//         }
-//         Instruction::GlobalGet(idx) => {}
-//         _ => ExtraProof::Empty,
-//     };
-//     InstructionProof {
-//         current_pc,
-//         inst,
-//         extra,
-//     }
-// }
 
 /// This struct contains extra proof data needed for some special instructions.
 #[derive(Encode, Debug, Clone, Eq, PartialEq)]
 pub enum ExtraProof {
     Empty,
     GlobalGetSet(UntypedValue, Vec<u8>),
+    MemoryStoreNeighbor(MemoryStoreNeighbor),
     MemoryStoreSibling(MemoryStoreSibling),
-    MemoryStore(MemoryStore),
+    // TODO: maybe still need some other data
     CallIndirect(FuncType),
 }
 
-/// The contains a proof that a memory store instruction touch two leaves which have `not` same parent.
+/// The contains a proof that a memory store instruction touch two neighbor leaves which have `not` same parent.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct MemoryStoreSibling {
+pub struct MemoryStoreNeighbor {
     pub leaf: [u8; MEMORY_LEAF_SIZE],
     pub next_leaf: [u8; MEMORY_LEAF_SIZE],
     pub prove_data: Vec<u8>,
@@ -95,9 +73,9 @@ pub struct MemoryStoreSibling {
     pub next_leaf_sibling: Bytes32,
 }
 
-/// The contains a proof that a memory store instruction touch two leaves which have same parent.
+/// The contains a proof that a memory store instruction touch two sibling leaves which have same parent.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct MemoryStore {
+pub struct MemoryStoreSibling {
     pub leaf: [u8; MEMORY_LEAF_SIZE],
     pub next_leaf: [u8; MEMORY_LEAF_SIZE],
     pub prove_data: Vec<u8>,
@@ -105,8 +83,17 @@ pub struct MemoryStore {
 
 #[derive(Encode, Debug, Clone, Eq, PartialEq)]
 pub struct FuncType {
-    params: Vec<ValueType>,
-    results: Vec<ValueType>,
+    pub params: Vec<ValueType>,
+    pub results: Vec<ValueType>,
+}
+
+impl From<crate::FuncType> for FuncType {
+    fn from(value: crate::FuncType) -> Self {
+        Self {
+            params: value.params().to_vec(),
+            results: value.results().to_vec(),
+        }
+    }
 }
 
 // TODO: borrowed from arb. Need to consider a new design?

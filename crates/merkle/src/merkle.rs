@@ -21,6 +21,7 @@ pub trait ProofGenerator {
     fn write_proof(&self, proof_buf: &mut Vec<u8>);
 }
 
+// TODO: remove this enum. We should use generics merkle type.
 /// The merkle node type for different wasm part state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]

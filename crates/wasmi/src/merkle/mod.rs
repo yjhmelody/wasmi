@@ -1,10 +1,12 @@
 mod engine;
 mod instance;
 
-use crate::MemoryEntity;
+use crate::{snapshot::InstanceSnapshot, MemoryEntity};
+use accel_merkle::Merkle;
 use core::cmp;
 pub use engine::*;
 pub use instance::*;
+use wast::core::Memory;
 
 /// Get memory byte32 by leaf index. Returns a empty leaf if not exists.
 pub fn get_memory_leaf(memory: &MemoryEntity, leaf_idx: usize) -> [u8; MEMORY_LEAF_SIZE] {
@@ -16,4 +18,21 @@ pub fn get_memory_leaf(memory: &MemoryEntity, leaf_idx: usize) -> [u8; MEMORY_LE
     let size = cmp::min(MEMORY_LEAF_SIZE, memory.data().len() - idx);
     buf[..size].copy_from_slice(&memory.data()[idx..(idx + size)]);
     buf
+}
+
+#[derive(Debug)]
+pub struct InstanceMerkle {
+    pub globals: Merkle,
+    pub memories: Vec<Merkle>,
+    pub tables: Vec<Merkle>,
+}
+
+impl InstanceMerkle {
+    pub fn new_by_snapshot(instance: InstanceSnapshot) -> Self {
+        Self {
+            globals: instance.globals_merkle(),
+            memories: instance.memories_merkle(),
+            tables: instance.tables_merkle(),
+        }
+    }
 }

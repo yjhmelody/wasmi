@@ -136,6 +136,9 @@ fn test_snapshot() {
 
         let mut result = vec![Value::I32(0)];
 
+        let proof = store.make_inst_proof(pc, instance).unwrap();
+        println!("{:?}", proof);
+
         // TODO: improve this api
         // 7. run engine using previous pc.
         // we should use the restored instance.

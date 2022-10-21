@@ -627,56 +627,94 @@ mod step {
     }
 }
 
+pub use proof::ProofError;
+
 mod proof {
     use super::*;
     use crate::{
+        engine::bytecode::Offset,
         merkle::{
             get_memory_leaf,
             EngineProof,
             ExtraProof,
             InstructionProof,
-            MemoryStore,
+            MemoryStoreNeighbor,
             MemoryStoreSibling,
             MEMORY_LEAF_SIZE,
         },
         AsContext,
         Global,
         Instance,
+        MemoryEntity,
         Store,
     };
     use accel_merkle::Merkle;
 
-    impl EngineInner {
-        pub fn make_inst_proof<T>(
+    #[derive(Debug)]
+    pub enum ProofError {
+        TrapCode(TrapCode),
+        MemoryNotImported,
+        GlobalNotFound,
+    }
+
+    impl From<TrapCode> for ProofError {
+        fn from(t: TrapCode) -> Self {
+            Self::TrapCode(t)
+        }
+    }
+
+    impl Engine {
+        pub fn make_inst_proof(
             &self,
-            store: &mut Store<T>,
+            mut store: impl AsContextMut,
             current_pc: u32,
+            global_merkle: &Merkle,
+            memory_merkle: Option<&Merkle>,
             instance: Instance,
+        ) -> Result<InstructionProof, ProofError> {
+            let engine = self.inner.lock();
+            let mut cache = InstanceCache::from(instance);
+            engine.make_inst_proof(store, current_pc, global_merkle, memory_merkle, &mut cache)
+        }
+    }
+
+    impl EngineInner {
+        pub fn make_inst_proof(
+            &self,
+            mut store: impl AsContextMut,
+            current_pc: u32,
             // TODO: pass by some other ways
             global_merkle: &Merkle,
-            memory_merkle: &Merkle,
+            memory_merkle: Option<&Merkle>,
             cache: &mut InstanceCache,
-        ) -> InstructionProof {
+        ) -> Result<InstructionProof, ProofError> {
             let inst = self.code_map.insts[current_pc as usize];
             let extra = match inst {
                 Instruction::CallIndirect(idx) => {
-                    // let func_index: u32 = self.stack.values;
-                    todo!()
+                    let len = self.stack.values.len();
+                    let func_index = u32::from(self.stack.values.entries()[len - 1]);
+                    let table = cache.default_table(store.as_context());
+                    let func = table
+                        .get(store.as_context(), func_index as usize)
+                        .map_err(|_| TrapCode::TableAccessOutOfBounds)?
+                        .ok_or(TrapCode::ElemUninitialized)?;
+                    let func_type = func.func_type(store.as_context());
+
+                    // TODO: maybe still need some other data
+                    ExtraProof::CallIndirect(func_type.into())
                 }
                 Instruction::GlobalSet(idx) | Instruction::GlobalGet(idx) => {
                     let idx = idx.into_inner();
+                    // TODO: this should be as_context
                     let global = cache.get_global(store.as_context_mut(), idx).clone();
 
-                    // TODO: opt: use cached merkle here
-                    // TODO: return error
                     let prove_data = global_merkle
                         .prove(idx as usize)
-                        .expect("the global index must be legal in merkle");
+                        .ok_or(ProofError::GlobalNotFound)?;
+
                     ExtraProof::GlobalGetSet(global, prove_data)
-                    // let global = store.resolve_instance(instance)
-                    //     .get_global(index);
                 }
-                // Note: we use our own design here.
+                // TODO: design more detailed Proof for memory instructions
                 Instruction::I32Load(offset)
                 | Instruction::I64Load(offset)
                 | Instruction::F32Load(offset)
@@ -690,8 +728,8 @@ mod proof {
                 | Instruction::I64Load16S(offset)
                 | Instruction::I64Load16U(offset)
                 | Instruction::I64Load32S(offset)
-                | Instruction::I64Load32U(offset) => ExtraProof::Empty,
-                Instruction::I32Store(offset)
+                | Instruction::I64Load32U(offset)
+                | Instruction::I32Store(offset)
                 | Instruction::I64Store(offset)
                 | Instruction::F32Store(offset)
                 | Instruction::F64Store(offset)
@@ -700,17 +738,27 @@ mod proof {
                 | Instruction::I64Store8(offset)
                 | Instruction::I64Store16(offset)
                 | Instruction::I64Store32(offset) => {
-                    let offset = offset.into_inner() as u64;
-                    let entries = self.stack.values.entries();
-                    let top = self.stack.values.len() - 1;
-                    let val = entries[top];
-                    let base = entries[top - 1].to_bits();
-                    // TODO: handle error
-                    let mut idx = base.checked_add(offset).expect("") as usize;
+                    // Wasm module must import memory when meet these instruction.
+                    let memory_merkle = memory_merkle.ok_or(ProofError::MemoryNotImported)?;
+
+                    let is_store = matches!(
+                        inst,
+                        Instruction::I32Store(..)
+                            | Instruction::I64Store(..)
+                            | Instruction::F32Store(..)
+                            | Instruction::F64Store(..)
+                            | Instruction::I32Store8(..)
+                            | Instruction::I32Store16(..)
+                            | Instruction::I64Store8(..)
+                            | Instruction::I64Store16(..)
+                            | Instruction::I64Store32(..)
+                    );
+
+                    let mut idx = self.get_memory_index(offset, is_store);
 
                     idx /= MEMORY_LEAF_SIZE;
-                    let memory = cache.default_memory(store.as_context_mut());
-                    let memory = store.resolve_memory(memory);
+                    let memory = cache.default_memory(store.as_context());
+                    let memory = store.as_context().store.resolve_memory(memory);
                     let leaf = get_memory_leaf(memory, idx);
                     let next_leaf_idx = idx.saturating_add(1);
                     let next_leaf = get_memory_leaf(memory, next_leaf_idx);
@@ -720,7 +768,8 @@ mod proof {
                         let leaf_sibling = memory_merkle.leaves()[idx - 1];
                         let next_leaf_sibling =
                             memory_merkle.leaves()[next_leaf_idx.saturating_add(1)];
-                        ExtraProof::MemoryStoreSibling(MemoryStoreSibling {
+
+                        ExtraProof::MemoryStoreNeighbor(MemoryStoreNeighbor {
                             leaf,
                             next_leaf,
                             prove_data,
@@ -728,7 +777,7 @@ mod proof {
                             next_leaf_sibling,
                         })
                     } else {
-                        ExtraProof::MemoryStore(MemoryStore {
+                        ExtraProof::MemoryStoreSibling(MemoryStoreSibling {
                             leaf,
                             next_leaf,
                             prove_data,
@@ -739,11 +788,29 @@ mod proof {
                 Instruction::MemoryGrow => ExtraProof::Empty,
                 _ => ExtraProof::Empty,
             };
-            InstructionProof {
+
+            // TODO: directly make proof and skip snapshot?
+            let engine_proof = self.make_snapshot().make_proof();
+            Ok(InstructionProof {
+                engine_proof,
                 current_pc,
                 inst,
                 extra,
-            }
+            })
+        }
+
+        fn get_memory_index(&self, offset: Offset, is_store: bool) -> usize {
+            let offset = offset.into_inner() as u64;
+            let entries = self.stack.values.entries();
+            let len = self.stack.values.len();
+            let base = if is_store {
+                entries[len - 2].to_bits()
+            } else {
+                entries[len - 1].to_bits()
+            };
+
+            base.checked_add(offset)
+                .expect("get_memory_index should be legal") as usize
         }
     }
 }

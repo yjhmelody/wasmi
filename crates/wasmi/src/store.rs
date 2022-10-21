@@ -99,18 +99,6 @@ mod snapshot {
             }
         }
 
-        pub fn restore_instance(
-            &mut self,
-            linker: &mut Linker<T>,
-            module: &Module,
-            snapshot: SnapshotV0,
-        ) -> Result<Instance, Error> {
-            let pre = linker.restore_instance(self.as_context_mut(), module, snapshot.instance)?;
-            let instance = pre.no_start(self.as_context_mut())?;
-            self.restore_engine(&snapshot.engine, instance);
-            Ok(instance)
-        }
-
         /// Make a module level instance snapshot.
         pub fn make_instance_snapshot(&self, instance: Instance) -> InstanceSnapshot {
             let entity_index = self.unwrap_index(instance.into_inner());
@@ -135,10 +123,49 @@ mod snapshot {
             engine.instructions_ref().to_vec()
         }
 
+        pub fn restore_instance(
+            &mut self,
+            linker: &mut Linker<T>,
+            module: &Module,
+            snapshot: SnapshotV0,
+        ) -> Result<Instance, Error> {
+            let pre = linker.restore_instance(self.as_context_mut(), module, snapshot.instance)?;
+            let instance = pre.no_start(self.as_context_mut())?;
+            self.restore_engine(&snapshot.engine, instance);
+            Ok(instance)
+        }
+
         // TODO: check error
         pub fn restore_engine(&mut self, snapshot: &EngineSnapshot, instance: Instance) {
             let mut engine = self.engine.inner.lock();
             engine.restore_engine(snapshot, instance)
+        }
+    }
+}
+
+mod proof {
+    use super::*;
+    use crate::{engine::ProofError, merkle::InstructionProof};
+
+    impl<T> Store<T> {
+        pub fn make_inst_proof(
+            &mut self,
+            current_pc: u32,
+            instance: Instance,
+        ) -> Result<InstructionProof, ProofError> {
+            let instance_entity = self.resolve_instance(instance);
+            let instance_snapshot = instance_entity.make_snapshot(self);
+
+            let memories_merkle = instance_snapshot.memories_merkle();
+            let globals_merkle = instance_snapshot.globals_merkle();
+
+            self.engine().clone().make_inst_proof(
+                self.as_context_mut(),
+                current_pc,
+                &globals_merkle,
+                memories_merkle.first(),
+                instance,
+            )
         }
     }
 }

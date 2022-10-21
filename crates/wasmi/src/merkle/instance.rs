@@ -39,24 +39,40 @@ fn div_round_up(num: usize, denom: usize) -> usize {
 // TODO: design cache for some merkle nodes.
 
 impl InstanceSnapshot {
-    pub fn hash(&self) -> Bytes32 {
-        let mut h = Keccak256::new();
-        // TODO: should use this type?
-        h.update([MerkleType::Module as u8]);
-        // TODO: add func merkle root
+    // pub fn hash(&self) -> Bytes32 {
+    //     let mut h = Keccak256::new();
+    //     // TODO: should use this type?
+    //     h.update([MerkleType::Module as u8]);
+    //     // TODO: add func merkle root
+    //
+    //
+    //     self.memories.iter().for_each(|mem| h.update(mem.hash()));
+    //     self.tables.iter().for_each(|table| h.update(table.hash()));
+    //
+    //     h.finalize().into()
+    // }
+    //
+    // /// Since one instance only have one module, so we use module instance hash as proof here.
+    // pub fn generate_proof(&self) -> Vec<u8> {
+    //     self.hash().to_vec()
+    // }
 
-        self.globals
+    pub fn globals_merkle(&self) -> Merkle {
+        let globals = self
+            .globals
             .iter()
-            .for_each(|global| h.update(global_hash(global)));
-        self.memories.iter().for_each(|mem| h.update(mem.hash()));
-        self.tables.iter().for_each(|table| h.update(table.hash()));
+            .map(|global| global_hash(global))
+            .collect();
 
-        h.finalize().into()
+        Merkle::new(MerkleType::Global, globals)
     }
 
-    /// Since one instance only have one module, so we use module instance hash as proof here.
-    pub fn generate_proof(&self) -> Vec<u8> {
-        self.hash().to_vec()
+    pub fn memories_merkle(&self) -> Vec<Merkle> {
+        self.memories.iter().map(|mem| mem.merkle()).collect()
+    }
+
+    pub fn tables_merkle(&self) -> Vec<Merkle> {
+        self.tables.iter().map(|table| table.merkle()).collect()
     }
 }
 
@@ -106,8 +122,6 @@ fn table_element_hash(elem: &Option<u32>) -> Bytes32 {
 // TODO: define our own global state.
 fn global_hash(global: &GlobalEntity) -> Bytes32 {
     let mut h = Keccak256::new();
-    // TODO: should remove?
-    h.update([MerkleType::Global as u8]);
     h.update(global.encode());
     h.finalize().into()
 }
