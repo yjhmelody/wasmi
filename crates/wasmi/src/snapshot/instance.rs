@@ -2,7 +2,7 @@
 
 use crate::{memory::ByteBuffer, GlobalEntity, MemoryEntity, MemoryType, TableType};
 use codec::{Decode, Encode};
-use wasmi_core::memory_units::Pages;
+use wasmi_core::Pages;
 
 /// The state has two purpose:
 /// 1. Generate merkle proof.
@@ -59,9 +59,10 @@ pub struct MemoryTypeSnapshot {
     pub maximum_pages: Option<u32>,
 }
 
+// TODO: use TryFrom and define error type.
 impl From<MemoryTypeSnapshot> for MemoryType {
     fn from(t: MemoryTypeSnapshot) -> Self {
-        Self::new(t.initial_pages, t.maximum_pages)
+        Self::new(t.initial_pages, t.maximum_pages).expect("Always be valid; qed")
     }
 }
 
@@ -70,7 +71,7 @@ impl From<MemorySnapshot> for MemoryEntity {
         Self {
             bytes: ByteBuffer { bytes: t.bytes },
             memory_type: t.memory_type.into(),
-            current_pages: Pages(t.current_pages as usize),
+            current_pages: Pages(t.current_pages),
         }
     }
 }
@@ -79,10 +80,10 @@ impl From<MemoryEntity> for MemorySnapshot {
     fn from(mem: MemoryEntity) -> Self {
         Self {
             memory_type: MemoryTypeSnapshot {
-                initial_pages: mem.memory_type().initial_pages().0 as u32,
-                maximum_pages: mem.memory_type().maximum_pages().map(|x| x.0 as u32),
+                initial_pages: mem.memory_type().initial_pages().into_inner(),
+                maximum_pages: mem.memory_type().maximum_pages().map(|x| x.into_inner()),
             },
-            current_pages: mem.current_pages.0 as u32,
+            current_pages: mem.current_pages.into_inner(),
             bytes: mem.bytes.bytes,
         }
     }

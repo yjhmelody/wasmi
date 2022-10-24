@@ -19,7 +19,7 @@ use crate::{
     StoreContextMut,
 };
 use core::cmp;
-use wasmi_core::{memory_units::Pages, ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
+use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
 
 /// A one instruction executor used for OSP.
 pub struct InstExecutor {

@@ -1,7 +1,7 @@
 /// An amount of linear memory pages.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct Pages(u32);
+pub struct Pages(pub u32);
 
 impl Pages {
     /// The maximum amount of pages on the `wasm32` target.
@@ -32,6 +32,10 @@ impl From<u16> for Pages {
 }
 
 impl Pages {
+    pub fn into_inner(self) -> u32 {
+        self.0
+    }
+
     /// Creates a new amount of [`Pages`] if the amount is within bounds.
     ///
     /// Returns `None` if the given `amount` of [`Pages`] exceeds [`Pages::max()`].

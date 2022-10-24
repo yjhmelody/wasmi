@@ -48,7 +48,6 @@ use core::sync::atomic::{AtomicU32, Ordering};
 pub use func_types::DedupFuncType;
 use spin::mutex::Mutex;
 use wasmi_arena::{GuardedEntity, Index};
-use wasmi_core::ValueType;
 
 /// The outcome of a `wasmi` function execution.
 #[derive(Debug, Copy, Clone)]
