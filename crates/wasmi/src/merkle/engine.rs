@@ -6,7 +6,10 @@ use wasmi_core::{UntypedValue, ValueType};
 use codec::{Codec, Decode, Encode, Error, Input, Output};
 
 use crate::{
-    engine::bytecode::Instruction,
+    engine::{
+        bytecode::{BranchParams, Instruction},
+        DropKeep,
+    },
     merkle::MEMORY_LEAF_SIZE,
     snapshot::{
         CallStackSnapshot,
@@ -42,7 +45,7 @@ pub struct EngineProof {
 /// Instruction level proof.
 ///
 /// It includes engine proof.
-#[derive(Encode, Debug, Clone, Eq, PartialEq)]
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct InstructionProof {
     pub(crate) engine_proof: EngineProof,
     pub(crate) current_pc: u32,
@@ -51,18 +54,22 @@ pub struct InstructionProof {
 }
 
 /// This struct contains extra proof data needed for some special instructions.
-#[derive(Encode, Debug, Clone, Eq, PartialEq)]
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub enum ExtraProof {
-    /// Now we do not support extra proof for host function.
-    CallHost,
+    /// Most instructions do not need more proof.
     Empty,
     GlobalGetSet(UntypedValue, Vec<u8>),
     MemoryStoreNeighbor(MemoryStoreNeighbor),
     MemoryStoreSibling(MemoryStoreSibling),
     /// The pc that call jump to.
     CallWasm(u32),
+    /// Now we do not support extra proof for host function.
+    CallHost,
     // TODO: Still need to design this proof.
-    CallIndirect(FuncType),
+    // I am still confused about it.
+    // Maybe need to prove this function is in the table.
+    CallWasmIndirect(u32, FuncType),
+    CallHostIndirect(FuncType),
 }
 
 /// The contains a proof that a memory store instruction touch two neighbor leaves which have `not` same parent.
@@ -83,7 +90,7 @@ pub struct MemoryStoreSibling {
     pub prove_data: Vec<u8>,
 }
 
-#[derive(Encode, Debug, Clone, Eq, PartialEq)]
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct FuncType {
     pub params: Vec<ValueType>,
     pub results: Vec<ValueType>,
@@ -196,6 +203,10 @@ impl ValueStackProof {
 
     pub fn pop(&mut self) -> UntypedValue {
         self.0.pop()
+    }
+
+    pub fn is_emtpy(&self) -> bool {
+        self.0.entries.is_empty()
     }
 
     pub fn pop_as<T>(&mut self) -> T
@@ -317,6 +328,224 @@ pub fn instructions_merkle(insts: &[Instruction]) -> Merkle {
         MerkleType::Instruction,
         insts.iter().map(|i| i.to_bytes32()).collect(),
     )
+}
+
+impl Decode for Instruction {
+    fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
+        let repr = u16::decode(input)?;
+        let inst = match repr {
+            0x00 => Instruction::Unreachable,
+            0x1A => Instruction::Drop,
+            0x1B => Instruction::Select,
+
+            0x3F => Instruction::MemorySize,
+            0x40 => Instruction::MemoryGrow,
+
+            0x45 => Instruction::I32Eqz,
+            0x46 => Instruction::I32Eq,
+            0x47 => Instruction::I32Ne,
+            0x48 => Instruction::I32LtS,
+            0x49 => Instruction::I32LtU,
+            0x4A => Instruction::I32GtS,
+            0x4B => Instruction::I32GtU,
+            0x4C => Instruction::I32LeS,
+            0x4D => Instruction::I32LeU,
+            0x4E => Instruction::I32GeS,
+            0x4F => Instruction::I32GeU,
+
+            0x50 => Instruction::I64Eqz,
+            0x51 => Instruction::I64Eq,
+            0x52 => Instruction::I64Ne,
+            0x53 => Instruction::I64LtS,
+            0x54 => Instruction::I64LtU,
+            0x55 => Instruction::I64GtS,
+            0x56 => Instruction::I64GtU,
+            0x57 => Instruction::I64LeS,
+            0x58 => Instruction::I64LeU,
+            0x59 => Instruction::I64GeS,
+            0x5A => Instruction::I64GeU,
+
+            0x5B => Instruction::F32Eq,
+            0x5C => Instruction::F32Ne,
+            0x5D => Instruction::F32Lt,
+            0x5E => Instruction::F32Gt,
+            0x5F => Instruction::F32Le,
+            0x60 => Instruction::F32Ge,
+
+            0x61 => Instruction::F64Eq,
+            0x62 => Instruction::F64Ne,
+            0x63 => Instruction::F64Lt,
+            0x64 => Instruction::F64Gt,
+            0x65 => Instruction::F64Le,
+            0x66 => Instruction::F64Ge,
+
+            0x67 => Instruction::I32Clz,
+            0x68 => Instruction::I32Ctz,
+            0x69 => Instruction::I32Popcnt,
+            0x6A => Instruction::I32Add,
+            0x6B => Instruction::I32Sub,
+            0x6C => Instruction::I32Mul,
+            0x6D => Instruction::I32DivS,
+            0x6E => Instruction::I32DivU,
+            0x6F => Instruction::I32RemS,
+            0x70 => Instruction::I32RemU,
+            0x71 => Instruction::I32And,
+            0x72 => Instruction::I32Or,
+            0x73 => Instruction::I32Xor,
+            0x74 => Instruction::I32Shl,
+            0x75 => Instruction::I32ShrS,
+            0x76 => Instruction::I32ShrU,
+            0x77 => Instruction::I32Rotl,
+            0x78 => Instruction::I32Rotr,
+
+            0x79 => Instruction::I64Clz,
+            0x7A => Instruction::I64Ctz,
+            0x7B => Instruction::I64Popcnt,
+            0x7C => Instruction::I64Add,
+            0x7D => Instruction::I64Sub,
+            0x7E => Instruction::I64Mul,
+            0x7F => Instruction::I64DivS,
+            0x80 => Instruction::I64DivU,
+            0x81 => Instruction::I64RemS,
+            0x82 => Instruction::I64RemU,
+            0x83 => Instruction::I64And,
+            0x84 => Instruction::I64Or,
+            0x85 => Instruction::I64Xor,
+            0x86 => Instruction::I64Shl,
+            0x87 => Instruction::I64ShrS,
+            0x88 => Instruction::I64ShrU,
+            0x89 => Instruction::I64Rotl,
+            0x8A => Instruction::I64Rotr,
+
+            0x8B => Instruction::F32Abs,
+            0x8C => Instruction::F32Neg,
+            0x8D => Instruction::F32Ceil,
+            0x8E => Instruction::F32Floor,
+            0x8F => Instruction::F32Trunc,
+            0x90 => Instruction::F32Nearest,
+            0x91 => Instruction::F32Sqrt,
+            0x92 => Instruction::F32Add,
+            0x93 => Instruction::F32Sub,
+            0x94 => Instruction::F32Mul,
+            0x95 => Instruction::F32Div,
+            0x96 => Instruction::F32Min,
+            0x97 => Instruction::F32Max,
+            0x98 => Instruction::F32Copysign,
+
+            0x99 => Instruction::F64Abs,
+            0x9A => Instruction::F64Neg,
+            0x9B => Instruction::F64Ceil,
+            0x9C => Instruction::F64Floor,
+            0x9D => Instruction::F64Trunc,
+            0x9E => Instruction::F64Nearest,
+            0x9F => Instruction::F64Sqrt,
+            0xA0 => Instruction::F64Add,
+            0xA1 => Instruction::F64Sub,
+            0xA2 => Instruction::F64Mul,
+            0xA3 => Instruction::F64Div,
+            0xA4 => Instruction::F64Min,
+            0xA5 => Instruction::F64Max,
+            0xA6 => Instruction::F64Copysign,
+
+            0xA7 => Instruction::I32WrapI64,
+            0xA8 => Instruction::I32TruncF32S,
+            0xA9 => Instruction::I32TruncF32U,
+            0xAA => Instruction::I32TruncF64S,
+            0xAB => Instruction::I32TruncF64U,
+            0xAC => Instruction::I64ExtendI32S,
+            0xAD => Instruction::I64ExtendI32U,
+            0xAE => Instruction::I64TruncF32S,
+            0xAF => Instruction::I64TruncF32U,
+            0xB0 => Instruction::I64TruncF64S,
+            0xB1 => Instruction::I64TruncF64U,
+            0xB2 => Instruction::F32ConvertI32S,
+            0xB3 => Instruction::F32ConvertI32U,
+            0xB4 => Instruction::F32ConvertI64S,
+            0xB5 => Instruction::F32ConvertI64U,
+            0xB6 => Instruction::F32DemoteF64,
+            0xB7 => Instruction::F64ConvertI32S,
+            0xB8 => Instruction::F64ConvertI32U,
+            0xB9 => Instruction::F64ConvertI64S,
+            0xBA => Instruction::F64ConvertI64U,
+            0xBB => Instruction::F64PromoteF32,
+            0xBC => Instruction::I32ReinterpretF32,
+            0xBD => Instruction::I64ReinterpretF64,
+            0xBE => Instruction::F32ReinterpretI32,
+            0xBF => Instruction::F64ReinterpretI64,
+
+            0xC0 => Instruction::I32Extend8S,
+            0xC1 => Instruction::I32Extend16S,
+            0xC2 => Instruction::I64Extend8S,
+            0xC3 => Instruction::I64Extend16S,
+            0xC4 => Instruction::I64Extend32S,
+
+            0x8005 => Instruction::I32TruncSatF32S,
+            0x8006 => Instruction::I32TruncSatF32U,
+            0x8007 => Instruction::I32TruncSatF64S,
+            0x8008 => Instruction::I32TruncSatF64U,
+            0x8009 => Instruction::I64TruncSatF32S,
+            0x800A => Instruction::I64TruncSatF32U,
+            0x800B => Instruction::I64TruncSatF64S,
+            0x800C => Instruction::I64TruncSatF64U,
+
+            0x0C => {
+                let params = BranchParams::decode(input)?;
+                Instruction::Br(params)
+            }
+            0x0E => {
+                let len_targets = u32::decode(input)? as usize;
+                Instruction::BrTable { len_targets }
+            }
+
+            0x0F => {
+                let drop_keep = DropKeep::decode(input)?;
+                Instruction::Return(drop_keep)
+            }
+            // TODO:
+            // Instruction::Call { .. } => 0x10,
+            // Instruction::CallIndirect { .. } => 0x11,
+            //
+            // Instruction::LocalGet { .. } => 0x20,
+            // Instruction::LocalSet { .. } => 0x21,
+            // Instruction::LocalTee { .. } => 0x22,
+            // Instruction::GlobalGet { .. } => 0x23,
+            // Instruction::GlobalSet { .. } => 0x24,
+            //
+            // // load
+            // Instruction::I32Load(..) => 0x28,
+            // Instruction::I64Load(..) => 0x29,
+            // Instruction::F32Load(..) => 0x2A,
+            // Instruction::F64Load(..) => 0x2B,
+            // Instruction::I32Load8S(..) => 0x2C,
+            // Instruction::I32Load8U(..) => 0x2D,
+            // Instruction::I32Load16S(..) => 0x2E,
+            // Instruction::I32Load16U(..) => 0x2F,
+            // Instruction::I64Load8S(..) => 0x30,
+            // Instruction::I64Load8U(..) => 0x31,
+            // Instruction::I64Load16S(..) => 0x32,
+            // Instruction::I64Load16U(..) => 0x33,
+            // Instruction::I64Load32S(..) => 0x34,
+            // Instruction::I64Load32U(..) => 0x35,
+            // // store
+            // Instruction::I32Store(..) => 0x36,
+            // Instruction::I64Store(..) => 0x37,
+            // Instruction::F32Store(..) => 0x38,
+            // Instruction::F64Store(..) => 0x39,
+            // Instruction::I32Store8(..) => 0x3A,
+            // Instruction::I32Store16(..) => 0x3B,
+            // Instruction::I64Store8(..) => 0x3C,
+            // Instruction::I64Store16(..) => 0x3D,
+            // Instruction::I64Store32(..) => 0x3E,
+            //
+            // Instruction::BrIfEqz(..) => 0x8001,
+            // Instruction::BrIfNez(..) => 0x8002,
+            // Instruction::ReturnIfNez(..) => 0x8003,
+            // Instruction::Const(..) => 0x8004,
+            _ => return Err(Error::from("Illegal opcode for instruction")),
+        };
+
+        Ok(inst)
+    }
 }
 
 impl Encode for Instruction {

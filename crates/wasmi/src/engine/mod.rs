@@ -628,14 +628,21 @@ mod proof {
             MemoryStoreSibling,
             MEMORY_LEAF_SIZE,
         },
+        AsContext,
         Instance,
     };
 
-    #[derive(Debug)]
+    /// Meet some errors when generate normal extra proof for the another instruction.
+    ///
+    /// # Note
+    ///
+    /// Maybe it's also the part of instruction proof.
+    #[derive(Debug, Clone)]
     pub enum ProofError {
         TrapCode(TrapCode),
         MemoryNotImported,
         GlobalNotFound,
+        EmtpyValueStack,
     }
 
     impl From<TrapCode> for ProofError {
@@ -681,25 +688,18 @@ mod proof {
                             )
                         });
 
-                    match func.as_internal(store.as_context()) {
-                        FuncEntityInternal::Wasm(entity) => {
-                            let body = entity.func_body();
-                            let header = self.code_map.header(body);
-                            let next_pc = header.start();
-                            ExtraProof::CallWasm(next_pc as u32)
-                        }
-                        FuncEntityInternal::Host(host_func) => {
-                            // let signature = host_func.signature();
-                            // let func_type = self.func_types.resolve_func_type(signature);
-                            // TODO
-                            ExtraProof::CallHost
-                        }
-                    }
+                    self.make_call_proof(store.as_context(), func, None)
                 }
 
-                Instruction::CallIndirect(idx) => {
-                    let len = self.stack.values.len();
-                    let func_index = u32::from(self.stack.values.entries()[len - 1]);
+                Instruction::CallIndirect(_idx) => {
+                    let func_index = u32::from(
+                        self.stack
+                            .values
+                            .entries()
+                            .last()
+                            .copied()
+                            .ok_or(ProofError::EmtpyValueStack)?,
+                    );
                     let table = cache.default_table(store.as_context());
                     let func = table
                         .get(store.as_context(), func_index as usize)
@@ -707,8 +707,7 @@ mod proof {
                         .ok_or(TrapCode::ElemUninitialized)?;
                     let func_type = func.func_type(store.as_context());
 
-                    // TODO: maybe still need some other data
-                    ExtraProof::CallIndirect(func_type.into())
+                    self.make_call_proof(store.as_context(), func, Some(func_type))
                 }
                 Instruction::GlobalSet(idx) | Instruction::GlobalGet(idx) => {
                     let idx = idx.into_inner();
@@ -808,6 +807,38 @@ mod proof {
                 inst,
                 extra,
             })
+        }
+
+        fn make_call_proof(
+            &self,
+            store: impl AsContext,
+            func: Func,
+            func_type: Option<FuncType>,
+        ) -> ExtraProof {
+            match func.as_internal(store.as_context()) {
+                FuncEntityInternal::Wasm(entity) => {
+                    let body = entity.func_body();
+                    let header = self.code_map.header(body);
+                    let next_pc = header.start();
+                    // TODO: maybe still need some other data
+                    match func_type {
+                        Some(func_type) => {
+                            ExtraProof::CallWasmIndirect(next_pc as u32, func_type.into())
+                        }
+                        None => ExtraProof::CallWasm(next_pc as u32),
+                    }
+                }
+                FuncEntityInternal::Host(..) => {
+                    // TODO: If we want to support host function here:
+                    // We only could support no side effect functions/pure function.
+                    // And we must actually run it to get the result for proof.
+                    // But for some utility function we do not know the global/memory/table they are using.
+                    match func_type {
+                        Some(func_type) => ExtraProof::CallHostIndirect(func_type.into()),
+                        None => ExtraProof::CallHost,
+                    }
+                }
+            }
         }
 
         fn get_memory_index(&self, offset: Offset, is_store: bool) -> usize {

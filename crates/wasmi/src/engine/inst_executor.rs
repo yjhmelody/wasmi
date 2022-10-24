@@ -18,16 +18,26 @@ use crate::{
     Func,
     StoreContextMut,
 };
+use codec::{Decode, Encode};
 use core::cmp;
 use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
 
+#[derive(Clone, Copy, Encode, Decode, Debug, Eq, PartialEq)]
+pub enum InstructionStatus {
+    Running,
+    Finished,
+    Errored,
+}
+
 /// A one instruction executor used for OSP.
+#[derive(Debug, Encode, Decode)]
 pub struct InstExecutor {
-    // TODO
+    pub status: InstructionStatus,
     pub engine: EngineProof,
     pub inst: InstructionProof,
 }
 
+// TODO
 impl InstExecutor {
     pub fn execute(&mut self) {
         use Instruction as Instr;
@@ -65,24 +75,40 @@ impl InstExecutor {
     }
 
     fn visit_local_get(&mut self, local_depth: LocalDepth) {
+        if self.value_stack().is_emtpy() {
+            self.status = InstructionStatus::Errored;
+            return;
+        }
         let value = *self.value_stack().peek(local_depth.into_inner());
         self.value_stack().push(value);
         self.next_instr()
     }
 
     fn visit_local_set(&mut self, local_depth: LocalDepth) {
+        if self.value_stack().is_emtpy() {
+            self.status = InstructionStatus::Errored;
+            return;
+        }
         let new_value = self.value_stack().pop();
         *self.value_stack().peek_mut(local_depth.into_inner()) = new_value;
         self.next_instr()
     }
 
     fn visit_local_tee(&mut self, local_depth: LocalDepth) {
+        if self.value_stack().is_emtpy() {
+            self.status = InstructionStatus::Errored;
+            return;
+        }
         let new_value = self.value_stack().last();
         *self.value_stack().peek_mut(local_depth.into_inner()) = *new_value;
         self.next_instr()
     }
 
     fn visit_br_table(&mut self, len_targets: usize) {
+        if self.value_stack().is_emtpy() {
+            self.status = InstructionStatus::Errored;
+            return;
+        }
         let index: u32 = self.value_stack().pop_as();
         // The index of the default target which is the last target of the slice.
         let max_index = len_targets as u32 - 1;
@@ -101,8 +127,8 @@ impl InstExecutor {
                 self.set_pc(*pc);
             }
             ExtraProof::CallHost => {
+                self.next_instr();
                 // nop
-                // TODO
             }
             _ => unreachable!(),
         }
@@ -110,9 +136,15 @@ impl InstExecutor {
 
     fn visit_call_indirect(&mut self, signature_index: SignatureIdx) {
         match &self.inst.extra {
-            ExtraProof::Empty => unreachable!(),
-            ExtraProof::CallIndirect(func_type) => {
-                todo!()
+            ExtraProof::CallWasmIndirect(pc, func_type) => {
+                // TODO:
+
+                self.set_pc(*pc);
+            }
+            ExtraProof::CallHostIndirect(func_type) => {
+                // TODO:
+
+                self.next_instr();
             }
             _ => unreachable!(),
         }

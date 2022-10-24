@@ -28,7 +28,7 @@ pub struct InstanceMerkle {
 }
 
 impl InstanceMerkle {
-    pub fn new_by_snapshot(instance: InstanceSnapshot) -> Self {
+    pub fn create_by_snapshot(instance: InstanceSnapshot) -> Self {
         Self {
             globals: instance.globals_merkle(),
             memories: instance.memories_merkle(),

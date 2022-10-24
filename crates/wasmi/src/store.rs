@@ -159,7 +159,7 @@ mod proof {
             let instance_entity = self.resolve_instance(instance);
             let instance_snapshot = instance_entity.make_snapshot(self);
 
-            let instance_merkle = InstanceMerkle::new_by_snapshot(instance_snapshot);
+            let instance_merkle = InstanceMerkle::create_by_snapshot(instance_snapshot);
 
             self.engine().clone().make_inst_proof(
                 self.as_context_mut(),
