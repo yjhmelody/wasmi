@@ -33,7 +33,6 @@ pub enum InstructionStatus {
 #[derive(Debug, Encode, Decode)]
 pub struct InstExecutor {
     pub status: InstructionStatus,
-    pub engine: EngineProof,
     pub inst: InstructionProof,
 }
 
@@ -49,6 +48,9 @@ impl InstExecutor {
             Instr::Call(func) => self.visit_call(func),
             Instr::CallIndirect(signature) => self.visit_call_indirect(signature),
             Instr::BrTable { len_targets } => self.visit_br_table(len_targets),
+
+            Instr::GlobalGet(global_idx) => self.visit_global_get(global_idx),
+            Instr::GlobalSet(global_idx) => self.visit_global_set(global_idx),
 
             _ => todo!(),
         }
@@ -67,11 +69,11 @@ impl InstExecutor {
     }
 
     fn value_stack(&mut self) -> &mut ValueStackProof {
-        &mut self.engine.value_proof
+        &mut self.inst.engine_proof.value_proof
     }
 
     fn call_stack(&mut self) -> &mut CallStackProof {
-        &mut self.engine.call_proof
+        &mut self.inst.engine_proof.call_proof
     }
 
     fn visit_local_get(&mut self, local_depth: LocalDepth) {
@@ -118,6 +120,7 @@ impl InstExecutor {
         self.set_pc(self.pc() + normalized_index + 1);
     }
 
+    // TODO: Need to prove this index is valid
     fn visit_call(&mut self, _func_index: FuncIdx) {
         // update current frame pc
         let pc = self.pc();
@@ -134,7 +137,7 @@ impl InstExecutor {
         }
     }
 
-    fn visit_call_indirect(&mut self, signature_index: SignatureIdx) {
+    fn visit_call_indirect(&mut self, _signature_index: SignatureIdx) {
         match &self.inst.extra {
             ExtraProof::CallWasmIndirect(pc, func_type) => {
                 // TODO:
@@ -148,5 +151,24 @@ impl InstExecutor {
             }
             _ => unreachable!(),
         }
+    }
+
+    fn visit_global_get(&mut self, global_index: GlobalIdx) {
+        match &self.inst.extra {
+            ExtraProof::GlobalGetSet(proof) => {
+                todo!()
+            }
+
+            _ => unreachable!(),
+        }
+        // let global_value = *self.global(global_index);
+        // self.value_stack().push(global_value);
+        // self.next_instr()
+    }
+
+    fn visit_global_set(&mut self, global_index: GlobalIdx) {
+        // let new_value = self.value_stack.pop();
+        // *self.global(global_index) = new_value;
+        // self.next_instr()
     }
 }

@@ -395,7 +395,7 @@ impl Module {
 mod snapshot {
     use super::*;
     use crate::{
-        snapshot::{InstanceSnapshot, TableSnapshot},
+        snapshot::{InstanceSnapshot, TableElementSnapshot, TableSnapshot},
         GlobalEntity,
         MemoryEntity,
     };
@@ -482,18 +482,24 @@ mod snapshot {
                 let table = Table::new(context.as_context_mut(), table_type);
 
                 // TODO:
-                for (i, func_index) in table_state.elements.iter().enumerate() {
-                    let func = func_index.and_then(|func_index| {
-                        Some(builder.get_func(func_index.clone()).unwrap_or_else(|| {
-                            panic!(
-                                "encountered missing function at index {} upon element initialization",
-                                func_index
-                            )
-                        }))
-                    });
+                for (i, elem) in table_state.elements.iter().enumerate() {
+                    let new_value = match elem {
+                        TableElementSnapshot::Empty => None,
+                        TableElementSnapshot::FuncIndex(func_index, _func_type) => {
+                            // TODO: maybe do check for func_type.
+                            let func = builder.get_func(func_index.clone()).unwrap_or_else(|| {
+                                panic!(
+                                    "encountered missing function at index {} upon element initialization",
+                                    func_index
+                                )
+                            });
+                            // assert_eq!(func.func_type(context).into(), *func_type);
+                            Some(func)
+                        }
+                    };
 
                     table
-                        .set(context.as_context_mut(), i, func)
+                        .set(context.as_context_mut(), i, new_value)
                         .expect("Table is illegal");
                 }
 

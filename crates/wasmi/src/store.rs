@@ -147,7 +147,7 @@ mod proof {
     use super::*;
     use crate::{
         engine::ProofError,
-        merkle::{InstanceMerkle, InstructionProof},
+        merkle::{InstanceMerkle, InstructionProof, StaticMerkle},
     };
 
     impl<T> Store<T> {
@@ -161,10 +161,15 @@ mod proof {
 
             let instance_merkle = InstanceMerkle::create_by_snapshot(instance_snapshot);
 
+            let static_merkle = StaticMerkle {
+                code: self.engine().clone().make_code_merkle(),
+            };
+
             self.engine().clone().make_inst_proof(
                 self.as_context_mut(),
                 current_pc,
                 &instance_merkle,
+                &static_merkle,
                 instance,
             )
         }

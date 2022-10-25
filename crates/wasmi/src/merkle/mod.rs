@@ -27,6 +27,12 @@ pub struct InstanceMerkle {
     pub tables: Vec<Merkle>,
 }
 
+/// This contains some merkle trees whose data should never be changed during wasm execution.
+#[derive(Debug)]
+pub struct StaticMerkle {
+    pub code: Merkle,
+}
+
 impl InstanceMerkle {
     pub fn create_by_snapshot(instance: InstanceSnapshot) -> Self {
         Self {

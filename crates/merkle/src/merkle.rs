@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 
 use digest::Digest;
 use sha3::Keccak256;
+use codec::{Encode, Decode};
 
 use crate::bytes32::Bytes32;
 
@@ -27,7 +28,7 @@ pub trait ProofGenerator {
 #[repr(u8)]
 #[non_exhaustive]
 pub enum MerkleType {
-    // TODO: remove this type.
+    // TODO: I think these are useless, let's remove these.
     Empty = 0,
     Value = 1,
     Function = 2,
@@ -53,12 +54,30 @@ pub struct Merkle {
     empty_layers: Vec<Bytes32>,
 }
 
-fn hash_node(ty: MerkleType, a: Bytes32, b: Bytes32) -> Bytes32 {
+fn hash_node(a: Bytes32, b: Bytes32) -> Bytes32 {
     let mut h = Keccak256::new();
-    h.update([ty as u8]);
     h.update(a);
     h.update(b);
     h.finalize().into()
+}
+
+pub fn compute_root(prove_data: &[u8], index: usize, leaf_hash: Bytes32) -> Option<Bytes32> {
+    todo!()
+    // let x = prove_data.iter().chunks(32).fold()
+}
+
+/// The struct contains a merkle proof for a leaf.
+#[derive(Debug, Clone, Eq, PartialEq, Encode, Decode)]
+pub struct ProveData(Vec<Bytes32>);
+
+impl ProveData {
+    pub fn inner(&self) -> &[Bytes32] {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> Vec<Bytes32> {
+        self.0
+    }
 }
 
 impl Merkle {
@@ -89,10 +108,10 @@ impl Merkle {
             let new_layer = layer
                 .chunks(2)
                 .map(|window| {
-                    hash_node(ty, window[0], window.get(1).cloned().unwrap_or(empty_layer))
+                    hash_node(window[0], window.get(1).cloned().unwrap_or(empty_layer))
                 })
                 .collect();
-            empty_layers.push(hash_node(ty, empty_layer, empty_layer));
+            empty_layers.push(hash_node(empty_layer, empty_layer));
             layers.push(new_layer);
         }
         Merkle {
@@ -119,47 +138,34 @@ impl Merkle {
         }
     }
 
-    pub fn prove(&self, mut idx: usize) -> Option<Vec<u8>> {
+    pub fn prove(&self, mut idx: usize) -> Option<ProveData> {
         if idx >= self.leaves().len() {
             return None;
         }
-        let mut proof = vec![u8::try_from(self.layers.len() - 1).unwrap()];
+        // TODO: redesign this codec
+        let mut proof = ProveData(Vec::new());
         for (layer_i, layer) in self.layers.iter().enumerate() {
             if layer_i == self.layers.len() - 1 {
                 break;
             }
             let counterpart = idx ^ 1;
-            proof.extend(
-                layer
-                    .get(counterpart)
-                    .cloned()
-                    .unwrap_or_else(|| self.empty_layers[layer_i]),
-            );
+            let hash = layer
+                .get(counterpart)
+                .cloned()
+                .unwrap_or_else(|| self.empty_layers[layer_i]);
             idx >>= 1;
+            proof.0.push(hash);
         }
         Some(proof)
     }
 
     /// A variant prove that not contains the leaf node.
-    pub fn prove_without_leaf(&self, mut idx: usize) -> Option<Vec<u8>> {
-        if idx >= self.leaves().len() {
-            return None;
-        }
-        let mut proof = vec![];
-        for (layer_i, layer) in self.layers.iter().enumerate() {
-            if layer_i == self.layers.len() - 1 {
-                break;
-            }
-            let counterpart = idx ^ 1;
-            proof.extend(
-                layer
-                    .get(counterpart)
-                    .cloned()
-                    .unwrap_or_else(|| self.empty_layers[layer_i]),
-            );
-            idx >>= 1;
-        }
-        Some(proof)
+    pub fn prove_without_leaf(&self, idx: usize) -> Option<ProveData> {
+        // TODO: optimize this ops
+        self.prove(idx).map(|mut proof| {
+            proof.0.remove(0);
+            proof
+        })
     }
 
     pub fn set(&mut self, mut idx: usize, hash: Bytes32) {
@@ -180,9 +186,9 @@ impl Merkle {
                 .cloned()
                 .unwrap_or_else(|| empty_layers[layer_i]);
             if idx % 2 == 0 {
-                next_hash = hash_node(self.ty, next_hash, counterpart);
+                next_hash = hash_node(next_hash, counterpart);
             } else {
-                next_hash = hash_node(self.ty, counterpart, next_hash);
+                next_hash = hash_node(counterpart, next_hash);
             }
             idx >>= 1;
         }

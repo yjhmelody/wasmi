@@ -48,7 +48,10 @@ pub struct InstanceEntity {
 
 mod snapshot {
     use super::*;
-    use crate::snapshot::{InstanceSnapshot, TableSnapshot};
+    use crate::{
+        func::FuncEntityInternal,
+        snapshot::{InstanceSnapshot, TableElementSnapshot, TableSnapshot},
+    };
 
     impl Instance {
         /// Make a module level snapshot for the instance.
@@ -68,25 +71,27 @@ mod snapshot {
                 .iter()
                 .map(|table| {
                     let table = store.resolve_table(table.clone());
-
-                    let mut elements_index = Vec::new();
-
                     // TODO: maybe it's better to downgrade it to O(n)
-                    for elem in table.elements().iter() {
-                        match elem {
-                            None => elements_index.push(None),
+                    let elements = table
+                        .elements()
+                        .iter()
+                        .map(|elem| match elem {
+                            None => TableElementSnapshot::Empty,
                             Some(func) => {
+                                let func_type = func.func_type(store.as_context()).into();
                                 let func_index = self
                                     .funcs
                                     .binary_search(func)
                                     .expect("function ref in table must exist in funcs");
-                                elements_index.push(Some(func_index as u32))
+                                // TODO: also need to get func type info.
+                                TableElementSnapshot::FuncIndex(func_index as u32, func_type)
                             }
-                        }
-                    }
+                        })
+                        .collect();
+
                     TableSnapshot {
                         table_type: table.table_type().into(),
-                        elements: elements_index,
+                        elements,
                     }
                 })
                 .collect();
@@ -114,6 +119,20 @@ mod snapshot {
                 memories,
                 globals,
             }
+        }
+
+        pub fn extract_funcs(&self, ctx: &impl AsContext, instance: Instance) {
+            // TODO:
+            let funcs = self
+                .funcs
+                .iter()
+                .copied()
+                .filter(|func| match func.as_internal(ctx) {
+                    FuncEntityInternal::Wasm(func) if func.instance() == instance => true,
+                    FuncEntityInternal::Host(_func) => true,
+                    _ => false,
+                })
+                .collect::<Vec<_>>();
         }
     }
 }

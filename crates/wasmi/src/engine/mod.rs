@@ -621,28 +621,30 @@ mod proof {
         engine::bytecode::Offset,
         merkle::{
             get_memory_leaf,
+            instructions_merkle,
             ExtraProof,
+            GlobalProof,
             InstanceMerkle,
             InstructionProof,
             MemoryStoreNeighbor,
             MemoryStoreSibling,
+            StaticMerkle,
             MEMORY_LEAF_SIZE,
         },
         AsContext,
         Instance,
     };
+    use accel_merkle::{Merkle, MerkleType};
 
     /// Meet some errors when generate normal extra proof for the another instruction.
-    ///
-    /// # Note
-    ///
-    /// Maybe it's also the part of instruction proof.
     #[derive(Debug, Clone)]
     pub enum ProofError {
         TrapCode(TrapCode),
         MemoryNotImported,
+        MemoryIllegal,
         GlobalNotFound,
         EmtpyValueStack,
+        IllegalPc,
     }
 
     impl From<TrapCode> for ProofError {
@@ -657,22 +659,52 @@ mod proof {
             store: impl AsContextMut,
             current_pc: u32,
             instance_merkle: &InstanceMerkle,
+            static_merkle: &StaticMerkle,
             instance: Instance,
         ) -> Result<InstructionProof, ProofError> {
             let engine = self.inner.lock();
             let mut cache = InstanceCache::from(instance);
-            engine.make_inst_proof(store, current_pc, instance_merkle, &mut cache)
+            engine.make_inst_proof(
+                store,
+                current_pc,
+                instance_merkle,
+                static_merkle,
+                &mut cache,
+            )
+        }
+
+        // TODO:
+        pub fn make_code_merkle(&self) -> Merkle {
+            let engine = self.inner.lock();
+            // TODO: maybe also need merkle headers
+            engine.make_code_proof()
         }
     }
 
     impl EngineInner {
+        fn make_code_proof(&self) -> Merkle {
+            instructions_merkle(&self.code_map.insts)
+        }
+
+        /// Generate a instruction level proof for current pc.
+        ///
+        /// # Note
+        ///
+        /// The current pc must be valid.
+        /// All merkle trees must belong to current engine state in logic.
+        /// Otherwise return proof error.
         pub fn make_inst_proof(
             &self,
             mut store: impl AsContextMut,
             current_pc: u32,
             instance_merkle: &InstanceMerkle,
+            static_merkle: &StaticMerkle,
             cache: &mut InstanceCache,
         ) -> Result<InstructionProof, ProofError> {
+            let inst_prove = static_merkle
+                .code
+                .prove(current_pc as usize)
+                .ok_or(ProofError::IllegalPc)?;
             let inst = self.code_map.insts[current_pc as usize];
             let extra = match inst {
                 Instruction::Call(func_idx) => {
@@ -712,14 +744,14 @@ mod proof {
                 Instruction::GlobalSet(idx) | Instruction::GlobalGet(idx) => {
                     let idx = idx.into_inner();
                     // TODO: this should be as_context
-                    let global = cache.get_global(store.as_context_mut(), idx).clone();
+                    let value = cache.get_global(store.as_context_mut(), idx).clone();
 
                     let prove_data = instance_merkle
                         .globals
                         .prove(idx as usize)
                         .ok_or(ProofError::GlobalNotFound)?;
 
-                    ExtraProof::GlobalGetSet(global, prove_data)
+                    ExtraProof::GlobalGetSet(GlobalProof { value, prove_data })
                 }
                 // TODO: design more detailed Proof for memory instructions
                 Instruction::I32Load(offset)
@@ -772,7 +804,9 @@ mod proof {
                     let leaf = get_memory_leaf(memory, idx);
                     let next_leaf_idx = idx.saturating_add(1);
                     let next_leaf = get_memory_leaf(memory, next_leaf_idx);
-                    let prove_data = memory_merkle.prove_without_leaf(idx).expect("must exist");
+                    let prove_data = memory_merkle
+                        .prove_without_leaf(idx)
+                        .ok_or(ProofError::MemoryIllegal)?;
                     // if the number is odd
                     if idx % 2 == 1 {
                         let leaf_sibling = memory_merkle.leaves()[idx - 1];
@@ -805,6 +839,7 @@ mod proof {
                 engine_proof,
                 current_pc,
                 inst,
+                inst_prove,
                 extra,
             })
         }

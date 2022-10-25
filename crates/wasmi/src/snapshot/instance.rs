@@ -1,6 +1,14 @@
 //! Module instance level snapshot.
 
-use crate::{memory::ByteBuffer, GlobalEntity, MemoryEntity, MemoryType, TableType};
+use crate::{
+    memory::ByteBuffer,
+    merkle::FuncType,
+    Func,
+    GlobalEntity,
+    MemoryEntity,
+    MemoryType,
+    TableType,
+};
 use codec::{Decode, Encode};
 use wasmi_core::Pages;
 
@@ -89,13 +97,20 @@ impl From<MemoryEntity> for MemorySnapshot {
     }
 }
 
+// TODO: need to store type info for elements
 /// A table snapshot.
 #[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
 pub struct TableSnapshot {
     /// Table type.
     pub table_type: TableTypeSnapshot,
     /// Element index.
-    pub elements: Vec<Option<u32>>,
+    pub elements: Vec<TableElementSnapshot>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
+pub enum TableElementSnapshot {
+    Empty,
+    FuncIndex(u32, FuncType),
 }
 
 /// A descriptor for a Table.

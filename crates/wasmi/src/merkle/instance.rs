@@ -1,5 +1,5 @@
 use crate::{
-    snapshot::{InstanceSnapshot, MemorySnapshot, TableSnapshot},
+    snapshot::{InstanceSnapshot, MemorySnapshot, TableElementSnapshot, TableSnapshot},
     GlobalEntity,
 };
 use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType};
@@ -112,9 +112,8 @@ impl MemorySnapshot {
     }
 }
 
-fn table_element_hash(elem: &Option<u32>) -> Bytes32 {
+fn table_element_hash(elem: &TableElementSnapshot) -> Bytes32 {
     let mut h = Keccak256::new();
-    h.update([MerkleType::TableElement as u8]);
     h.update(elem.encode());
     h.finalize().into()
 }
@@ -122,7 +121,7 @@ fn table_element_hash(elem: &Option<u32>) -> Bytes32 {
 // TODO: define our own global state.
 fn global_hash(global: &GlobalEntity) -> Bytes32 {
     let mut h = Keccak256::new();
-    h.update(global.encode());
+    h.update(global.get_untyped().encode());
     h.finalize().into()
 }
 

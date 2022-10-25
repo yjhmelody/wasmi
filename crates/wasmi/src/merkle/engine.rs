@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType};
+use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType, ProveData};
 use wasmi_core::{UntypedValue, ValueType};
 
 use codec::{Codec, Decode, Encode, Error, Input, Output};
@@ -35,6 +35,7 @@ impl EngineSnapshot {
     }
 }
 
+/// The contains engine level proof data used for instruction proof.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct EngineProof {
     pub config: EngineConfig,
@@ -44,12 +45,14 @@ pub struct EngineProof {
 
 /// Instruction level proof.
 ///
-/// It includes engine proof.
+/// It includes engine relate data proof.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct InstructionProof {
     pub(crate) engine_proof: EngineProof,
     pub(crate) current_pc: u32,
     pub(crate) inst: Instruction,
+    /// The prove current instruction is legal.
+    pub(crate) inst_prove: ProveData,
     pub(crate) extra: ExtraProof,
 }
 
@@ -58,26 +61,35 @@ pub struct InstructionProof {
 pub enum ExtraProof {
     /// Most instructions do not need more proof.
     Empty,
-    GlobalGetSet(UntypedValue, Vec<u8>),
+    GlobalGetSet(GlobalProof),
     MemoryStoreNeighbor(MemoryStoreNeighbor),
     MemoryStoreSibling(MemoryStoreSibling),
+    // TODO: Still need to design these call proof.
+    // TODO: 这些数据必须是在proof里用到，否则无法让Layer1有效证明
     /// The pc that call jump to.
     CallWasm(u32),
     /// Now we do not support extra proof for host function.
     CallHost,
-    // TODO: Still need to design this proof.
     // I am still confused about it.
     // Maybe need to prove this function is in the table.
     CallWasmIndirect(u32, FuncType),
     CallHostIndirect(FuncType),
 }
 
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct GlobalProof {
+    pub value: UntypedValue,
+    pub prove_data: ProveData,
+}
+
 /// The contains a proof that a memory store instruction touch two neighbor leaves which have `not` same parent.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct MemoryStoreNeighbor {
+    // Note: This is memory chunk not a hash.
     pub leaf: [u8; MEMORY_LEAF_SIZE],
+    // Note: This is memory chunk not a hash.
     pub next_leaf: [u8; MEMORY_LEAF_SIZE],
-    pub prove_data: Vec<u8>,
+    pub prove_data: ProveData,
     pub leaf_sibling: Bytes32,
     pub next_leaf_sibling: Bytes32,
 }
@@ -85,11 +97,14 @@ pub struct MemoryStoreNeighbor {
 /// The contains a proof that a memory store instruction touch two sibling leaves which have same parent.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct MemoryStoreSibling {
+    // Note: This is memory chunk not a hash.
     pub leaf: [u8; MEMORY_LEAF_SIZE],
+    // Note: This is memory chunk not a hash.
     pub next_leaf: [u8; MEMORY_LEAF_SIZE],
-    pub prove_data: Vec<u8>,
+    pub prove_data: ProveData,
 }
 
+// TODO: move to other mod.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct FuncType {
     pub params: Vec<ValueType>,
@@ -322,7 +337,6 @@ mod tests {
 // Note: For static state(such as instructions), we just need to generate merkle once and keep it in memory.
 
 /// Generate a merkle for instructions.
-#[allow(unused)]
 pub fn instructions_merkle(insts: &[Instruction]) -> Merkle {
     Merkle::new(
         MerkleType::Instruction,
