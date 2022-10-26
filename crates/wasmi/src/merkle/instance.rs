@@ -113,7 +113,7 @@ impl MemorySnapshot {
     }
 }
 
-fn table_element_hash(elem: &TableElementSnapshot) -> Bytes32 {
+pub fn table_element_hash(elem: &TableElementSnapshot) -> Bytes32 {
     let mut h = Keccak256::new();
     h.update(elem.encode());
     h.finalize().into()
@@ -126,7 +126,7 @@ pub fn value_hash(val: UntypedValue) -> Bytes32 {
 }
 
 // TODO: define our own global state.
-fn global_hash(global: &GlobalEntity) -> Bytes32 {
+pub fn global_hash(global: &GlobalEntity) -> Bytes32 {
     value_hash(global.get_untyped())
 }
 

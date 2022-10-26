@@ -727,7 +727,7 @@ mod proof {
                     self.make_call_proof(store.as_context(), func, None)
                 }
 
-                Instruction::CallIndirect(_idx) => {
+                Instruction::CallIndirect(signature_index) => {
                     let func_index = u32::from(
                         self.stack
                             .values
@@ -741,6 +741,15 @@ mod proof {
                         .get(store.as_context(), func_index)
                         .map_err(|_| TrapCode::TableAccessOutOfBounds)?
                         .ok_or(TrapCode::ElemUninitialized)?;
+                    // let actual_signature = func.signature(self.ctx.as_context());
+                    // let expected_signature = cache.instance().get_signature(store, signature_index.into_inner())
+                    //     .unwrap_or_else(|| {
+                    //     panic!(
+                    //         "missing signature for call_indirect at index: {:?}",
+                    //         signature_index,
+                    //     )
+                    // });
+
                     let func_type = func.func_type(store.as_context());
                     // TODO: we need to design errors and panics.
                     let table_merkle = instance_merkle

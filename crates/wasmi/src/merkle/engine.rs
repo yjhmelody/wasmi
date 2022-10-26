@@ -75,6 +75,7 @@ pub enum ExtraProof {
     CallHostIndirect(CallIndirectProof),
 }
 
+// TODO: still need func signature proof.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct CallIndirectProof {
     pub func_type: FuncType,
