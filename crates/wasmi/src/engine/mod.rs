@@ -270,7 +270,10 @@ mod snapshot {
                     maximum_recursion_depth,
                 },
                 values: ValueStackSnapshot { entries },
-                frames: CallStackSnapshot { frames },
+                frames: CallStackSnapshot {
+                    recursion_depth: maximum_recursion_depth,
+                    frames,
+                },
             }
         }
     }
@@ -622,6 +625,7 @@ mod proof {
         merkle::{
             get_memory_leaf,
             instructions_merkle,
+            CallIndirectProof,
             ExtraProof,
             GlobalProof,
             InstanceMerkle,
@@ -634,7 +638,7 @@ mod proof {
         AsContext,
         Instance,
     };
-    use accel_merkle::{Merkle, MerkleType};
+    use accel_merkle::{Merkle, MerkleType, ProveData};
 
     /// Meet some errors when generate normal extra proof for the another instruction.
     #[derive(Debug, Clone)]
@@ -731,15 +735,27 @@ mod proof {
                             .last()
                             .copied()
                             .ok_or(ProofError::EmtpyValueStack)?,
-                    );
+                    ) as usize;
                     let table = cache.default_table(store.as_context());
                     let func = table
-                        .get(store.as_context(), func_index as usize)
+                        .get(store.as_context(), func_index)
                         .map_err(|_| TrapCode::TableAccessOutOfBounds)?
                         .ok_or(TrapCode::ElemUninitialized)?;
                     let func_type = func.func_type(store.as_context());
+                    // TODO: we need to design errors and panics.
+                    let table_merkle = instance_merkle
+                        .tables
+                        .first()
+                        .expect("Default table must exist; qed");
+                    let prove_data = table_merkle
+                        .prove(func_index)
+                        .expect("CallIndirect prove data must exist; qed");
 
-                    self.make_call_proof(store.as_context(), func, Some(func_type))
+                    let proof = CallIndirectProof {
+                        func_type: func_type.into(),
+                        prove_data,
+                    };
+                    self.make_call_proof(store.as_context(), func, Some(proof))
                 }
                 Instruction::GlobalSet(idx) | Instruction::GlobalGet(idx) => {
                     let idx = idx.into_inner();
@@ -848,7 +864,7 @@ mod proof {
             &self,
             store: impl AsContext,
             func: Func,
-            func_type: Option<FuncType>,
+            proof: Option<CallIndirectProof>,
         ) -> ExtraProof {
             match func.as_internal(store.as_context()) {
                 FuncEntityInternal::Wasm(entity) => {
@@ -856,10 +872,8 @@ mod proof {
                     let header = self.code_map.header(body);
                     let next_pc = header.start();
                     // TODO: maybe still need some other data
-                    match func_type {
-                        Some(func_type) => {
-                            ExtraProof::CallWasmIndirect(next_pc as u32, func_type.into())
-                        }
+                    match proof {
+                        Some(proof) => ExtraProof::CallWasmIndirect(next_pc as u32, proof),
                         None => ExtraProof::CallWasm(next_pc as u32),
                     }
                 }
@@ -868,8 +882,8 @@ mod proof {
                     // We only could support no side effect functions/pure function.
                     // And we must actually run it to get the result for proof.
                     // But for some utility function we do not know the global/memory/table they are using.
-                    match func_type {
-                        Some(func_type) => ExtraProof::CallHostIndirect(func_type.into()),
+                    match proof {
+                        Some(proof) => ExtraProof::CallHostIndirect(proof),
                         None => ExtraProof::CallHost,
                     }
                 }

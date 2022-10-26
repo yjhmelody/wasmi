@@ -4,6 +4,7 @@ use crate::{
 };
 use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType};
 use codec::Encode;
+use wasmi_core::UntypedValue;
 
 pub const MEMORY_LEAF_SIZE: usize = 32;
 /// The number of layers in the memory merkle tree
@@ -118,11 +119,15 @@ fn table_element_hash(elem: &TableElementSnapshot) -> Bytes32 {
     h.finalize().into()
 }
 
+pub fn value_hash(val: UntypedValue) -> Bytes32 {
+    let mut h = Keccak256::new();
+    h.update(val.encode());
+    h.finalize().into()
+}
+
 // TODO: define our own global state.
 fn global_hash(global: &GlobalEntity) -> Bytes32 {
-    let mut h = Keccak256::new();
-    h.update(global.get_untyped().encode());
-    h.finalize().into()
+    value_hash(global.get_untyped())
 }
 
 impl TableSnapshot {

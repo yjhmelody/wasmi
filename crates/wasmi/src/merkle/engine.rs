@@ -72,8 +72,14 @@ pub enum ExtraProof {
     CallHost,
     // I am still confused about it.
     // Maybe need to prove this function is in the table.
-    CallWasmIndirect(u32, FuncType),
-    CallHostIndirect(FuncType),
+    CallWasmIndirect(u32, CallIndirectProof),
+    CallHostIndirect(CallIndirectProof),
+}
+
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct CallIndirectProof {
+    pub func_type: FuncType,
+    pub prove_data: ProveData,
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
@@ -165,11 +171,11 @@ impl ValueStackSnapshot {
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct StackProof<T> {
     /// The hash of entries excepting the top N.
-    pub remaining_hash: Bytes32,
+    remaining_hash: Bytes32,
     /// The top N entries in value stack.
     ///
     /// These entries will be used when execute osp.
-    pub entries: Vec<T>,
+    entries: Vec<T>,
 }
 
 impl<T> StackProof<T>
@@ -182,19 +188,22 @@ where
     }
 
     /// Pop and return the last value. Panic if len is 0.
-    pub fn pop(&mut self) -> T {
-        self.entries.pop().expect("Must exist")
+    pub fn pop(&mut self) -> Option<T> {
+        self.entries.pop()
     }
 
     /// Note: depth must be great than 0.
-    pub fn peek(&self, depth: usize) -> &T {
+    pub fn peek(&self, depth: usize) -> Option<&T> {
         let len = self.entries.len();
-        &self.entries[len - depth]
+        if len > depth {
+            Some(&self.entries[len - depth])
+        } else {
+            None
+        }
     }
 
-    // Panic if len is 0.
-    pub fn last(&self) -> &T {
-        self.peek(1)
+    pub fn last(&self) -> Option<&T> {
+        self.entries.last()
     }
 
     /// Panic if len is less than depth.
@@ -216,7 +225,7 @@ impl ValueStackProof {
         self.0.hash()
     }
 
-    pub fn pop(&mut self) -> UntypedValue {
+    pub fn pop(&mut self) -> Option<UntypedValue> {
         self.0.pop()
     }
 
@@ -224,27 +233,27 @@ impl ValueStackProof {
         self.0.entries.is_empty()
     }
 
-    pub fn pop_as<T>(&mut self) -> T
+    pub fn pop_as<T>(&mut self) -> Option<T>
     where
         T: From<UntypedValue>,
     {
-        T::from(self.pop())
+        self.pop().map(From::from)
     }
 
-    pub fn peek(&self, depth: usize) -> &UntypedValue {
+    pub fn peek(&self, depth: usize) -> Option<&UntypedValue> {
         self.0.peek(depth)
     }
 
-    pub fn last(&self) -> &UntypedValue {
+    pub fn last(&self) -> Option<&UntypedValue> {
         self.0.last()
     }
 
     // Panic if len is 0.
-    pub fn last_as<T>(&self) -> T
+    pub fn last_as<T>(&self) -> Option<T>
     where
         T: From<UntypedValue>,
     {
-        T::from(self.last().clone())
+        self.last().copied().map(T::from)
     }
 
     pub fn peek_mut(&mut self, depth: usize) -> &mut UntypedValue {
@@ -265,28 +274,44 @@ impl CallStackSnapshot {
         let remaining_hash = hash_stack(bottoms);
         let entries = tops.iter().map(|f| f.clone()).collect();
 
-        CallStackProof(StackProof {
-            remaining_hash,
-            entries,
-        })
+        CallStackProof {
+            keep_len: keep_len as u32,
+            stack: StackProof {
+                remaining_hash,
+                entries,
+            },
+            recursion_depth: self.recursion_depth,
+        }
     }
 }
 
 // TODO: need to consider more, maybe contain the current pc in it.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct CallStackProof(pub StackProof<FuncFrameSnapshot>);
+pub struct CallStackProof {
+    /// The top N size which should be keep.
+    keep_len: u32,
+    /// The underline stack.
+    stack: StackProof<FuncFrameSnapshot>,
+    /// The maximum number of nested calls that the Wasm stack allows.
+    recursion_depth: u32,
+}
 
 impl CallStackProof {
     pub fn hash(&self) -> Bytes32 {
-        self.0.hash()
+        self.stack.hash()
     }
 
-    pub fn push(&mut self, val: FuncFrameSnapshot) {
-        self.0.push(val)
+    /// Returns None if stack overflow.
+    pub fn push(&mut self, val: FuncFrameSnapshot) -> Option<()> {
+        if self.recursion_depth == self.stack.entries.len() as u32 + self.keep_len {
+            return None;
+        }
+        self.stack.push(val);
+        Some(())
     }
 
-    pub fn pop(&mut self) -> FuncFrameSnapshot {
-        self.0.pop()
+    pub fn pop(&mut self) -> Option<FuncFrameSnapshot> {
+        self.stack.pop()
     }
 }
 
@@ -318,6 +343,7 @@ mod tests {
     #[test]
     fn test_call_stack_proof() {
         let snapshot = CallStackSnapshot {
+            recursion_depth: 255,
             frames: vec![
                 FuncFrameSnapshot::from(1u32),
                 FuncFrameSnapshot::from(4u32),

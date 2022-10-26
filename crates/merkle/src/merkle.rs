@@ -61,11 +61,6 @@ fn hash_node(a: Bytes32, b: Bytes32) -> Bytes32 {
     h.finalize().into()
 }
 
-pub fn compute_root(prove_data: &[u8], index: usize, leaf_hash: Bytes32) -> Option<Bytes32> {
-    todo!()
-    // let x = prove_data.iter().chunks(32).fold()
-}
-
 /// The struct contains a merkle proof for a leaf.
 #[derive(Debug, Clone, Eq, PartialEq, Encode, Decode)]
 pub struct ProveData(Vec<Bytes32>);
@@ -78,8 +73,13 @@ impl ProveData {
     pub fn into_inner(self) -> Vec<Bytes32> {
         self.0
     }
+
+    pub fn compute_root(&self, index: usize, leaf_hash: Bytes32) -> Option<Bytes32> {
+        todo!()
+    }
 }
 
+// TODO: redesign this data structure.
 impl Merkle {
     pub fn ty(&self) -> MerkleType {
         self.ty

@@ -56,6 +56,11 @@ fn call_step<T>(
 fn test_snapshot() {
     let wat = r#"
 (module
+  (global $g1 (mut i32) (i32.const 1))
+  (global $g2 (mut i32) (i32.const 2))
+  (global $g3 (mut i32) (i32.const 3))
+  (func (export "foo") (param $x i32) (param $y i32) (result i32) (i32.add (local.get $x) (global.get $g3)))
+
   (func (export "add") (param $x i32) (param $y i32) (result i32) (i32.add (local.get $x) (local.get $y)))
   (func (export "sub") (param $x i32) (param $y i32) (result i32) (i32.sub (local.get $x) (local.get $y)))
   (func (export "mul") (param $x i32) (param $y i32) (result i32) (i32.mul (local.get $x) (local.get $y)))
