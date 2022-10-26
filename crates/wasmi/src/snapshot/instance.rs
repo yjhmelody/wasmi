@@ -3,7 +3,6 @@
 use crate::{
     memory::ByteBuffer,
     merkle::FuncType,
-    Func,
     GlobalEntity,
     MemoryEntity,
     MemoryType,

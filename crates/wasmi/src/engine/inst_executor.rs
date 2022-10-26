@@ -12,6 +12,7 @@ use super::{
 };
 use crate::{
     core::{TrapCode, F32, F64},
+    engine::executor::MaybeReturn,
     merkle::{
         value_hash,
         CallStackProof,
@@ -34,17 +35,28 @@ use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
 
 #[derive(Clone, Copy, Encode, Decode, Debug, Eq, PartialEq)]
 pub enum InstructionStatus {
+    /// This means there is still next instruction.
     Running,
+    /// This means program has run the last instruction.
     Finished,
-    Errored,
+    /// Current instruction meet trap.
+    Trapped,
 }
 
-#[derive(Clone, Copy, Encode, Decode, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecError {
     GlobalsRootNotMatch,
     EmptyValueStack,
+    ValueStackTooSmallForLocalDepth,
+    EmptyCallStack,
+    ValueStackTooShortForDropKeep,
+    BranchToIllegalPc,
     IllegalExtraProof,
     CallStackOverflow,
+
+    /// Just a temporary error.
+    /// Will be removed when all proof are completed
+    TODO,
 }
 
 pub type Result<T> = core::result::Result<T, ExecError>;
@@ -52,8 +64,7 @@ pub type Result<T> = core::result::Result<T, ExecError>;
 /// One instruction executor used for OSP.
 #[derive(Debug, Encode, Decode)]
 pub struct InstExecutor {
-    // TODO:
-    // status: InstructionStatus,
+    status: InstructionStatus,
     config: EngineConfig,
     call_stack: CallStackProof,
     value_stack: ValueStackProof,
@@ -81,8 +92,13 @@ impl InstExecutor {
 
             Instr::GlobalGet(global_idx) => self.visit_global_get(global_idx),
             Instr::GlobalSet(global_idx) => self.visit_global_set(global_idx),
-            // TODO: Br insts
-            _ => todo!(),
+            Instr::Br(target) => self.visit_br(target),
+            Instr::BrIfEqz(target) => self.visit_br_if_eqz(target),
+            Instr::BrIfNez(target) => self.visit_br_if_nez(target),
+            Instr::ReturnIfNez(drop_keep) => self.visit_return_if_nez(drop_keep),
+            Instr::Unreachable => self.visit_unreachable(),
+
+            _ => Err(ExecError::TODO),
         }
     }
 
@@ -103,7 +119,7 @@ impl InstExecutor {
         let value = *self
             .value_stack
             .peek(local_depth.into_inner())
-            .ok_or(ExecError::EmptyValueStack)?;
+            .ok_or(ExecError::ValueStackTooSmallForLocalDepth)?;
         self.value_stack.push(value);
         self.next_instr();
         Ok(())
@@ -111,14 +127,28 @@ impl InstExecutor {
 
     fn visit_local_set(&mut self, local_depth: LocalDepth) -> Result<()> {
         let new_value = self.value_stack.pop().ok_or(ExecError::EmptyValueStack)?;
-        *self.value_stack.peek_mut(local_depth.into_inner()) = new_value;
+        let local = self
+            .value_stack
+            .peek_mut(local_depth.into_inner())
+            .ok_or(ExecError::ValueStackTooSmallForLocalDepth)?;
+        *local = new_value;
+
         self.next_instr();
         Ok(())
     }
 
     fn visit_local_tee(&mut self, local_depth: LocalDepth) -> Result<()> {
-        let new_value = self.value_stack.last().ok_or(ExecError::EmptyValueStack)?;
-        *self.value_stack.peek_mut(local_depth.into_inner()) = *new_value;
+        let new_value = self
+            .value_stack
+            .last()
+            .ok_or(ExecError::EmptyValueStack)?
+            .clone();
+        let local = self
+            .value_stack
+            .peek_mut(local_depth.into_inner())
+            .ok_or(ExecError::ValueStackTooSmallForLocalDepth)?;
+        *local = new_value;
+
         self.next_instr();
         Ok(())
     }
@@ -215,5 +245,83 @@ impl InstExecutor {
 
             _ => Err(ExecError::IllegalExtraProof),
         }
+    }
+
+    fn visit_br(&mut self, params: BranchParams) -> Result<()> {
+        self.branch_to(params)
+    }
+
+    fn pop_value_stack_as<T>(&mut self) -> Result<T>
+    where
+        T: From<UntypedValue>,
+    {
+        self.value_stack.pop_as().ok_or(ExecError::EmptyValueStack)
+    }
+
+    fn visit_br_if_eqz(&mut self, params: BranchParams) -> Result<()> {
+        let condition = self.pop_value_stack_as()?;
+        if condition {
+            self.next_instr();
+            Ok(())
+        } else {
+            self.branch_to(params)
+        }
+    }
+
+    fn visit_br_if_nez(&mut self, params: BranchParams) -> Result<()> {
+        let condition = self.pop_value_stack_as()?;
+        if condition {
+            self.branch_to(params)
+        } else {
+            self.next_instr();
+            Ok(())
+        }
+    }
+
+    fn branch_to(&mut self, params: BranchParams) -> Result<()> {
+        self.drop_keep(params.drop_keep())?;
+        let offset = params.offset().into_i32();
+        let pc = self.pc();
+        if offset < 0 {
+            let new_pc = pc as i32 - offset;
+            if new_pc < 0 {
+                return Err(ExecError::BranchToIllegalPc);
+            } else {
+                self.set_pc(new_pc as u32);
+            }
+        } else {
+            self.set_pc(pc + offset as u32);
+        }
+        Ok(())
+    }
+
+    fn visit_return_if_nez(&mut self, drop_keep: DropKeep) -> Result<()> {
+        let condition = self.pop_value_stack_as()?;
+        if condition {
+            self.ret(drop_keep)
+        } else {
+            self.next_instr();
+            Ok(())
+        }
+    }
+
+    #[inline]
+    fn drop_keep(&mut self, drop_keep: DropKeep) -> Result<()> {
+        self.value_stack
+            .drop_keep(drop_keep)
+            .ok_or(ExecError::ValueStackTooShortForDropKeep)
+    }
+
+    fn ret(&mut self, drop_keep: DropKeep) -> Result<()> {
+        self.drop_keep(drop_keep)?;
+        let frame = self.call_stack.pop().ok_or(ExecError::EmptyCallStack)?;
+        self.set_pc(frame.pc);
+        Ok(())
+    }
+
+    fn visit_unreachable(&mut self) -> Result<()> {
+        self.status = InstructionStatus::Trapped;
+
+        Ok(())
     }
 }

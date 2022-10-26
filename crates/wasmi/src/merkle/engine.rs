@@ -22,8 +22,8 @@ use crate::{
 
 impl EngineSnapshot {
     pub fn make_proof(&self) -> EngineProof {
-        // TODO: config this size
-        // TODO: arb always use 3. But we could use different len for different instructions.
+        // TODO(optimization): arb always use 3 for most instructions.
+        // But we could use different len for different instructions.
         let value_proof = self.values.make_proof(3);
         let call_proof = self.frames.make_proof(1);
 
@@ -65,7 +65,6 @@ pub enum ExtraProof {
     MemoryStoreNeighbor(MemoryStoreNeighbor),
     MemoryStoreSibling(MemoryStoreSibling),
     // TODO: Still need to design these call proof.
-    // TODO: 这些数据必须是在proof里用到，否则无法让Layer1有效证明
     /// The pc that call jump to.
     CallWasm(u32),
     /// Now we do not support extra proof for host function.
@@ -206,10 +205,14 @@ where
         self.entries.last()
     }
 
-    /// Panic if len is less than depth.
-    pub fn peek_mut(&mut self, depth: usize) -> &mut T {
+    /// Note: depth must be great than 0.
+    pub fn peek_mut(&mut self, depth: usize) -> Option<&mut T> {
         let len = self.entries.len();
-        &mut self.entries[len - depth]
+        if len >= depth {
+            Some(&mut self.entries[len - depth])
+        } else {
+            None
+        }
     }
 
     pub fn push(&mut self, val: T) {
@@ -256,12 +259,65 @@ impl ValueStackProof {
         self.last().copied().map(T::from)
     }
 
-    pub fn peek_mut(&mut self, depth: usize) -> &mut UntypedValue {
+    pub fn peek_mut(&mut self, depth: usize) -> Option<&mut UntypedValue> {
         self.0.peek_mut(depth)
     }
 
     pub fn push(&mut self, val: UntypedValue) {
         self.0.push(val)
+    }
+
+    /// Move `K` elements from the top of the stack `D` positions down the stack,
+    /// and then pop `D` elements from the top of the stack.
+    ///
+    /// # Note
+    ///
+    /// For an amount of entries to keep `k` and an amount of entries to drop `d`
+    /// this has the following effect on stack `s` and stack pointer `sp`.
+    ///
+    /// 1) Copy `k` elements from indices starting at `sp - k` to `sp - k - d`.
+    /// 2) Adjust stack pointer: `sp -= d`
+    ///
+    /// After this operation the value stack will have `d` fewer entries and the
+    /// top `k` entries are the top `k` entries before this operation.
+    ///
+    /// Note that `k + d` cannot be greater than the stack length.
+    pub fn drop_keep(&mut self, drop_keep: DropKeep) -> Option<()> {
+        let drop = drop_keep.drop();
+        if drop == 0 {
+            // Nothing to do in this case.
+            return Some(());
+        }
+        let keep = drop_keep.keep();
+        if keep == 0 {
+            // Bail out early when there are no values to keep.
+        } else if keep == 1 {
+            let last = self.0.last()?.clone();
+            let len = self.0.entries.len();
+            if len < 1 + drop {
+                // illegal
+                return None;
+            }
+            // Bail out early when there is only one value to copy.
+            self.0.entries[len - 1 - drop] = last;
+        } else {
+            let len = self.0.entries.len();
+            // Copy kept values over to their new place on the stack.
+            if len < keep + drop {
+                // illegal
+                return None;
+            }
+            let src = len - keep;
+            let dst = len - keep - drop;
+            for i in 0..keep {
+                self.0.entries[dst + i] = self.0.entries[src + i];
+            }
+        }
+        // Drop top values
+        let len = self.0.entries.len();
+        self.0.entries.truncate(len - drop);
+
+        Some(())
     }
 }
 

@@ -638,7 +638,7 @@ mod proof {
         AsContext,
         Instance,
     };
-    use accel_merkle::{Merkle, MerkleType, ProveData};
+    use accel_merkle::Merkle;
 
     /// Meet some errors when generate normal extra proof for the another instruction.
     #[derive(Debug, Clone)]
