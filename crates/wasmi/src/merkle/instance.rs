@@ -12,7 +12,7 @@ pub const MEMORY_LEAF_SIZE: usize = 32;
 const MEMORY_LAYERS: usize = 1 + 32 - 5;
 
 /// hash the memory bytes.
-fn hash_memory_leaf(bytes: [u8; MEMORY_LEAF_SIZE]) -> Bytes32 {
+pub fn hash_memory_leaf(bytes: [u8; MEMORY_LEAF_SIZE]) -> Bytes32 {
     let mut h = Keccak256::new();
     h.update(bytes);
     h.finalize().into()

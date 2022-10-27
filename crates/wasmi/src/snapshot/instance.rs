@@ -14,9 +14,6 @@ use wasmi_core::Pages;
 /// The state has two purpose:
 /// 1. Generate merkle proof.
 /// 2. Generate instruction level state.
-///
-/// The state will be used to execute a instruction in another one step executor.
-/// And then diff the merkle hash.
 #[derive(Clone, Encode, Decode)]
 pub struct InstanceSnapshot {
     pub globals: Vec<GlobalEntity>,
