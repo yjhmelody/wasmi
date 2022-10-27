@@ -1,5 +1,5 @@
 use crate::merkle::MEMORY_LEAF_SIZE;
-use codec::{Codec, Decode, Encode, Error, Input, Output};
+use codec::{Decode, Encode};
 use core::fmt::Debug;
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]

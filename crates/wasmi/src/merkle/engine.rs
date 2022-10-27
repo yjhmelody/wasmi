@@ -141,7 +141,7 @@ impl MemoryChunkNeighbor {
             self.next_leaf_sibling,
         );
         next_index >>= 1;
-        let second_root = self.prove_data.compute_root(index, parent_hash);
+        let second_root = self.prove_data.compute_root(next_index, parent_hash);
 
         if first_root != second_root {
             return None;

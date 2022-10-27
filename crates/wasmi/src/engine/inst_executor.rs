@@ -9,22 +9,16 @@ use crate::{
         value_hash,
         CallIndirectProof,
         CallStackProof,
-        EngineProof,
         ExtraProof,
-        InstanceMerkle,
-        InstructionProof,
-        StaticMerkle,
         ValueStackProof,
     },
-    snapshot::{FuncFrameSnapshot, TableElementSnapshot, ValueStackSnapshot},
+    snapshot::{FuncFrameSnapshot, TableElementSnapshot},
     Func,
 };
 
 use core::{cmp, result};
-use std::mem::size_of;
 
-use crate::merkle::MEMORY_LEAF_SIZE;
-use accel_merkle::{sha3::Keccak256, Bytes32, ProveData};
+use accel_merkle::{Bytes32, ProveData};
 use codec::{Decode, Encode};
 use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
 
@@ -81,6 +75,7 @@ pub struct InstExecutor {
 }
 
 impl InstExecutor {
+    #[allow(unused)]
     pub fn execute(&mut self) -> Result<()> {
         use Instruction as Instr;
         match self.inst {
