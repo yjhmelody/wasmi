@@ -14,6 +14,7 @@ use crate::{
     core::{TrapCode, F32, F64},
     AsContext,
     Func,
+    StepResult,
     StoreContextMut,
 };
 use core::cmp;
@@ -39,30 +40,9 @@ pub fn execute_frame<'engine>(
     Executor::new(value_stack, ctx.as_context_mut(), cache, frame).execute()
 }
 
-/// Executes the given function `frame`.
-///
-/// # Note
-///
-/// This executes instructions sequentially until either the function
-/// calls into another function or the function returns to its caller.
-///
-/// # Errors
-///
-/// - If the execution of the function `frame` trapped.
-#[inline(always)]
-pub fn execute_frame_step<'engine>(
-    mut ctx: impl AsContextMut,
-    value_stack: &'engine mut ValueStack,
-    cache: &'engine mut InstanceCache,
-    frame: &mut FuncFrame,
-    n: &mut u64,
-) -> Result<CallOutcome, TrapCode> {
-    Executor::new(value_stack, ctx.as_context_mut(), cache, frame).execute_step(n)
-}
-
 /// An execution context for executing a `wasmi` function frame.
 #[derive(Debug)]
-struct Executor<'ctx, 'engine, 'func, HostData> {
+pub(crate) struct Executor<'ctx, 'engine, 'func, HostData> {
     /// The pointer to the currently executed instruction.
     ip: InstructionPtr,
     /// Stores the value stack of live values on the Wasm stack.
@@ -77,20 +57,35 @@ struct Executor<'ctx, 'engine, 'func, HostData> {
     frame: &'func mut FuncFrame,
 }
 
+pub use step::StepCallOutcome;
+
 mod step {
     use super::*;
+
+    #[derive(Debug, Copy, Clone)]
+    pub enum StepCallOutcome {
+        CallOutcome(CallOutcome),
+        /// Run out of all steps and returns current pc.
+        RunOutOfStep(usize),
+    }
+
+    impl From<CallOutcome> for StepCallOutcome {
+        fn from(c: CallOutcome) -> Self {
+            Self::CallOutcome(c)
+        }
+    }
 
     impl<'ctx, 'engine, 'func, HostData> Executor<'ctx, 'engine, 'func, HostData> {
         // TODO: reduce code by macro
         /// Executes the function frame until it returns or traps.
         #[inline(always)]
-        pub(crate) fn execute_step(mut self, n: &mut u64) -> Result<CallOutcome, TrapCode> {
+        pub(crate) fn execute_step(mut self, n: &mut u64) -> Result<StepCallOutcome, TrapCode> {
             use Instruction as Instr;
             loop {
                 if *n == 0 {
                     // Note: it's import to update current stack data.
                     self.sync_stack_ptr();
-                    return Err(TrapCode::HaltedByHost(self.ip.ptr()));
+                    return Ok(StepCallOutcome::RunOutOfStep(self.ip.ptr()));
                 }
                 *n -= 1;
                 match *self.instr() {
@@ -102,14 +97,16 @@ mod step {
                     Instr::BrIfNez(target) => self.visit_br_if_nez(target),
                     Instr::ReturnIfNez(drop_keep) => {
                         if let MaybeReturn::Return = self.visit_return_if_nez(drop_keep) {
-                            return Ok(CallOutcome::Return);
+                            return Ok(CallOutcome::Return.into());
                         }
                     }
                     Instr::BrTable { len_targets } => self.visit_br_table(len_targets),
                     Instr::Unreachable => self.visit_unreachable()?,
-                    Instr::Return(drop_keep) => return self.visit_ret(drop_keep),
-                    Instr::Call(func) => return self.visit_call(func),
-                    Instr::CallIndirect(signature) => return self.visit_call_indirect(signature),
+                    Instr::Return(drop_keep) => return self.visit_ret(drop_keep).map(Into::into),
+                    Instr::Call(func) => return self.visit_call(func).map(Into::into),
+                    Instr::CallIndirect(signature) => {
+                        return self.visit_call_indirect(signature).map(Into::into)
+                    }
                     Instr::Drop => self.visit_drop(),
                     Instr::Select => self.visit_select(),
                     Instr::GlobalGet(global_idx) => self.visit_global_get(global_idx),

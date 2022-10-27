@@ -332,7 +332,10 @@ pub use step::StepResult;
 mod step {
     use super::*;
     use crate::{
-        engine::{code_map::InstructionPtr, executor::execute_frame_step},
+        engine::{
+            code_map::InstructionPtr,
+            executor::{Executor, StepCallOutcome},
+        },
         Instance,
     };
 
@@ -425,12 +428,13 @@ mod step {
         #[inline(always)]
         fn execute_frame_step(
             &mut self,
-            ctx: impl AsContextMut,
+            mut ctx: impl AsContextMut,
             frame: &mut FuncFrame,
             cache: &mut InstanceCache,
             n: &mut u64,
-        ) -> Result<CallOutcome, TrapCode> {
-            execute_frame_step(ctx, &mut self.stack.values, cache, frame, n)
+        ) -> Result<StepCallOutcome, TrapCode> {
+            Executor::new(&mut self.stack.values, ctx.as_context_mut(), cache, frame)
+                .execute_step(n)
         }
 
         /// Executes the given function `frame` and returns the step info result.
@@ -456,14 +460,16 @@ mod step {
             // TODO: we need to consider the last instruction return value as parts of proof.
             'outer: loop {
                 match self.execute_frame_step(ctx.as_context_mut(), frame, cache, &mut n) {
-                    Ok(CallOutcome::Return) => match self.stack.return_wasm() {
-                        Some(caller) => {
-                            *frame = caller;
-                            continue 'outer;
+                    Ok(StepCallOutcome::CallOutcome(CallOutcome::Return)) => {
+                        match self.stack.return_wasm() {
+                            Some(caller) => {
+                                *frame = caller;
+                                continue 'outer;
+                            }
+                            None => return Ok(StepResult::Results(())),
                         }
-                        None => return Ok(StepResult::Results(())),
-                    },
-                    Ok(CallOutcome::NestedCall(called_func)) => {
+                    }
+                    Ok(StepCallOutcome::CallOutcome(CallOutcome::NestedCall(called_func))) => {
                         match called_func.as_internal(ctx.as_context()) {
                             FuncEntityInternal::Wasm(wasm_func) => {
                                 self.stack.call_wasm(frame, wasm_func, &self.code_map)?;
@@ -480,7 +486,7 @@ mod step {
                             }
                         }
                     }
-                    Err(TrapCode::HaltedByHost(ptr)) => {
+                    Ok(StepCallOutcome::RunOutOfStep(ptr)) => {
                         let ip = InstructionPtr::with_ptr(ptr);
                         let pc = self.code_map.get_offset(ip);
                         return Ok(StepResult::RunOutOfStep(pc as u32));
