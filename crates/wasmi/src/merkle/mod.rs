@@ -1,5 +1,6 @@
 mod engine;
 mod instance;
+mod utils;
 
 use crate::{snapshot::InstanceSnapshot, MemoryEntity};
 use accel_merkle::Merkle;

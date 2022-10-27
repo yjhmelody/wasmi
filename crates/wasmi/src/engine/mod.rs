@@ -838,19 +838,17 @@ mod proof {
                         let next_leaf_sibling =
                             memory_merkle.leaves()[next_leaf_idx.saturating_add(1)];
 
-                        ExtraProof::MemoryChunkNeighbor(MemoryChunkNeighbor {
+                        ExtraProof::MemoryChunkNeighbor(MemoryChunkNeighbor::new(
+                            prove_data,
                             leaf,
                             next_leaf,
-                            prove_data,
                             leaf_sibling,
                             next_leaf_sibling,
-                        })
+                        ))
                     } else {
-                        ExtraProof::MemoryChunkSibling(MemoryChunkSibling {
-                            leaf,
-                            next_leaf,
-                            prove_data,
-                        })
+                        ExtraProof::MemoryChunkSibling(MemoryChunkSibling::new(
+                            prove_data, leaf, next_leaf,
+                        ))
                     }
                 }
                 // TODO: arb do not have this, but I think they are missing it.

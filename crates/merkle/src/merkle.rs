@@ -79,7 +79,7 @@ impl ProveData {
     }
 }
 
-pub fn compute_root(prove_data: &[Bytes32], mut index: usize, leaf_hash: Bytes32) -> Bytes32 {
+fn compute_root(prove_data: &[Bytes32], mut index: usize, leaf_hash: Bytes32) -> Bytes32 {
     let mut hash = leaf_hash;
     for sibling_hash in prove_data.iter() {
         if index & 1 == 0 {

@@ -1,7 +1,6 @@
 use core::fmt::Debug;
 
 use accel_merkle::{
-    compute_root,
     digest::Digest,
     hash_node,
     sha3::Keccak256,
@@ -19,7 +18,7 @@ use crate::{
         bytecode::{BranchParams, Instruction},
         DropKeep,
     },
-    merkle::{hash_memory_leaf, MEMORY_LEAF_SIZE},
+    merkle::{hash_memory_leaf, utils::TwoMemoryChunks, MEMORY_LEAF_SIZE},
     snapshot::{
         CallStackSnapshot,
         EngineConfig,
@@ -100,21 +99,27 @@ pub struct GlobalProof {
 /// The contains a proof that a memory store instruction touch two neighbor leaves which have `not` same parent.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct MemoryChunkNeighbor {
-    // Note: This is memory chunk not a hash.
-    pub leaf: [u8; MEMORY_LEAF_SIZE],
-    // Note: This is memory chunk not a hash.
-    pub next_leaf: [u8; MEMORY_LEAF_SIZE],
-    pub prove_data: ProveData,
-    pub leaf_sibling: Bytes32,
-    pub next_leaf_sibling: Bytes32,
+    prove_data: ProveData,
+    chunks: TwoMemoryChunks,
+    leaf_sibling: Bytes32,
+    next_leaf_sibling: Bytes32,
 }
 
 impl MemoryChunkNeighbor {
-    /// Two leaves are adjacent in memory
-    fn leaves(&self) -> &[u8; MEMORY_LEAF_SIZE * 2] {
-        unsafe { core::mem::transmute(&self.leaf) }
+    pub fn new(
+        prove_data: ProveData,
+        leaf: [u8; MEMORY_LEAF_SIZE],
+        next_leaf: [u8; MEMORY_LEAF_SIZE],
+        leaf_sibling: Bytes32,
+        next_leaf_sibling: Bytes32,
+    ) -> Self {
+        Self {
+            prove_data,
+            chunks: TwoMemoryChunks::new(leaf, next_leaf),
+            leaf_sibling,
+            next_leaf_sibling,
+        }
     }
-
     /// Compute root according to memory index.
     ///
     /// # Note
@@ -126,15 +131,17 @@ impl MemoryChunkNeighbor {
             return None;
         }
         let mut next_index = index + 1;
-        let prove_data = self.prove_data.inner();
 
-        let mut parent_hash = hash_node(hash_memory_leaf(self.leaf), self.leaf_sibling);
+        let mut parent_hash = hash_node(hash_memory_leaf(self.chunks.leaf), self.leaf_sibling);
         index >>= 1;
-        let first_root = compute_root(prove_data, index, parent_hash);
+        let first_root = self.prove_data.compute_root(index, parent_hash);
 
-        parent_hash = hash_node(hash_memory_leaf(self.next_leaf), self.next_leaf_sibling);
+        parent_hash = hash_node(
+            hash_memory_leaf(self.chunks.next_leaf),
+            self.next_leaf_sibling,
+        );
         next_index >>= 1;
-        let second_root = compute_root(prove_data, index, parent_hash);
+        let second_root = self.prove_data.compute_root(index, parent_hash);
 
         if first_root != second_root {
             return None;
@@ -144,20 +151,45 @@ impl MemoryChunkNeighbor {
     }
 
     pub fn read(&self, address: usize, buffer: &mut [u8]) {
-        let offset = address % MEMORY_LEAF_SIZE;
-
-        buffer.copy_from_slice(&self.leaves()[offset..]);
+        self.chunks.read(address, buffer)
     }
 }
 
 /// The contains a proof that a memory store instruction touch two sibling leaves which have same parent.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct MemoryChunkSibling {
-    // Note: This is memory chunk not a hash.
-    pub leaf: [u8; MEMORY_LEAF_SIZE],
-    // Note: This is memory chunk not a hash.
-    pub next_leaf: [u8; MEMORY_LEAF_SIZE],
-    pub prove_data: ProveData,
+    chunks: TwoMemoryChunks,
+    prove_data: ProveData,
+}
+
+impl MemoryChunkSibling {
+    pub fn new(
+        prove_data: ProveData,
+        leaf: [u8; MEMORY_LEAF_SIZE],
+        next_leaf: [u8; MEMORY_LEAF_SIZE],
+    ) -> Self {
+        Self {
+            prove_data,
+            chunks: TwoMemoryChunks::new(leaf, next_leaf),
+        }
+    }
+
+    /// Compute root according to memory index.
+    pub fn compute_root(&self, address: usize) -> Bytes32 {
+        let mut index = address / MEMORY_LEAF_SIZE;
+        index >>= 1;
+
+        let parent_hash = hash_node(
+            hash_memory_leaf(self.chunks.leaf),
+            hash_memory_leaf(self.chunks.next_leaf),
+        );
+
+        self.prove_data.compute_root(index, parent_hash)
+    }
+
+    pub fn read(&self, address: usize, buffer: &mut [u8]) {
+        self.chunks.read(address, buffer)
+    }
 }
 
 // TODO: move to other mod.
