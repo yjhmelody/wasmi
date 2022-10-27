@@ -37,7 +37,7 @@ pub enum ExecError {
     EmptyValueStack,
     InsufficientValueStack,
     ValueStackTooSmallForLocalDepth,
-    EmptyCallStack,
+    InsufficientCallStack,
     ValueStackTooShortForDropKeep,
     BranchToIllegalPc,
     IllegalExtraProof,
@@ -370,7 +370,10 @@ impl InstExecutor {
 
     fn ret(&mut self, drop_keep: DropKeep) -> Result<()> {
         self.drop_keep(drop_keep)?;
-        let frame = self.call_stack.pop().ok_or(ExecError::EmptyCallStack)?;
+        let frame = self
+            .call_stack
+            .pop()
+            .ok_or(ExecError::InsufficientCallStack)?;
         self.set_pc(frame.pc);
         Ok(())
     }
@@ -439,6 +442,7 @@ impl InstExecutor {
                 return Ok(());
             }
         };
+
         let value = match &self.extra {
             ExtraProof::MemoryChunkNeighbor(proof) => {
                 // prove memory before use it.
@@ -457,7 +461,16 @@ impl InstExecutor {
             }
 
             ExtraProof::MemoryChunkSibling(proof) => {
-                todo!()
+                let root = proof.compute_root(address);
+                if self.memory_roots[0] != root {
+                    return Err(ExecError::IllegalExtraProof);
+                }
+
+                let mut bytes = <<T as LittleEndianConvert>::Bytes as Default>::default();
+                proof.read(address, bytes.as_mut());
+                let value = <T as LittleEndianConvert>::from_le_bytes(bytes);
+
+                value.into()
             }
             _ => return Err(ExecError::IllegalExtraProof),
         };
