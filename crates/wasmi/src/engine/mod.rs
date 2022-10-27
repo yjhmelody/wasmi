@@ -630,8 +630,8 @@ mod proof {
             GlobalProof,
             InstanceMerkle,
             InstructionProof,
-            MemoryStoreNeighbor,
-            MemoryStoreSibling,
+            MemoryChunkNeighbor,
+            MemoryChunkSibling,
             StaticMerkle,
             MEMORY_LEAF_SIZE,
         },
@@ -838,7 +838,7 @@ mod proof {
                         let next_leaf_sibling =
                             memory_merkle.leaves()[next_leaf_idx.saturating_add(1)];
 
-                        ExtraProof::MemoryStoreNeighbor(MemoryStoreNeighbor {
+                        ExtraProof::MemoryChunkNeighbor(MemoryChunkNeighbor {
                             leaf,
                             next_leaf,
                             prove_data,
@@ -846,7 +846,7 @@ mod proof {
                             next_leaf_sibling,
                         })
                     } else {
-                        ExtraProof::MemoryStoreSibling(MemoryStoreSibling {
+                        ExtraProof::MemoryChunkSibling(MemoryChunkSibling {
                             leaf,
                             next_leaf,
                             prove_data,

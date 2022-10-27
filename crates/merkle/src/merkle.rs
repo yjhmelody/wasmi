@@ -54,7 +54,7 @@ pub struct Merkle {
     empty_layers: Vec<Bytes32>,
 }
 
-fn hash_node(a: Bytes32, b: Bytes32) -> Bytes32 {
+pub fn hash_node(a: Bytes32, b: Bytes32) -> Bytes32 {
     let mut h = Keccak256::new();
     h.update(a);
     h.update(b);
@@ -74,9 +74,25 @@ impl ProveData {
         self.0
     }
 
-    pub fn compute_root(&self, index: usize, leaf_hash: Bytes32) -> Option<Bytes32> {
-        todo!()
+    pub fn compute_root(&self, index: usize, leaf_hash: Bytes32) -> Bytes32 {
+        compute_root(self.inner(), index, leaf_hash)
     }
+}
+
+pub fn compute_root(prove_data: &[Bytes32], mut index: usize, leaf_hash: Bytes32) -> Bytes32 {
+    let mut hash = leaf_hash;
+    for sibling_hash in prove_data.iter() {
+        if index & 1 == 0 {
+            // even
+            hash = hash_node(hash, sibling_hash.clone());
+        } else {
+            // odd
+            hash = hash_node(sibling_hash.clone(), hash);
+        }
+        index >>= 1;
+    }
+
+    hash
 }
 
 // TODO: redesign this data structure.

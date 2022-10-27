@@ -1,6 +1,15 @@
 use core::fmt::Debug;
 
-use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType, ProveData};
+use accel_merkle::{
+    compute_root,
+    digest::Digest,
+    hash_node,
+    sha3::Keccak256,
+    Bytes32,
+    Merkle,
+    MerkleType,
+    ProveData,
+};
 use wasmi_core::{UntypedValue, ValueType};
 
 use codec::{Codec, Decode, Encode, Error, Input, Output};
@@ -10,7 +19,7 @@ use crate::{
         bytecode::{BranchParams, Instruction},
         DropKeep,
     },
-    merkle::MEMORY_LEAF_SIZE,
+    merkle::{hash_memory_leaf, MEMORY_LEAF_SIZE},
     snapshot::{
         CallStackSnapshot,
         EngineConfig,
@@ -62,8 +71,8 @@ pub enum ExtraProof {
     /// Most instructions do not need more proof.
     Empty,
     GlobalGetSet(GlobalProof),
-    MemoryStoreNeighbor(MemoryStoreNeighbor),
-    MemoryStoreSibling(MemoryStoreSibling),
+    MemoryChunkNeighbor(MemoryChunkNeighbor),
+    MemoryChunkSibling(MemoryChunkSibling),
     // TODO: Still need to design these call proof.
     /// The pc that call jump to.
     CallWasm(u32),
@@ -90,7 +99,7 @@ pub struct GlobalProof {
 
 /// The contains a proof that a memory store instruction touch two neighbor leaves which have `not` same parent.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct MemoryStoreNeighbor {
+pub struct MemoryChunkNeighbor {
     // Note: This is memory chunk not a hash.
     pub leaf: [u8; MEMORY_LEAF_SIZE],
     // Note: This is memory chunk not a hash.
@@ -100,9 +109,50 @@ pub struct MemoryStoreNeighbor {
     pub next_leaf_sibling: Bytes32,
 }
 
+impl MemoryChunkNeighbor {
+    /// Two leaves are adjacent in memory
+    fn leaves(&self) -> &[u8; MEMORY_LEAF_SIZE * 2] {
+        unsafe { core::mem::transmute(&self.leaf) }
+    }
+
+    /// Compute root according to memory index.
+    ///
+    /// # Note
+    ///
+    /// Return None if index is not odd or root is invalid.
+    pub fn compute_root(&self, address: usize) -> Option<Bytes32> {
+        let mut index = address / MEMORY_LEAF_SIZE;
+        if index & 1 == 0 {
+            return None;
+        }
+        let mut next_index = index + 1;
+        let prove_data = self.prove_data.inner();
+
+        let mut parent_hash = hash_node(hash_memory_leaf(self.leaf), self.leaf_sibling);
+        index >>= 1;
+        let first_root = compute_root(prove_data, index, parent_hash);
+
+        parent_hash = hash_node(hash_memory_leaf(self.next_leaf), self.next_leaf_sibling);
+        next_index >>= 1;
+        let second_root = compute_root(prove_data, index, parent_hash);
+
+        if first_root != second_root {
+            return None;
+        } else {
+            Some(first_root)
+        }
+    }
+
+    pub fn read(&self, address: usize, buffer: &mut [u8]) {
+        let offset = address % MEMORY_LEAF_SIZE;
+
+        buffer.copy_from_slice(&self.leaves()[offset..]);
+    }
+}
+
 /// The contains a proof that a memory store instruction touch two sibling leaves which have same parent.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct MemoryStoreSibling {
+pub struct MemoryChunkSibling {
     // Note: This is memory chunk not a hash.
     pub leaf: [u8; MEMORY_LEAF_SIZE],
     // Note: This is memory chunk not a hash.
@@ -206,6 +256,10 @@ where
         self.entries.last()
     }
 
+    pub fn last_mut(&mut self) -> Option<&mut T> {
+        self.entries.last_mut()
+    }
+
     /// Note: depth must be great than 0.
     pub fn peek_mut(&mut self, depth: usize) -> Option<&mut T> {
         let len = self.entries.len();
@@ -252,6 +306,10 @@ impl ValueStackProof {
         self.0.last()
     }
 
+    pub fn last_mut(&mut self) -> Option<&mut UntypedValue> {
+        self.0.last_mut()
+    }
+
     // Panic if len is 0.
     pub fn last_as<T>(&self) -> Option<T>
     where
@@ -296,7 +354,7 @@ impl ValueStackProof {
             let last = self.0.last()?.clone();
             let len = self.0.entries.len();
             if len < 1 + drop {
-                // illegal
+                // Illegal
                 return None;
             }
             // Bail out early when there is only one value to copy.
@@ -305,7 +363,7 @@ impl ValueStackProof {
             let len = self.0.entries.len();
             // Copy kept values over to their new place on the stack.
             if len < keep + drop {
-                // illegal
+                // Illegal
                 return None;
             }
             let src = len - keep;
@@ -319,6 +377,37 @@ impl ValueStackProof {
         self.0.entries.truncate(len - drop);
 
         Some(())
+    }
+
+    /// Evaluates the given closure `f` for the top most stack value.
+    #[inline]
+    pub fn eval_top<F>(&mut self, f: F) -> Option<()>
+    where
+        F: FnOnce(&mut UntypedValue) -> Option<()>,
+    {
+        let top = self.last_mut()?;
+
+        f(top)
+    }
+
+    #[inline]
+    pub fn pop2_eval<F>(&mut self, f: F) -> Option<()>
+    where
+        F: FnOnce(&mut UntypedValue, UntypedValue, UntypedValue),
+    {
+        let (e2, e3) = self.pop2()?;
+        let e1 = self.last_mut()?;
+        f(e1, e2, e3);
+
+        Some(())
+    }
+
+    /// Pops the last pair of [`UntypedValue`] from the [`ValueStack`].
+    pub fn pop2(&mut self) -> Option<(UntypedValue, UntypedValue)> {
+        let b = self.pop()?;
+        let a = self.pop()?;
+
+        Some((a, b))
     }
 }
 

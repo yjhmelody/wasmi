@@ -19,18 +19,23 @@ use crate::{
     snapshot::{FuncFrameSnapshot, TableElementSnapshot, ValueStackSnapshot},
     Func,
 };
+
+use core::{cmp, result};
+use std::mem::size_of;
+
+use crate::merkle::MEMORY_LEAF_SIZE;
 use accel_merkle::{sha3::Keccak256, Bytes32, ProveData};
 use codec::{Decode, Encode};
-use core::cmp;
 use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
 
-pub type Result<T> = core::result::Result<T, ExecError>;
+pub type Result<T> = result::Result<T, ExecError>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecError {
     GlobalsRootNotMatch,
     TableRootsNotMatch,
     EmptyValueStack,
+    InsufficientValueStack,
     ValueStackTooSmallForLocalDepth,
     EmptyCallStack,
     ValueStackTooShortForDropKeep,
@@ -60,9 +65,12 @@ pub struct InstExecutor {
     status: InstructionStatus,
     call_stack: CallStackProof,
     value_stack: ValueStackProof,
+
     globals_root: Bytes32,
     table_roots: Vec<Bytes32>,
     memory_roots: Vec<Bytes32>,
+    /// The size of default memory.
+    default_memory_size: u32,
 
     current_pc: u32,
     inst: Instruction,
@@ -79,19 +87,33 @@ impl InstExecutor {
             Instr::LocalGet { local_depth } => self.visit_local_get(local_depth),
             Instr::LocalSet { local_depth } => self.visit_local_set(local_depth),
             Instr::LocalTee { local_depth } => self.visit_local_tee(local_depth),
-
-            Instr::Call(func) => self.visit_call(func),
-            Instr::CallIndirect(signature) => self.visit_call_indirect(signature),
-            Instr::BrTable { len_targets } => self.visit_br_table(len_targets),
-
-            Instr::GlobalGet(global_idx) => self.visit_global_get(global_idx),
-            Instr::GlobalSet(global_idx) => self.visit_global_set(global_idx),
             Instr::Br(target) => self.visit_br(target),
             Instr::BrIfEqz(target) => self.visit_br_if_eqz(target),
             Instr::BrIfNez(target) => self.visit_br_if_nez(target),
             Instr::ReturnIfNez(drop_keep) => self.visit_return_if_nez(drop_keep),
             Instr::Unreachable => self.visit_unreachable(),
-
+            Instr::BrTable { len_targets } => self.visit_br_table(len_targets),
+            Instr::Return(drop_keep) => self.visit_ret(drop_keep),
+            Instr::Call(func) => self.visit_call(func),
+            Instr::CallIndirect(signature) => self.visit_call_indirect(signature),
+            Instr::Drop => self.visit_drop(),
+            Instr::Select => self.visit_select(),
+            Instr::GlobalGet(global_idx) => self.visit_global_get(global_idx),
+            Instr::GlobalSet(global_idx) => self.visit_global_set(global_idx),
+            Instr::I32Load(offset) => self.visit_i32_load(offset),
+            Instr::I64Load(offset) => self.visit_i64_load(offset),
+            Instr::F32Load(offset) => self.visit_f32_load(offset),
+            Instr::F64Load(offset) => self.visit_f64_load(offset),
+            // Instr::I32Load8S(offset) => self.visit_i32_load_i8(offset),
+            // Instr::I32Load8U(offset) => self.visit_i32_load_u8(offset),
+            // Instr::I32Load16S(offset) => self.visit_i32_load_i16(offset),
+            // Instr::I32Load16U(offset) => self.visit_i32_load_u16(offset),
+            // Instr::I64Load8S(offset) => self.visit_i64_load_i8(offset),
+            // Instr::I64Load8U(offset) => self.visit_i64_load_u8(offset),
+            // Instr::I64Load16S(offset) => self.visit_i64_load_i16(offset),
+            // Instr::I64Load16U(offset) => self.visit_i64_load_u16(offset),
+            // Instr::I64Load32S(offset) => self.visit_i64_load_i32(offset),
+            // Instr::I64Load32U(offset) => self.visit_i64_load_u32(offset),
             // TODO
             _ => Err(ExecError::TODO),
         }
@@ -199,20 +221,16 @@ impl InstExecutor {
             proof.func_type.clone(),
         ));
         // prove it before using it.
-        proof
+        let root = proof
             .prove_data
-            .compute_root(func_index as usize, leaf_hash)
-            .map_or(Err(ExecError::IllegalExtraProof), |root| {
-                if root != *table_root {
-                    Err(ExecError::TableRootsNotMatch)
-                } else {
-                    Ok(())
-                }
-            })?;
+            .compute_root(func_index as usize, leaf_hash);
 
+        if root != *table_root {
+            Err(ExecError::TableRootsNotMatch)
+        } else {
+            Ok(())
+        }
         // TODO: need to design
-
-        Ok(())
     }
 
     fn visit_call_indirect(&mut self, signature_index: SignatureIdx) -> Result<()> {
@@ -249,31 +267,24 @@ impl InstExecutor {
                 let global = proof.value.clone();
                 let leaf_hash = value_hash(global);
 
-                // prove it before using it.
-                proof.prove_data.compute_root(idx, leaf_hash).map_or(
-                    Err(ExecError::IllegalExtraProof),
-                    |root| {
-                        // TODO: it seems is not necessary to do it for global.set.
-                        if root != self.globals_root {
-                            Err(ExecError::GlobalsRootNotMatch)
-                        } else {
-                            Ok(())
-                        }
-                    },
-                )?;
+                // prove old globals root before using global value.
+                let globals_root = proof.prove_data.compute_root(idx, leaf_hash);
+                if globals_root != self.globals_root {
+                    return Err(ExecError::GlobalsRootNotMatch);
+                }
 
                 if is_set {
-                    let global = self.value_stack.pop().expect("Must exist");
+                    let global = self
+                        .value_stack
+                        .pop()
+                        .ok_or(ExecError::InsufficientValueStack)?;
                     let leaf_hash = value_hash(global);
-                    self.globals_root = proof
-                        .prove_data
-                        .compute_root(idx, leaf_hash)
-                        .expect("idx have been checked; qed");
-                    Ok(())
+                    // update globals root
+                    self.globals_root = proof.prove_data.compute_root(idx, leaf_hash)
                 } else {
                     self.value_stack.push(global);
-                    Ok(())
                 }
+                Ok(())
             }
 
             _ => Err(ExecError::IllegalExtraProof),
@@ -346,6 +357,11 @@ impl InstExecutor {
     }
 
     #[inline]
+    fn visit_ret(&mut self, drop_keep: DropKeep) -> Result<()> {
+        self.ret(drop_keep)
+    }
+
+    #[inline]
     fn drop_keep(&mut self, drop_keep: DropKeep) -> Result<()> {
         self.value_stack
             .drop_keep(drop_keep)
@@ -359,10 +375,152 @@ impl InstExecutor {
         Ok(())
     }
 
+    fn visit_drop(&mut self) -> Result<()> {
+        let _ = self.pop_value_stack_as::<UntypedValue>()?;
+        self.next_pc();
+        Ok(())
+    }
+
+    fn visit_select(&mut self) -> Result<()> {
+        self.value_stack
+            .pop2_eval(|e1, e2, e3| {
+                let condition = <bool as From<UntypedValue>>::from(e3);
+                let result = if condition { *e1 } else { e2 };
+                *e1 = result;
+            })
+            .ok_or(ExecError::InsufficientValueStack)?;
+
+        self.next_pc();
+        Ok(())
+    }
+
     #[inline]
     fn visit_unreachable(&mut self) -> Result<()> {
         self.status = InstructionStatus::Trapped;
         // pc not changed
         Ok(())
     }
+
+    /// Calculates the effective address of a linear memory access.
+    ///
+    /// # Errors
+    ///
+    /// If the resulting effective address overflows.
+    fn effective_address(offset: Offset, address: u32) -> result::Result<usize, TrapCode> {
+        offset
+            .into_inner()
+            .checked_add(address)
+            .map(|address| address as usize)
+            .ok_or(TrapCode::MemoryAccessOutOfBounds)
+    }
+
+    /// Loads a value of type `T` from the default memory at the given address offset.
+    ///
+    /// # Note
+    ///
+    /// This can be used to emulate the following Wasm operands:
+    ///
+    /// - `i32.load`
+    /// - `i64.load`
+    /// - `f32.load`
+    /// - `f64.load`
+    fn execute_load<T>(&mut self, offset: Offset) -> Result<()>
+    where
+        UntypedValue: From<T>,
+        T: LittleEndianConvert,
+    {
+        let address = self.pop_value_stack_as::<u32>()?;
+
+        let address = match Self::effective_address(offset, address) {
+            Ok(address) => address,
+            Err(_trap) => {
+                // TODO: redesign this style ?
+                self.status = InstructionStatus::Trapped;
+                return Ok(());
+            }
+        };
+        let value = match &self.extra {
+            ExtraProof::MemoryChunkNeighbor(proof) => {
+                // prove memory before use it.
+                let root = proof
+                    .compute_root(address)
+                    .ok_or(ExecError::IllegalExtraProof)?;
+                if self.memory_roots[0] != root {
+                    return Err(ExecError::IllegalExtraProof);
+                }
+
+                let mut bytes = <<T as LittleEndianConvert>::Bytes as Default>::default();
+                proof.read(address, bytes.as_mut());
+                let value = <T as LittleEndianConvert>::from_le_bytes(bytes);
+
+                value.into()
+            }
+
+            ExtraProof::MemoryChunkSibling(proof) => {
+                todo!()
+            }
+            _ => return Err(ExecError::IllegalExtraProof),
+        };
+
+        self.value_stack.push(value);
+        self.next_pc();
+
+        Ok(())
+    }
+
+    fn visit_i32_load(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load::<i32>(offset)
+    }
+
+    fn visit_i64_load(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load::<i64>(offset)
+    }
+
+    fn visit_f32_load(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load::<F32>(offset)
+    }
+
+    fn visit_f64_load(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load::<F64>(offset)
+    }
+
+    // fn visit_i32_load_i8(&mut self, offset: Offset) -> Result<()> {
+    //     self.execute_load_extend::<i8, i32>(offset)
+    // }
+    //
+    // fn visit_i32_load_u8(&mut self, offset: Offset) -> Result<()> {
+    //     self.execute_load_extend::<u8, i32>(offset)
+    // }
+    //
+    // fn visit_i32_load_i16(&mut self, offset: Offset) -> Result<()> {
+    //     self.execute_load_extend::<i16, i32>(offset)
+    // }
+    //
+    // fn visit_i32_load_u16(&mut self, offset: Offset) -> Result<()> {
+    //     self.execute_load_extend::<u16, i32>(offset)
+    // }
+    //
+    // fn visit_i64_load_i8(&mut self, offset: Offset) -> Result<()> {
+    //     self.execute_load_extend::<i8, i64>(offset)
+    // }
+    //
+    // fn visit_i64_load_u8(&mut self, offset: Offset) -> Result<()> {
+    //     self.execute_load_extend::<u8, i64>(offset)
+    // }
+    //
+    // fn visit_i64_load_i16(&mut self, offset: Offset) -> Result<()> {
+    //     self.execute_load_extend::<i16, i64>(offset)
+    // }
+    //
+    // fn visit_i64_load_u16(&mut self, offset: Offset) -> Result<()> {
+    //     self.execute_load_extend::<u16, i64>(offset)
+    // }
+    //
+    // fn visit_i64_load_i32(&mut self, offset: Offset) -> Result<()> {
+    //     self.execute_load_extend::<i32, i64>(offset)
+    // }
+    //
+    // fn visit_i64_load_u32(&mut self, offset: Offset) -> Result<()> {
+    //     self.execute_load_extend::<u32, i64>(offset)
+    // }
 }
