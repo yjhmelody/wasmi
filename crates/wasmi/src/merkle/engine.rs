@@ -18,7 +18,7 @@ use crate::{
         bytecode::{BranchParams, Instruction},
         DropKeep,
     },
-    merkle::{hash_memory_leaf, MEMORY_LEAF_SIZE},
+    merkle::{hash_memory_leaf, utils::TwoMemoryChunks, MEMORY_LEAF_SIZE},
     snapshot::{
         CallStackSnapshot,
         EngineConfig,
@@ -162,30 +162,6 @@ pub struct MemoryChunkSibling {
     prove_data: ProveData,
 }
 
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct TwoMemoryChunks {
-    // Note: This is memory chunk not a hash.
-    pub leaf: [u8; MEMORY_LEAF_SIZE],
-    // Note: This is memory chunk not a hash.
-    pub next_leaf: [u8; MEMORY_LEAF_SIZE],
-}
-
-impl TwoMemoryChunks {
-    pub fn new(leaf: [u8; MEMORY_LEAF_SIZE], next_leaf: [u8; MEMORY_LEAF_SIZE]) -> Self {
-        Self { leaf, next_leaf }
-    }
-
-    /// Two leaves are adjacent in memory
-    fn leaves(&self) -> &[u8; MEMORY_LEAF_SIZE * 2] {
-        unsafe { core::mem::transmute(&self.leaf) }
-    }
-
-    fn read(&self, address: usize, buffer: &mut [u8]) {
-        let offset = address % MEMORY_LEAF_SIZE;
-        buffer.copy_from_slice(&self.leaves()[offset..]);
-    }
-}
-
 impl MemoryChunkSibling {
     pub fn new(
         prove_data: ProveData,
@@ -211,7 +187,6 @@ impl MemoryChunkSibling {
         self.prove_data.compute_root(index, parent_hash)
     }
 
-    // TODO: reduce these code.
     pub fn read(&self, address: usize, buffer: &mut [u8]) {
         self.chunks.read(address, buffer)
     }
