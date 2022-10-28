@@ -114,6 +114,8 @@ impl InstExecutor {
             Instr::I64Store8(offset) => self.visit_i64_store_8(offset),
             Instr::I64Store16(offset) => self.visit_i64_store_16(offset),
             Instr::I64Store32(offset) => self.visit_i64_store_32(offset),
+            Instr::MemorySize => self.visit_current_memory(),
+            Instr::MemoryGrow => self.visit_grow_memory(),
             // TODO
             _ => Err(ExecError::UnsupportedOSP),
         }
@@ -185,6 +187,7 @@ impl InstExecutor {
         Ok(())
     }
 
+    // TODO: still need to design.
     // TODO: Need to prove this index is valid
     fn visit_call(&mut self, _func_index: FuncIdx) -> Result<()> {
         // update current frame pc
@@ -233,6 +236,7 @@ impl InstExecutor {
         // TODO: need to design
     }
 
+    // TODO: still need to design.
     fn visit_call_indirect(&mut self, signature_index: SignatureIdx) -> Result<()> {
         let func_index = self.pop_value_stack_as::<u32>()?;
         match &self.extra {
@@ -466,7 +470,7 @@ impl InstExecutor {
                 proof.read(address, bytes.as_mut());
                 let value = <T as LittleEndianConvert>::from_le_bytes(bytes);
 
-                value.into()
+                value
             }
 
             ExtraProof::MemoryChunkSibling(proof) => {
@@ -478,7 +482,7 @@ impl InstExecutor {
                 proof.read(address, bytes.as_mut());
                 let value = <T as LittleEndianConvert>::from_le_bytes(bytes);
 
-                value.into()
+                value
             }
             _ => return Err(ExecError::IllegalExtraProof),
         };
@@ -548,7 +552,7 @@ impl InstExecutor {
             _ => return Err(ExecError::IllegalExtraProof),
         };
 
-        self.value_stack.push(value.into());
+        self.value_stack.push(value);
         self.next_pc();
 
         Ok(())
@@ -767,4 +771,44 @@ impl InstExecutor {
     fn visit_i64_store_32(&mut self, offset: Offset) -> Result<()> {
         self.execute_store_wrap::<i64, i32>(offset)
     }
+
+    fn visit_current_memory(&mut self) -> Result<()> {
+        let val = match &self.extra {
+            ExtraProof::MemoryPage(page) => page.current_pages,
+            _ => return Err(ExecError::IllegalExtraProof),
+        };
+        self.value_stack.push(val);
+        self.next_pc();
+
+        Ok(())
+    }
+
+    fn visit_grow_memory(&mut self) -> Result<()> {
+        /// The WebAssembly spec demands to return `0xFFFF_FFFF`
+        /// in case of failure for the `memory.grow` instruction.
+        const ERR_VALUE: u32 = u32::MAX;
+
+        let (current, max) = match &self.extra {
+            ExtraProof::MemoryPage(page) => {
+                (page.current_pages, page.maximum_pages.unwrap_or(u32::MAX))
+            }
+            _ => return Err(ExecError::IllegalExtraProof),
+        };
+        let additional = self.pop_value_stack_as()?;
+        let result = if additional > MAX_PAGE_SIZE as u32 {
+            ERR_VALUE
+        } else {
+            match current.checked_add(additional) {
+                Some(new) if new <= max => new,
+                _ => ERR_VALUE,
+            }
+        };
+
+        self.value_stack.push(result);
+        self.next_pc();
+
+        Ok(())
+    }
 }
+
+pub const MAX_PAGE_SIZE: usize = 65536;

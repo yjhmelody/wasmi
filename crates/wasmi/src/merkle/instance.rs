@@ -1,4 +1,5 @@
 use crate::{
+    merkle::{MemoryPage, MemoryProof, TableProof},
     snapshot::{InstanceSnapshot, MemorySnapshot, TableElementSnapshot, TableSnapshot},
     GlobalEntity,
 };
@@ -58,7 +59,7 @@ impl InstanceSnapshot {
     //     self.hash().to_vec()
     // }
 
-    pub fn globals_merkle(&self) -> Merkle {
+    pub fn globals_proof(&self) -> Merkle {
         let globals = self
             .globals
             .iter()
@@ -68,12 +69,32 @@ impl InstanceSnapshot {
         Merkle::new(MerkleType::Global, globals)
     }
 
-    pub fn memories_merkle(&self) -> Vec<Merkle> {
-        self.memories.iter().map(|mem| mem.merkle()).collect()
+    pub fn memory_proofs(&self) -> Vec<MemoryProof> {
+        self.memories
+            .iter()
+            .map(|mem| {
+                let merkle = mem.merkle();
+                MemoryProof {
+                    page: MemoryPage {
+                        initial_pages: mem.memory_type.initial_pages,
+                        maximum_pages: mem.memory_type.maximum_pages,
+                        current_pages: mem.current_pages,
+                    },
+                    merkle,
+                }
+            })
+            .collect()
     }
 
-    pub fn tables_merkle(&self) -> Vec<Merkle> {
-        self.tables.iter().map(|table| table.merkle()).collect()
+    pub fn table_proofs(&self) -> Vec<TableProof> {
+        self.tables
+            .iter()
+            .map(|table| TableProof {
+                merkle: table.merkle(),
+                initial: table.table_type.initial,
+                maximum: table.table_type.maximum,
+            })
+            .collect()
     }
 }
 

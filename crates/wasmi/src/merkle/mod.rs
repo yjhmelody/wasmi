@@ -22,10 +22,23 @@ pub fn get_memory_leaf(memory: &MemoryEntity, leaf_idx: usize) -> [u8; MEMORY_LE
 
 // TODO: consider functions type as merkle
 #[derive(Debug)]
-pub struct InstanceMerkle {
+pub struct InstanceProof {
     pub globals: Merkle,
-    pub memories: Vec<Merkle>,
-    pub tables: Vec<Merkle>,
+    pub memories: Vec<MemoryProof>,
+    pub tables: Vec<TableProof>,
+}
+
+#[derive(Debug)]
+pub struct MemoryProof {
+    pub page: MemoryPage,
+    pub merkle: Merkle,
+}
+
+#[derive(Debug)]
+pub struct TableProof {
+    pub initial: u32,
+    pub maximum: Option<u32>,
+    pub merkle: Merkle,
 }
 
 /// This contains some merkle trees whose data should never be changed during wasm execution.
@@ -34,12 +47,12 @@ pub struct StaticMerkle {
     pub code: Merkle,
 }
 
-impl InstanceMerkle {
+impl InstanceProof {
     pub fn create_by_snapshot(instance: InstanceSnapshot) -> Self {
         Self {
-            globals: instance.globals_merkle(),
-            memories: instance.memories_merkle(),
-            tables: instance.tables_merkle(),
+            globals: instance.globals_proof(),
+            memories: instance.memory_proofs(),
+            tables: instance.table_proofs(),
         }
     }
 }

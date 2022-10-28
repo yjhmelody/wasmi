@@ -113,9 +113,9 @@ pub enum TableElementSnapshot {
 #[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
 pub struct TableTypeSnapshot {
     /// The initial size of the [`Table`].
-    initial: u32,
+    pub initial: u32,
     /// The optional maximum size fo the [`Table`].
-    maximum: Option<u32>,
+    pub maximum: Option<u32>,
 }
 
 impl From<TableType> for TableTypeSnapshot {

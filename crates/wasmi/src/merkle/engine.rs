@@ -70,6 +70,7 @@ pub enum ExtraProof {
     /// Most instructions do not need more proof.
     Empty,
     GlobalGetSet(GlobalProof),
+    MemoryPage(MemoryPage),
     MemoryChunkNeighbor(MemoryChunkNeighbor),
     MemoryChunkSibling(MemoryChunkSibling),
     // TODO: Still need to design these call proof.
@@ -81,6 +82,13 @@ pub enum ExtraProof {
     // Maybe need to prove this function is in the table.
     CallWasmIndirect(u32, CallIndirectProof),
     CallHostIndirect(CallIndirectProof),
+}
+
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct MemoryPage {
+    pub initial_pages: u32,
+    pub maximum_pages: Option<u32>,
+    pub current_pages: u32,
 }
 
 // TODO: still need func signature proof.
@@ -327,6 +335,13 @@ impl ValueStackProof {
         self.0.pop()
     }
 
+    pub fn push<T>(&mut self, val: T)
+    where
+        T: Into<UntypedValue>,
+    {
+        self.0.push(val.into())
+    }
+
     pub fn is_emtpy(&self) -> bool {
         self.0.entries.is_empty()
     }
@@ -360,10 +375,6 @@ impl ValueStackProof {
 
     pub fn peek_mut(&mut self, depth: usize) -> Option<&mut UntypedValue> {
         self.0.peek_mut(depth)
-    }
-
-    pub fn push(&mut self, val: UntypedValue) {
-        self.0.push(val)
     }
 
     /// Move `K` elements from the top of the stack `D` positions down the stack,
@@ -461,7 +472,7 @@ impl CallStackSnapshot {
         let entries = tops.iter().map(|f| f.clone()).collect();
 
         CallStackProof {
-            keep_len: keep_len as u32,
+            remaining_depth: len as u32,
             stack: StackProof {
                 remaining_hash,
                 entries,
@@ -474,8 +485,8 @@ impl CallStackSnapshot {
 // TODO: need to consider more, maybe contain the current pc in it.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct CallStackProof {
-    /// The top N size which should be keep.
-    keep_len: u32,
+    /// The remaining depth of call stack excepting entries in `stack`.
+    remaining_depth: u32,
     /// The underline stack.
     stack: StackProof<FuncFrameSnapshot>,
     /// The maximum number of nested calls that the Wasm stack allows.
@@ -489,7 +500,7 @@ impl CallStackProof {
 
     /// Returns None if stack overflow.
     pub fn push(&mut self, val: FuncFrameSnapshot) -> Option<()> {
-        if self.recursion_depth == self.stack.entries.len() as u32 + self.keep_len {
+        if self.recursion_depth == self.stack.entries.len() as u32 + self.remaining_depth {
             return None;
         }
         self.stack.push(val);

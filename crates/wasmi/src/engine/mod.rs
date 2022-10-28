@@ -622,7 +622,7 @@ mod step {
     }
 }
 
-pub use proof::ProofError;
+pub use proof::{InstProofParams, ProofError};
 
 mod proof {
     use super::*;
@@ -634,17 +634,19 @@ mod proof {
             CallIndirectProof,
             ExtraProof,
             GlobalProof,
-            InstanceMerkle,
+            InstanceProof,
             InstructionProof,
             MemoryChunkNeighbor,
             MemoryChunkSibling,
+            MemoryProof,
             StaticMerkle,
+            TableProof,
             MEMORY_LEAF_SIZE,
         },
         AsContext,
         Instance,
     };
-    use accel_merkle::Merkle;
+    use accel_merkle::{Merkle, ProveData};
 
     /// Meet some errors when generate normal extra proof for the another instruction.
     #[derive(Debug, Clone)]
@@ -667,20 +669,12 @@ mod proof {
         pub fn make_inst_proof(
             &self,
             store: impl AsContextMut,
-            current_pc: u32,
-            instance_merkle: &InstanceMerkle,
-            static_merkle: &StaticMerkle,
+            params: InstProofParams,
             instance: Instance,
         ) -> Result<InstructionProof, ProofError> {
             let engine = self.inner.lock();
             let mut cache = InstanceCache::from(instance);
-            engine.make_inst_proof(
-                store,
-                current_pc,
-                instance_merkle,
-                static_merkle,
-                &mut cache,
-            )
+            engine.make_inst_proof(store, params, &mut cache)
         }
 
         // TODO:
@@ -688,6 +682,37 @@ mod proof {
             let engine = self.inner.lock();
             // TODO: maybe also need merkle headers
             engine.make_code_proof()
+        }
+    }
+
+    pub struct InstProofParams<'a> {
+        pub current_pc: u32,
+        pub instance_merkle: &'a InstanceProof,
+        pub static_merkle: &'a StaticMerkle,
+    }
+
+    impl<'a> InstProofParams<'a> {
+        fn default_memory(&self) -> Result<&MemoryProof, ProofError> {
+            // Wasm module must import memory when meet these instruction.
+            self.instance_merkle
+                .memories
+                .first()
+                .ok_or(ProofError::MemoryNotImported)
+        }
+
+        fn default_table(&self) -> Result<&TableProof, ProofError> {
+            // Wasm module must import memory when meet these instruction.
+            self.instance_merkle
+                .tables
+                .first()
+                .ok_or(ProofError::MemoryNotImported)
+        }
+
+        fn get_inst_prove(&self) -> Result<ProveData, ProofError> {
+            self.static_merkle
+                .code
+                .prove(self.current_pc as usize)
+                .ok_or(ProofError::IllegalPc)
         }
     }
 
@@ -706,15 +731,11 @@ mod proof {
         pub fn make_inst_proof(
             &self,
             mut store: impl AsContextMut,
-            current_pc: u32,
-            instance_merkle: &InstanceMerkle,
-            static_merkle: &StaticMerkle,
+            params: InstProofParams,
             cache: &mut InstanceCache,
         ) -> Result<InstructionProof, ProofError> {
-            let inst_prove = static_merkle
-                .code
-                .prove(current_pc as usize)
-                .ok_or(ProofError::IllegalPc)?;
+            let current_pc = params.current_pc;
+            let inst_prove = params.get_inst_prove()?;
             let inst = self.code_map.insts[current_pc as usize];
             let extra = match inst {
                 Instruction::Call(func_idx) => {
@@ -758,10 +779,10 @@ mod proof {
 
                     let func_type = func.func_type(store.as_context());
                     // TODO: we need to design errors and panics.
-                    let table_merkle = instance_merkle
-                        .tables
-                        .first()
-                        .expect("Default table must exist; qed");
+                    let table_merkle = &params
+                        .default_table()
+                        .expect("Default table must exist; qed")
+                        .merkle;
                     let prove_data = table_merkle
                         .prove(func_index)
                         .expect("CallIndirect prove data must exist; qed");
@@ -777,7 +798,8 @@ mod proof {
                     // TODO: this should be as_context
                     let value = cache.get_global(store.as_context_mut(), idx).clone();
 
-                    let prove_data = instance_merkle
+                    let prove_data = params
+                        .instance_merkle
                         .globals
                         .prove(idx as usize)
                         .ok_or(ProofError::GlobalNotFound)?;
@@ -809,10 +831,7 @@ mod proof {
                 | Instruction::I64Store16(offset)
                 | Instruction::I64Store32(offset) => {
                     // Wasm module must import memory when meet these instruction.
-                    let memory_merkle = instance_merkle
-                        .memories
-                        .first()
-                        .ok_or(ProofError::MemoryNotImported)?;
+                    let memory_merkle = &params.default_memory()?.merkle;
 
                     let is_store = matches!(
                         inst,
@@ -859,6 +878,11 @@ mod proof {
                 }
                 // TODO: arb do not have this, but I think they are missing it.
                 Instruction::MemoryGrow => ExtraProof::Empty,
+                Instruction::MemorySize => {
+                    // Wasm module must import memory when meet these instruction.
+                    let page = params.default_memory()?.page.clone();
+                    ExtraProof::MemoryPage(page)
+                }
                 _ => ExtraProof::Empty,
             };
 
