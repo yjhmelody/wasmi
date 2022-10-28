@@ -18,6 +18,7 @@ use crate::{
 
 use core::{cmp, result};
 
+use crate::merkle::MemoryChunkNeighbor;
 use accel_merkle::{Bytes32, ProveData};
 use codec::{Decode, Encode};
 use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
@@ -37,10 +38,7 @@ pub enum ExecError {
     IllegalExtraProof,
     CallStackOverflow,
     DefaultTableNotFound,
-
-    /// Just a temporary error.
-    /// Will be removed when all proof are completed
-    TODO,
+    UnsupportedOSP,
 }
 
 #[derive(Clone, Copy, Encode, Decode, Debug, Eq, PartialEq)]
@@ -99,18 +97,18 @@ impl InstExecutor {
             Instr::I64Load(offset) => self.visit_i64_load(offset),
             Instr::F32Load(offset) => self.visit_f32_load(offset),
             Instr::F64Load(offset) => self.visit_f64_load(offset),
-            // Instr::I32Load8S(offset) => self.visit_i32_load_i8(offset),
-            // Instr::I32Load8U(offset) => self.visit_i32_load_u8(offset),
-            // Instr::I32Load16S(offset) => self.visit_i32_load_i16(offset),
-            // Instr::I32Load16U(offset) => self.visit_i32_load_u16(offset),
-            // Instr::I64Load8S(offset) => self.visit_i64_load_i8(offset),
-            // Instr::I64Load8U(offset) => self.visit_i64_load_u8(offset),
-            // Instr::I64Load16S(offset) => self.visit_i64_load_i16(offset),
-            // Instr::I64Load16U(offset) => self.visit_i64_load_u16(offset),
-            // Instr::I64Load32S(offset) => self.visit_i64_load_i32(offset),
-            // Instr::I64Load32U(offset) => self.visit_i64_load_u32(offset),
+            Instr::I32Load8S(offset) => self.visit_i32_load_i8(offset),
+            Instr::I32Load8U(offset) => self.visit_i32_load_u8(offset),
+            Instr::I32Load16S(offset) => self.visit_i32_load_i16(offset),
+            Instr::I32Load16U(offset) => self.visit_i32_load_u16(offset),
+            Instr::I64Load8S(offset) => self.visit_i64_load_i8(offset),
+            Instr::I64Load8U(offset) => self.visit_i64_load_u8(offset),
+            Instr::I64Load16S(offset) => self.visit_i64_load_i16(offset),
+            Instr::I64Load16U(offset) => self.visit_i64_load_u16(offset),
+            Instr::I64Load32S(offset) => self.visit_i64_load_i32(offset),
+            Instr::I64Load32U(offset) => self.visit_i64_load_u32(offset),
             // TODO
-            _ => Err(ExecError::TODO),
+            _ => Err(ExecError::UnsupportedOSP),
         }
     }
 
@@ -412,6 +410,15 @@ impl InstExecutor {
             .ok_or(TrapCode::MemoryAccessOutOfBounds)
     }
 
+    fn prove_memory_root(&self, memory_root: Bytes32) -> Result<()> {
+        if self.memory_roots[0] != memory_root {
+            return Err(ExecError::IllegalExtraProof);
+        }
+
+        Ok(())
+    }
+
+    // TODO: reduce this code.
     /// Loads a value of type `T` from the default memory at the given address offset.
     ///
     /// # Note
@@ -428,7 +435,6 @@ impl InstExecutor {
         T: LittleEndianConvert,
     {
         let address = self.pop_value_stack_as::<u32>()?;
-
         let address = match Self::effective_address(offset, address) {
             Ok(address) => address,
             Err(_trap) => {
@@ -440,13 +446,11 @@ impl InstExecutor {
 
         let value = match &self.extra {
             ExtraProof::MemoryChunkNeighbor(proof) => {
-                // prove memory before use it.
                 let root = proof
                     .compute_root(address)
                     .ok_or(ExecError::IllegalExtraProof)?;
-                if self.memory_roots[0] != root {
-                    return Err(ExecError::IllegalExtraProof);
-                }
+                // prove memory before use it.
+                self.prove_memory_root(root)?;
 
                 let mut bytes = <<T as LittleEndianConvert>::Bytes as Default>::default();
                 proof.read(address, bytes.as_mut());
@@ -457,9 +461,8 @@ impl InstExecutor {
 
             ExtraProof::MemoryChunkSibling(proof) => {
                 let root = proof.compute_root(address);
-                if self.memory_roots[0] != root {
-                    return Err(ExecError::IllegalExtraProof);
-                }
+                // prove memory before use it.
+                self.prove_memory_root(root)?;
 
                 let mut bytes = <<T as LittleEndianConvert>::Bytes as Default>::default();
                 proof.read(address, bytes.as_mut());
@@ -471,6 +474,71 @@ impl InstExecutor {
         };
 
         self.value_stack.push(value);
+        self.next_pc();
+
+        Ok(())
+    }
+
+    /// Loads a value of type `U` from the default memory at the given address offset and extends it into `T`.
+    ///
+    /// # Note
+    ///
+    /// This can be used to emulate the following Wasm operands:
+    ///
+    /// - `i32.load_8s`
+    /// - `i32.load_8u`
+    /// - `i32.load_16s`
+    /// - `i32.load_16u`
+    /// - `i64.load_8s`
+    /// - `i64.load_8u`
+    /// - `i64.load_16s`
+    /// - `i64.load_16u`
+    /// - `i64.load_32s`
+    /// - `i64.load_32u`
+    fn execute_load_extend<T, U>(&mut self, offset: Offset) -> Result<()>
+    where
+        T: ExtendInto<U> + LittleEndianConvert,
+        UntypedValue: From<U>,
+    {
+        let address = self.pop_value_stack_as::<u32>()?;
+        let address = match Self::effective_address(offset, address) {
+            Ok(address) => address,
+            Err(_trap) => {
+                self.status = InstructionStatus::Trapped;
+                return Ok(());
+            }
+        };
+
+        let value = match &self.extra {
+            ExtraProof::MemoryChunkNeighbor(proof) => {
+                let root = proof
+                    .compute_root(address)
+                    .ok_or(ExecError::IllegalExtraProof)?;
+                // prove memory before use it.
+                self.prove_memory_root(root)?;
+
+                let mut bytes = <<T as LittleEndianConvert>::Bytes as Default>::default();
+                proof.read(address, bytes.as_mut());
+                let value = <T as LittleEndianConvert>::from_le_bytes(bytes).extend_into();
+
+                value
+            }
+
+            ExtraProof::MemoryChunkSibling(proof) => {
+                let root = proof.compute_root(address);
+                // prove memory before use it.
+                self.prove_memory_root(root)?;
+
+                let mut bytes = <<T as LittleEndianConvert>::Bytes as Default>::default();
+                proof.read(address, bytes.as_mut());
+                let value = <T as LittleEndianConvert>::from_le_bytes(bytes).extend_into();
+
+                value
+            }
+            _ => return Err(ExecError::IllegalExtraProof),
+        };
+
+        self.value_stack.push(value.into());
         self.next_pc();
 
         Ok(())
@@ -492,43 +560,43 @@ impl InstExecutor {
         self.execute_load::<F64>(offset)
     }
 
-    // fn visit_i32_load_i8(&mut self, offset: Offset) -> Result<()> {
-    //     self.execute_load_extend::<i8, i32>(offset)
-    // }
-    //
-    // fn visit_i32_load_u8(&mut self, offset: Offset) -> Result<()> {
-    //     self.execute_load_extend::<u8, i32>(offset)
-    // }
-    //
-    // fn visit_i32_load_i16(&mut self, offset: Offset) -> Result<()> {
-    //     self.execute_load_extend::<i16, i32>(offset)
-    // }
-    //
-    // fn visit_i32_load_u16(&mut self, offset: Offset) -> Result<()> {
-    //     self.execute_load_extend::<u16, i32>(offset)
-    // }
-    //
-    // fn visit_i64_load_i8(&mut self, offset: Offset) -> Result<()> {
-    //     self.execute_load_extend::<i8, i64>(offset)
-    // }
-    //
-    // fn visit_i64_load_u8(&mut self, offset: Offset) -> Result<()> {
-    //     self.execute_load_extend::<u8, i64>(offset)
-    // }
-    //
-    // fn visit_i64_load_i16(&mut self, offset: Offset) -> Result<()> {
-    //     self.execute_load_extend::<i16, i64>(offset)
-    // }
-    //
-    // fn visit_i64_load_u16(&mut self, offset: Offset) -> Result<()> {
-    //     self.execute_load_extend::<u16, i64>(offset)
-    // }
-    //
-    // fn visit_i64_load_i32(&mut self, offset: Offset) -> Result<()> {
-    //     self.execute_load_extend::<i32, i64>(offset)
-    // }
-    //
-    // fn visit_i64_load_u32(&mut self, offset: Offset) -> Result<()> {
-    //     self.execute_load_extend::<u32, i64>(offset)
-    // }
+    fn visit_i32_load_i8(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load_extend::<i8, i32>(offset)
+    }
+
+    fn visit_i32_load_u8(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load_extend::<u8, i32>(offset)
+    }
+
+    fn visit_i32_load_i16(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load_extend::<i16, i32>(offset)
+    }
+
+    fn visit_i32_load_u16(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load_extend::<u16, i32>(offset)
+    }
+
+    fn visit_i64_load_i8(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load_extend::<i8, i64>(offset)
+    }
+
+    fn visit_i64_load_u8(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load_extend::<u8, i64>(offset)
+    }
+
+    fn visit_i64_load_i16(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load_extend::<i16, i64>(offset)
+    }
+
+    fn visit_i64_load_u16(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load_extend::<u16, i64>(offset)
+    }
+
+    fn visit_i64_load_i32(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load_extend::<i32, i64>(offset)
+    }
+
+    fn visit_i64_load_u32(&mut self, offset: Offset) -> Result<()> {
+        self.execute_load_extend::<u32, i64>(offset)
+    }
 }
