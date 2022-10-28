@@ -14,7 +14,6 @@ use crate::{
     core::{TrapCode, F32, F64},
     AsContext,
     Func,
-    StepResult,
     StoreContextMut,
 };
 use core::cmp;

@@ -120,7 +120,7 @@ impl MemoryChunkNeighbor {
             next_leaf_sibling,
         }
     }
-    /// Compute root according to memory index.
+    /// Compute root according to memory address.
     ///
     /// # Note
     ///
@@ -153,6 +153,10 @@ impl MemoryChunkNeighbor {
     pub fn read(&self, address: usize, buffer: &mut [u8]) {
         self.chunks.read(address, buffer)
     }
+
+    pub fn write(&mut self, address: usize, buffer: &[u8]) {
+        self.chunks.write(address, buffer)
+    }
 }
 
 /// The contains a proof that a memory store instruction touch two sibling leaves which have same parent.
@@ -174,7 +178,7 @@ impl MemoryChunkSibling {
         }
     }
 
-    /// Compute root according to memory index.
+    /// Compute root according to memory address.
     pub fn compute_root(&self, address: usize) -> Bytes32 {
         let mut index = address / MEMORY_LEAF_SIZE;
         index >>= 1;
@@ -189,6 +193,10 @@ impl MemoryChunkSibling {
 
     pub fn read(&self, address: usize, buffer: &mut [u8]) {
         self.chunks.read(address, buffer)
+    }
+
+    pub fn write(&mut self, address: usize, buffer: &[u8]) {
+        self.chunks.write(address, buffer)
     }
 }
 
