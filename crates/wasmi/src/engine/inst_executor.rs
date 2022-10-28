@@ -21,6 +21,8 @@ use accel_merkle::{Bytes32, ProveData};
 use codec::{Decode, Encode};
 use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
 
+pub const MAX_PAGE_SIZE: usize = 65536;
+
 pub type Result<T> = result::Result<T, ExecError>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -116,6 +118,105 @@ impl InstExecutor {
             Instr::I64Store32(offset) => self.visit_i64_store_32(offset),
             Instr::MemorySize => self.visit_current_memory(),
             Instr::MemoryGrow => self.visit_grow_memory(),
+            Instr::Const(bytes) => self.visit_const(bytes),
+            Instr::I32Eqz => self.visit_i32_eqz(),
+            Instr::I32Eq => self.visit_i32_eq(),
+            Instr::I32Ne => self.visit_i32_ne(),
+            Instr::I32LtS => self.visit_i32_lt_s(),
+            Instr::I32LtU => self.visit_i32_lt_u(),
+            Instr::I32GtS => self.visit_i32_gt_s(),
+            Instr::I32GtU => self.visit_i32_gt_u(),
+            Instr::I32LeS => self.visit_i32_le_s(),
+            Instr::I32LeU => self.visit_i32_le_u(),
+            Instr::I32GeS => self.visit_i32_ge_s(),
+            Instr::I32GeU => self.visit_i32_ge_u(),
+            Instr::I64Eqz => self.visit_i64_eqz(),
+            Instr::I64Eq => self.visit_i64_eq(),
+            Instr::I64Ne => self.visit_i64_ne(),
+            Instr::I64LtS => self.visit_i64_lt_s(),
+            Instr::I64LtU => self.visit_i64_lt_u(),
+            Instr::I64GtS => self.visit_i64_gt_s(),
+            Instr::I64GtU => self.visit_i64_gt_u(),
+            Instr::I64LeS => self.visit_i64_le_s(),
+            Instr::I64LeU => self.visit_i64_le_u(),
+            Instr::I64GeS => self.visit_i64_ge_s(),
+            Instr::I64GeU => self.visit_i64_ge_u(),
+            Instr::F32Eq => self.visit_f32_eq(),
+            Instr::F32Ne => self.visit_f32_ne(),
+            Instr::F32Lt => self.visit_f32_lt(),
+            Instr::F32Gt => self.visit_f32_gt(),
+            Instr::F32Le => self.visit_f32_le(),
+            Instr::F32Ge => self.visit_f32_ge(),
+            Instr::F64Eq => self.visit_f64_eq(),
+            Instr::F64Ne => self.visit_f64_ne(),
+            Instr::F64Lt => self.visit_f64_lt(),
+            Instr::F64Gt => self.visit_f64_gt(),
+            Instr::F64Le => self.visit_f64_le(),
+            Instr::F64Ge => self.visit_f64_ge(),
+            Instr::I32Clz => self.visit_i32_clz(),
+            Instr::I32Ctz => self.visit_i32_ctz(),
+            Instr::I32Popcnt => self.visit_i32_popcnt(),
+            Instr::I32Add => self.visit_i32_add(),
+            Instr::I32Sub => self.visit_i32_sub(),
+            Instr::I32Mul => self.visit_i32_mul(),
+            Instr::I32DivS => self.visit_i32_div_s(),
+            Instr::I32DivU => self.visit_i32_div_u(),
+            Instr::I32RemS => self.visit_i32_rem_s(),
+            Instr::I32RemU => self.visit_i32_rem_u(),
+            Instr::I32And => self.visit_i32_and(),
+            Instr::I32Or => self.visit_i32_or(),
+            Instr::I32Xor => self.visit_i32_xor(),
+            Instr::I32Shl => self.visit_i32_shl(),
+            Instr::I32ShrS => self.visit_i32_shr_s(),
+            Instr::I32ShrU => self.visit_i32_shr_u(),
+            Instr::I32Rotl => self.visit_i32_rotl(),
+            Instr::I32Rotr => self.visit_i32_rotr(),
+            Instr::I64Clz => self.visit_i64_clz(),
+            Instr::I64Ctz => self.visit_i64_ctz(),
+            Instr::I64Popcnt => self.visit_i64_popcnt(),
+            Instr::I64Add => self.visit_i64_add(),
+            Instr::I64Sub => self.visit_i64_sub(),
+            Instr::I64Mul => self.visit_i64_mul(),
+            Instr::I64DivS => self.visit_i64_div_s(),
+            Instr::I64DivU => self.visit_i64_div_u(),
+            Instr::I64RemS => self.visit_i64_rem_s(),
+            Instr::I64RemU => self.visit_i64_rem_u(),
+            Instr::I64And => self.visit_i64_and(),
+            Instr::I64Or => self.visit_i64_or(),
+            Instr::I64Xor => self.visit_i64_xor(),
+            Instr::I64Shl => self.visit_i64_shl(),
+            Instr::I64ShrS => self.visit_i64_shr_s(),
+            Instr::I64ShrU => self.visit_i64_shr_u(),
+            Instr::I64Rotl => self.visit_i64_rotl(),
+            Instr::I64Rotr => self.visit_i64_rotr(),
+            Instr::F32Abs => self.visit_f32_abs(),
+            Instr::F32Neg => self.visit_f32_neg(),
+            Instr::F32Ceil => self.visit_f32_ceil(),
+            Instr::F32Floor => self.visit_f32_floor(),
+            Instr::F32Trunc => self.visit_f32_trunc(),
+            Instr::F32Nearest => self.visit_f32_nearest(),
+            Instr::F32Sqrt => self.visit_f32_sqrt(),
+            Instr::F32Add => self.visit_f32_add(),
+            Instr::F32Sub => self.visit_f32_sub(),
+            Instr::F32Mul => self.visit_f32_mul(),
+            Instr::F32Div => self.visit_f32_div(),
+            Instr::F32Min => self.visit_f32_min(),
+            Instr::F32Max => self.visit_f32_max(),
+            Instr::F32Copysign => self.visit_f32_copysign(),
+            Instr::F64Abs => self.visit_f64_abs(),
+            Instr::F64Neg => self.visit_f64_neg(),
+            Instr::F64Ceil => self.visit_f64_ceil(),
+            Instr::F64Floor => self.visit_f64_floor(),
+            Instr::F64Trunc => self.visit_f64_trunc(),
+            Instr::F64Nearest => self.visit_f64_nearest(),
+            Instr::F64Sqrt => self.visit_f64_sqrt(),
+            Instr::F64Add => self.visit_f64_add(),
+            Instr::F64Sub => self.visit_f64_sub(),
+            Instr::F64Mul => self.visit_f64_mul(),
+            Instr::F64Div => self.visit_f64_div(),
+            Instr::F64Min => self.visit_f64_min(),
+            Instr::F64Max => self.visit_f64_max(),
+            Instr::F64Copysign => self.visit_f64_copysign(),
             // TODO
             _ => Err(ExecError::UnsupportedOSP),
         }
@@ -390,10 +491,13 @@ impl InstExecutor {
 
     fn visit_select(&mut self) -> Result<()> {
         self.value_stack
-            .pop2_eval(|e1, e2, e3| {
+            .eval_pop3(|e1, e2, e3| {
                 let condition = <bool as From<UntypedValue>>::from(e3);
-                let result = if condition { *e1 } else { e2 };
-                *e1 = result;
+                if condition {
+                    e1
+                } else {
+                    e2
+                }
             })
             .ok_or(ExecError::InsufficientValueStack)?;
 
@@ -809,6 +913,460 @@ impl InstExecutor {
 
         Ok(())
     }
-}
 
-pub const MAX_PAGE_SIZE: usize = 65536;
+    fn visit_const(&mut self, bytes: UntypedValue) -> Result<()> {
+        self.value_stack.push(bytes);
+
+        self.next_pc();
+        Ok(())
+    }
+
+    fn execute_unary(&mut self, f: fn(UntypedValue) -> UntypedValue) -> Result<()> {
+        self.value_stack
+            .eval_top(f)
+            .ok_or(ExecError::InsufficientValueStack)?;
+
+        self.next_pc();
+        Ok(())
+    }
+
+    fn try_execute_unary(
+        &mut self,
+        f: fn(UntypedValue) -> result::Result<UntypedValue, TrapCode>,
+    ) -> Result<()> {
+        let res = self
+            .value_stack
+            .try_eval_top(f)
+            .ok_or(ExecError::InsufficientValueStack)?;
+
+        match res {
+            Ok(()) => {}
+            Err(_trap) => {
+                self.status = InstructionStatus::Trapped;
+                return Ok(());
+            }
+        }
+
+        self.next_pc();
+        Ok(())
+    }
+
+    fn execute_binary(&mut self, f: fn(UntypedValue, UntypedValue) -> UntypedValue) -> Result<()> {
+        self.value_stack.eval_top2(f);
+
+        self.next_pc();
+        Ok(())
+    }
+
+    fn try_execute_binary(
+        &mut self,
+        f: fn(UntypedValue, UntypedValue) -> result::Result<UntypedValue, TrapCode>,
+    ) -> Result<()> {
+        let res = self
+            .value_stack
+            .try_eval_top2(f)
+            .ok_or(ExecError::InsufficientValueStack)?;
+        match res {
+            Ok(()) => {}
+            Err(_trap) => {
+                self.status = InstructionStatus::Trapped;
+                return Ok(());
+            }
+        }
+
+        self.next_pc();
+        Ok(())
+    }
+
+    fn visit_i32_eqz(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i32_eqz)
+    }
+
+    fn visit_i32_eq(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_eq)
+    }
+
+    fn visit_i32_ne(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_ne)
+    }
+
+    fn visit_i32_lt_s(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_lt_s)
+    }
+
+    fn visit_i32_lt_u(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_lt_u)
+    }
+
+    fn visit_i32_gt_s(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_gt_s)
+    }
+
+    fn visit_i32_gt_u(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_gt_u)
+    }
+
+    fn visit_i32_le_s(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_le_s)
+    }
+
+    fn visit_i32_le_u(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_le_u)
+    }
+
+    fn visit_i32_ge_s(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_ge_s)
+    }
+
+    fn visit_i32_ge_u(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_ge_u)
+    }
+
+    fn visit_i64_eqz(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_eqz)
+    }
+
+    fn visit_i64_eq(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_eq)
+    }
+
+    fn visit_i64_ne(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_ne)
+    }
+
+    fn visit_i64_lt_s(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_lt_s)
+    }
+
+    fn visit_i64_lt_u(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_lt_u)
+    }
+
+    fn visit_i64_gt_s(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_gt_s)
+    }
+
+    fn visit_i64_gt_u(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_gt_u)
+    }
+
+    fn visit_i64_le_s(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_le_s)
+    }
+
+    fn visit_i64_le_u(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_le_u)
+    }
+
+    fn visit_i64_ge_s(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_ge_s)
+    }
+
+    fn visit_i64_ge_u(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_ge_u)
+    }
+
+    fn visit_f32_eq(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_eq)
+    }
+
+    fn visit_f32_ne(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_ne)
+    }
+
+    fn visit_f32_lt(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_lt)
+    }
+
+    fn visit_f32_gt(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_gt)
+    }
+
+    fn visit_f32_le(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_le)
+    }
+
+    fn visit_f32_ge(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_ge)
+    }
+
+    fn visit_f64_eq(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_eq)
+    }
+
+    fn visit_f64_ne(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_ne)
+    }
+
+    fn visit_f64_lt(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_lt)
+    }
+
+    fn visit_f64_gt(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_gt)
+    }
+
+    fn visit_f64_le(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_le)
+    }
+
+    fn visit_f64_ge(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_ge)
+    }
+
+    fn visit_i32_clz(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i32_clz)
+    }
+
+    fn visit_i32_ctz(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i32_ctz)
+    }
+
+    fn visit_i32_popcnt(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i32_popcnt)
+    }
+
+    fn visit_i32_add(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_add)
+    }
+
+    fn visit_i32_sub(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_sub)
+    }
+
+    fn visit_i32_mul(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_mul)
+    }
+
+    fn visit_i32_div_s(&mut self) -> Result<()> {
+        self.try_execute_binary(UntypedValue::i32_div_s)
+    }
+
+    fn visit_i32_div_u(&mut self) -> Result<()> {
+        self.try_execute_binary(UntypedValue::i32_div_u)
+    }
+
+    fn visit_i32_rem_s(&mut self) -> Result<()> {
+        self.try_execute_binary(UntypedValue::i32_rem_s)
+    }
+
+    fn visit_i32_rem_u(&mut self) -> Result<()> {
+        self.try_execute_binary(UntypedValue::i32_rem_u)
+    }
+
+    fn visit_i32_and(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_and)
+    }
+
+    fn visit_i32_or(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_or)
+    }
+
+    fn visit_i32_xor(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_xor)
+    }
+
+    fn visit_i32_shl(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_shl)
+    }
+
+    fn visit_i32_shr_s(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_shr_s)
+    }
+
+    fn visit_i32_shr_u(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_shr_u)
+    }
+
+    fn visit_i32_rotl(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_rotl)
+    }
+
+    fn visit_i32_rotr(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i32_rotr)
+    }
+
+    fn visit_i64_clz(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_clz)
+    }
+
+    fn visit_i64_ctz(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_ctz)
+    }
+
+    fn visit_i64_popcnt(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_popcnt)
+    }
+
+    fn visit_i64_add(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_add)
+    }
+
+    fn visit_i64_sub(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_sub)
+    }
+
+    fn visit_i64_mul(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_mul)
+    }
+
+    fn visit_i64_div_s(&mut self) -> Result<()> {
+        self.try_execute_binary(UntypedValue::i64_div_s)
+    }
+
+    fn visit_i64_div_u(&mut self) -> Result<()> {
+        self.try_execute_binary(UntypedValue::i64_div_u)
+    }
+
+    fn visit_i64_rem_s(&mut self) -> Result<()> {
+        self.try_execute_binary(UntypedValue::i64_rem_s)
+    }
+
+    fn visit_i64_rem_u(&mut self) -> Result<()> {
+        self.try_execute_binary(UntypedValue::i64_rem_u)
+    }
+
+    fn visit_i64_and(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_and)
+    }
+
+    fn visit_i64_or(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_or)
+    }
+
+    fn visit_i64_xor(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_xor)
+    }
+
+    fn visit_i64_shl(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_shl)
+    }
+
+    fn visit_i64_shr_s(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_shr_s)
+    }
+
+    fn visit_i64_shr_u(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_shr_u)
+    }
+
+    fn visit_i64_rotl(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_rotl)
+    }
+
+    fn visit_i64_rotr(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::i64_rotr)
+    }
+
+    fn visit_f32_abs(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_abs)
+    }
+
+    fn visit_f32_neg(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_neg)
+    }
+
+    fn visit_f32_ceil(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_ceil)
+    }
+
+    fn visit_f32_floor(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_floor)
+    }
+
+    fn visit_f32_trunc(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_trunc)
+    }
+
+    fn visit_f32_nearest(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_nearest)
+    }
+
+    fn visit_f32_sqrt(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_sqrt)
+    }
+
+    fn visit_f32_add(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_add)
+    }
+
+    fn visit_f32_sub(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_sub)
+    }
+
+    fn visit_f32_mul(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_mul)
+    }
+
+    fn visit_f32_div(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_div)
+    }
+
+    fn visit_f32_min(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_min)
+    }
+
+    fn visit_f32_max(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_max)
+    }
+
+    fn visit_f32_copysign(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f32_copysign)
+    }
+
+    fn visit_f64_abs(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_abs)
+    }
+
+    fn visit_f64_neg(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_neg)
+    }
+
+    fn visit_f64_ceil(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_ceil)
+    }
+
+    fn visit_f64_floor(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_floor)
+    }
+
+    fn visit_f64_trunc(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_trunc)
+    }
+
+    fn visit_f64_nearest(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_nearest)
+    }
+
+    fn visit_f64_sqrt(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_sqrt)
+    }
+
+    fn visit_f64_add(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_add)
+    }
+
+    fn visit_f64_sub(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_sub)
+    }
+
+    fn visit_f64_mul(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_mul)
+    }
+
+    fn visit_f64_div(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_div)
+    }
+
+    fn visit_f64_min(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_min)
+    }
+
+    fn visit_f64_max(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_max)
+    }
+
+    fn visit_f64_copysign(&mut self) -> Result<()> {
+        self.execute_binary(UntypedValue::f64_copysign)
+    }
+}

@@ -9,7 +9,7 @@ use accel_merkle::{
     MerkleType,
     ProveData,
 };
-use wasmi_core::{UntypedValue, ValueType};
+use wasmi_core::{TrapCode, UntypedValue, ValueType};
 
 use codec::{Codec, Decode, Encode, Error, Input, Output};
 
@@ -434,23 +434,88 @@ impl ValueStackProof {
     #[inline]
     pub fn eval_top<F>(&mut self, f: F) -> Option<()>
     where
-        F: FnOnce(&mut UntypedValue) -> Option<()>,
+        F: FnOnce(UntypedValue) -> UntypedValue,
     {
-        let top = self.last_mut()?;
-
-        f(top)
-    }
-
-    #[inline]
-    pub fn pop2_eval<F>(&mut self, f: F) -> Option<()>
-    where
-        F: FnOnce(&mut UntypedValue, UntypedValue, UntypedValue),
-    {
-        let (e2, e3) = self.pop2()?;
-        let e1 = self.last_mut()?;
-        f(e1, e2, e3);
+        let top = *self.last()?;
+        let last = self.last_mut()?;
+        *last = f(top);
 
         Some(())
+    }
+
+    /// Evaluates the given closure `f` for the 2 top most stack values.
+    #[inline]
+    pub fn eval_top2<F>(&mut self, f: F) -> Option<()>
+    where
+        F: FnOnce(UntypedValue, UntypedValue) -> UntypedValue,
+    {
+        let rhs = self.pop()?;
+        let lhs = *self.last()?;
+        let last = self.last_mut()?;
+        *last = f(lhs, rhs);
+
+        Some(())
+    }
+
+    /// Evaluates the given closure `f` for the 3 top most stack values.
+    #[inline]
+    pub fn eval_pop3<F>(&mut self, f: F) -> Option<()>
+    where
+        F: FnOnce(UntypedValue, UntypedValue, UntypedValue) -> UntypedValue,
+    {
+        let (e2, e3) = self.pop2()?;
+        let e1 = *self.last()?;
+        let last = self.last_mut()?;
+        *last = f(e1, e2, e3);
+
+        Some(())
+    }
+
+    /// Evaluates the given fallible closure `f` for the top most stack values.
+    ///
+    /// # Errors
+    ///
+    /// If the closure execution fails.
+    #[inline]
+    pub fn try_eval_top<F>(&mut self, f: F) -> Option<Result<(), TrapCode>>
+    where
+        F: FnOnce(UntypedValue) -> Result<UntypedValue, TrapCode>,
+    {
+        let val = *self.last()?;
+        let res = f(val);
+
+        match res {
+            Ok(val) => {
+                *self.last_mut()? = val;
+                Some(Ok(()))
+            }
+
+            Err(trap) => Some(Err(trap)),
+        }
+    }
+
+    /// Evaluates the given fallible closure `f` for the 2 top most stack values.
+    ///
+    /// # Errors
+    ///
+    /// If the closure execution fails.
+    #[inline]
+    pub fn try_eval_top2<F>(&mut self, f: F) -> Option<Result<(), TrapCode>>
+    where
+        F: FnOnce(UntypedValue, UntypedValue) -> Result<UntypedValue, TrapCode>,
+    {
+        let rhs = self.pop()?;
+        let lhs = *self.last()?;
+        let res = f(lhs, rhs);
+
+        match res {
+            Ok(val) => {
+                *self.last_mut()? = val;
+                Some(Ok(()))
+            }
+
+            Err(trap) => Some(Err(trap)),
+        }
     }
 
     /// Pops the last pair of [`UntypedValue`] from the [`ValueStack`].
