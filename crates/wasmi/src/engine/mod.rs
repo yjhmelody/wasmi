@@ -8,7 +8,7 @@ pub mod executor;
 mod func_args;
 mod func_builder;
 mod func_types;
-mod inst_executor;
+mod osp;
 pub mod stack;
 mod traits;
 
@@ -247,24 +247,24 @@ mod snapshot {
         },
         Instance,
     };
+    impl EngineInner {
+        pub fn make_snapshot(&self) -> EngineSnapshot {
+            let config = &self.config;
+            let stack = &self.stack;
 
-    impl From<&EngineInner> for EngineSnapshot {
-        fn from(engine: &EngineInner) -> Self {
-            let maximum_recursion_depth =
-                engine.config.stack_limits().maximum_recursion_depth as u32;
-            let frames = engine
-                .stack
+            let maximum_recursion_depth = config.stack_limits().maximum_recursion_depth as u32;
+            let frames = stack
                 .frames
                 .frames()
                 .iter()
                 .map(|frame| {
                     let cur_inst = frame.ip();
-                    let pc = engine.code_map.get_offset(cur_inst) as u32;
+                    let pc = self.code_map.get_offset(cur_inst) as u32;
                     FuncFrameSnapshot { pc }
                 })
                 .collect();
 
-            let entries = engine.stack.values.entries().into_iter().copied().collect();
+            let entries = stack.values.entries().into_iter().copied().collect();
             EngineSnapshot {
                 config: EngineConfig {
                     maximum_recursion_depth,
@@ -275,12 +275,6 @@ mod snapshot {
                     frames,
                 },
             }
-        }
-    }
-
-    impl EngineInner {
-        pub fn make_snapshot(&self) -> EngineSnapshot {
-            self.into()
         }
 
         pub fn instructions_ref(&self) -> &[Instruction] {
@@ -628,10 +622,11 @@ mod proof {
     use super::*;
     use crate::{
         engine::bytecode::Offset,
-        merkle::{
+        proof::{
             get_memory_leaf,
             instructions_merkle,
             CallIndirectProof,
+            EngineProof,
             ExtraProof,
             GlobalProof,
             InstanceProof,
@@ -876,9 +871,7 @@ mod proof {
                         ))
                     }
                 }
-                // TODO: arb do not have this, but I think they are missing it.
-                Instruction::MemoryGrow => ExtraProof::Empty,
-                Instruction::MemorySize => {
+                Instruction::MemoryGrow | Instruction::MemorySize => {
                     // Wasm module must import memory when meet these instruction.
                     let page = params.default_memory()?.page.clone();
                     ExtraProof::MemoryPage(page)
@@ -886,8 +879,7 @@ mod proof {
                 _ => ExtraProof::Empty,
             };
 
-            // TODO: directly make proof and skip snapshot?
-            let engine_proof = self.make_snapshot().make_proof();
+            let engine_proof = self.make_engine_proof();
             Ok(InstructionProof {
                 engine_proof,
                 current_pc,
@@ -895,6 +887,11 @@ mod proof {
                 inst_prove,
                 extra,
             })
+        }
+
+        fn make_engine_proof(&self) -> EngineProof {
+            // TODO(opt): directly make proof and skip snapshot
+            self.make_snapshot().make_proof()
         }
 
         fn make_call_proof(

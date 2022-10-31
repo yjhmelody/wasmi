@@ -1,26 +1,26 @@
 use alloc::vec::Vec;
 
+use codec::{Decode, Encode};
 use digest::Digest;
 use sha3::Keccak256;
-use codec::{Encode, Decode};
 
 use crate::bytes32::Bytes32;
 
-#[derive(Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub enum ProofKind {
-    Stack = 0,
-    ValueStack = 1,
-    CallStack = 2,
-    Memory = 3,
-    Global = 4,
-}
-
-// TODO: design the encode/decode spec.
-pub trait ProofGenerator {
-    /// Write the part of state proof of executor.
-    fn write_proof(&self, proof_buf: &mut Vec<u8>);
-}
+// #[derive(Debug, Eq, PartialEq)]
+// #[repr(u8)]
+// pub enum ProofKind {
+//     Stack = 0,
+//     ValueStack = 1,
+//     CallStack = 2,
+//     Memory = 3,
+//     Global = 4,
+// }
+//
+// // TODO: design the encode/decode spec.
+// pub trait ProofGenerator {
+//     /// Write the part of state proof of executor.
+//     fn write_proof(&self, proof_buf: &mut Vec<u8>);
+// }
 
 // TODO: remove this enum. We should use generics merkle type.
 /// The merkle node type for different wasm part state.
@@ -52,6 +52,12 @@ pub struct Merkle {
     ty: MerkleType,
     layers: Vec<Vec<Bytes32>>,
     empty_layers: Vec<Bytes32>,
+}
+
+pub fn keccak256(bytes: &[u8]) -> Bytes32 {
+    let mut h = Keccak256::new();
+    h.update(bytes);
+    h.finalize().into()
 }
 
 pub fn hash_node(a: Bytes32, b: Bytes32) -> Bytes32 {
@@ -123,9 +129,7 @@ impl Merkle {
             let layer = layers.last().expect("layers size is not empty; qed");
             let new_layer = layer
                 .chunks(2)
-                .map(|window| {
-                    hash_node(window[0], window.get(1).cloned().unwrap_or(empty_layer))
-                })
+                .map(|window| hash_node(window[0], window.get(1).cloned().unwrap_or(empty_layer)))
                 .collect();
             empty_layers.push(hash_node(empty_layer, empty_layer));
             layers.push(new_layer);

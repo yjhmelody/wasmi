@@ -9,7 +9,7 @@ use accel_merkle::{
     MerkleType,
     ProveData,
 };
-use wasmi_core::{TrapCode, UntypedValue, ValueType};
+use wasmi_core::{TrapCode, UntypedValue};
 
 use codec::{Codec, Decode, Encode, Error, Input, Output};
 
@@ -18,12 +18,13 @@ use crate::{
         bytecode::{BranchParams, Instruction},
         DropKeep,
     },
-    merkle::{hash_memory_leaf, utils::TwoMemoryChunks, MEMORY_LEAF_SIZE},
+    proof::{hash_memory_leaf, utils::TwoMemoryChunks, MEMORY_LEAF_SIZE},
     snapshot::{
         CallStackSnapshot,
         EngineConfig,
         EngineSnapshot,
         FuncFrameSnapshot,
+        FuncType,
         ValueStackSnapshot,
     },
 };
@@ -205,22 +206,6 @@ impl MemoryChunkSibling {
 
     pub fn write(&mut self, address: usize, buffer: &[u8]) {
         self.chunks.write(address, buffer)
-    }
-}
-
-// TODO: move to other mod.
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct FuncType {
-    pub params: Vec<ValueType>,
-    pub results: Vec<ValueType>,
-}
-
-impl From<crate::FuncType> for FuncType {
-    fn from(value: crate::FuncType) -> Self {
-        Self {
-            params: value.params().to_vec(),
-            results: value.results().to_vec(),
-        }
     }
 }
 
@@ -1088,7 +1073,6 @@ impl Instruction {
         Bytes32::from(b)
     }
 
-    #[allow(unused)]
     fn repr(&self) -> u16 {
         match self {
             Instruction::Unreachable => 0x00,

@@ -121,8 +121,8 @@ mod snapshot {
             }
         }
 
+        // TODO:
         pub fn extract_funcs(&self, ctx: &impl AsContext, instance: Instance) {
-            // TODO:
             let funcs = self
                 .funcs
                 .iter()

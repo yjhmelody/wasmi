@@ -147,7 +147,7 @@ mod proof {
     use super::*;
     use crate::{
         engine::{InstProofParams, ProofError},
-        merkle::{InstanceProof, InstructionProof, StaticMerkle},
+        proof::{InstanceProof, InstructionProof, StaticMerkle},
     };
 
     impl<T> Store<T> {

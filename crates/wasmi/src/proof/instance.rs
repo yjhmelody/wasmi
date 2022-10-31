@@ -1,9 +1,9 @@
 use crate::{
-    merkle::{MemoryPage, MemoryProof, TableProof},
+    proof::{MemoryPage, MemoryProof, TableProof},
     snapshot::{InstanceSnapshot, MemorySnapshot, TableElementSnapshot, TableSnapshot},
     GlobalEntity,
 };
-use accel_merkle::{digest::Digest, sha3::Keccak256, Bytes32, Merkle, MerkleType};
+use accel_merkle::{digest::Digest, keccak256, sha3::Keccak256, Bytes32, Merkle, MerkleType};
 use codec::Encode;
 use wasmi_core::UntypedValue;
 
@@ -135,15 +135,11 @@ impl MemorySnapshot {
 }
 
 pub fn table_element_hash(elem: &TableElementSnapshot) -> Bytes32 {
-    let mut h = Keccak256::new();
-    h.update(elem.encode());
-    h.finalize().into()
+    keccak256(&elem.encode())
 }
 
 pub fn value_hash(val: UntypedValue) -> Bytes32 {
-    let mut h = Keccak256::new();
-    h.update(val.encode());
-    h.finalize().into()
+    keccak256(&val.encode())
 }
 
 // TODO: define our own global state.
@@ -162,12 +158,8 @@ impl TableSnapshot {
     }
 
     pub fn hash(&self) -> Bytes32 {
-        let mut h = Keccak256::new();
         let merkle = self.merkle();
-        h.update([MerkleType::Table as u8]);
-        // TODO: add other memory data to hash.
-        h.update(merkle.root());
-        h.finalize().into()
+        keccak256(merkle.root().as_ref())
     }
 }
 

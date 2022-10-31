@@ -1,4 +1,4 @@
-use crate::merkle::MEMORY_LEAF_SIZE;
+use crate::proof::MEMORY_LEAF_SIZE;
 use codec::{Decode, Encode};
 use core::fmt::Debug;
 

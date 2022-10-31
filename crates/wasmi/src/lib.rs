@@ -101,8 +101,8 @@ mod global;
 mod instance;
 mod linker;
 mod memory;
-mod merkle;
 mod module;
+mod proof;
 mod store;
 mod table;
 

@@ -1,15 +1,8 @@
 //! Module instance level snapshot.
 
-use crate::{
-    memory::ByteBuffer,
-    merkle::FuncType,
-    GlobalEntity,
-    MemoryEntity,
-    MemoryType,
-    TableType,
-};
+use crate::{memory::ByteBuffer, GlobalEntity, MemoryEntity, MemoryType, TableType};
 use codec::{Decode, Encode};
-use wasmi_core::Pages;
+use wasmi_core::{Pages, ValueType};
 
 /// The state has two purpose:
 /// 1. Generate merkle proof.
@@ -107,6 +100,21 @@ pub struct TableSnapshot {
 pub enum TableElementSnapshot {
     Empty,
     FuncIndex(u32, FuncType),
+}
+
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct FuncType {
+    pub params: Vec<ValueType>,
+    pub results: Vec<ValueType>,
+}
+
+impl From<crate::FuncType> for FuncType {
+    fn from(value: crate::FuncType) -> Self {
+        Self {
+            params: value.params().to_vec(),
+            results: value.results().to_vec(),
+        }
+    }
 }
 
 /// A descriptor for a Table.
