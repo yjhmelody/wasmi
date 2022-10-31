@@ -1,4 +1,5 @@
-use core::fmt::Debug;
+use core::{fmt::Debug};
+use alloc::vec::Vec;
 
 use accel_merkle::{
     digest::Digest,

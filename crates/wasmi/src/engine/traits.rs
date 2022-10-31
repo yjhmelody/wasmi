@@ -91,7 +91,5 @@ impl CallResults for () {
 
     fn call_results(self, results: &[UntypedValue]) -> Self::Results {
         assert_eq!(results.len(), 0);
-
-        ()
     }
 }

@@ -103,6 +103,7 @@ impl<'a> ModuleState<'a> {
 }
 
 impl<'a> OspExecutor<'a> {
+    #[allow(unused)]
     pub fn compute_root(&self) {
         todo!("design the format")
     }

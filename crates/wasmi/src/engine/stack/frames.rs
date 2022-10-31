@@ -58,10 +58,6 @@ impl Default for CallStack {
 }
 
 impl CallStack {
-    pub fn recursion_limit(&self) -> usize {
-        self.recursion_limit
-    }
-
     pub(crate) fn push_frame(&mut self, frame: FuncFrame) -> Result<(), TrapCode> {
         if self.len() == self.recursion_limit {
             return Err(err_stack_overflow());
