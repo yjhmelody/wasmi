@@ -1,4 +1,6 @@
-use core::fmt::Debug;
+use core::{fmt::Debug};
+use core::prelude::rust_2021::*;
+use std::vec::Vec;
 
 use accel_merkle::{
     digest::Digest,

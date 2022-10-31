@@ -18,10 +18,6 @@ jobs:
           toolchain: stable
           target: wasm32-unknown-unknown
           override: true
-      - name: Add extra targets
-        # Workaround for https://github.com/actions-rs/toolchain/issues/165
-        run: |
-          rustup target add thumbv7em-none-eabi
       - name: Build (default features)
         uses: actions-rs/cargo@v1
         with:
@@ -32,11 +28,6 @@ jobs:
         with:
           command: build
           args: --workspace --all-features
-      - name: Build wasmi itself as no_std
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --workspace --lib --no-default-features --target thumbv7em-none-eabi --exclude wasmi_cli
       - name: Build (wasm32)
         uses: actions-rs/cargo@v1
         with:
@@ -90,24 +81,6 @@ jobs:
         with:
           command: fmt
           args: --all -- --check
-
-  doc:
-    name: Documentation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rust-docs, rust-src
-      - uses: actions-rs/cargo@v1
-        env:
-          RUSTDOCFLAGS: '-D warnings'
-        with:
-          command: doc
-          args: --workspace --all-features --no-deps --document-private-items
 
   audit:
     name: Audit

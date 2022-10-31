@@ -90,10 +90,10 @@ fn compute_root(prove_data: &[Bytes32], mut index: usize, leaf_hash: Bytes32) ->
     for sibling_hash in prove_data.iter() {
         if index & 1 == 0 {
             // even
-            hash = hash_node(hash, sibling_hash.clone());
+            hash = hash_node(hash, *sibling_hash);
         } else {
             // odd
-            hash = hash_node(sibling_hash.clone(), hash);
+            hash = hash_node(*sibling_hash, hash);
         }
         index >>= 1;
     }
