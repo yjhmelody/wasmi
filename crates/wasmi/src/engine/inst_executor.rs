@@ -61,8 +61,6 @@ pub struct InstExecutor {
     globals_root: Bytes32,
     table_roots: Vec<Bytes32>,
     memory_roots: Vec<Bytes32>,
-    /// The size of default memory.
-    default_memory_size: u32,
 
     current_pc: u32,
     inst: Instruction,
@@ -217,8 +215,44 @@ impl InstExecutor {
             Instr::F64Min => self.visit_f64_min(),
             Instr::F64Max => self.visit_f64_max(),
             Instr::F64Copysign => self.visit_f64_copysign(),
-            // TODO
-            _ => Err(ExecError::UnsupportedOSP),
+            Instr::I32WrapI64 => self.visit_i32_wrap_i64(),
+            Instr::I32TruncF32S => self.visit_i32_trunc_f32(),
+            Instr::I32TruncF32U => self.visit_u32_trunc_f32(),
+            Instr::I32TruncF64S => self.visit_i32_trunc_f64(),
+            Instr::I32TruncF64U => self.visit_u32_trunc_f64(),
+            Instr::I64ExtendI32S => self.visit_i64_extend_i32(),
+            Instr::I64ExtendI32U => self.visit_i64_extend_u32(),
+            Instr::I64TruncF32S => self.visit_i64_trunc_f32(),
+            Instr::I64TruncF32U => self.visit_u64_trunc_f32(),
+            Instr::I64TruncF64S => self.visit_i64_trunc_f64(),
+            Instr::I64TruncF64U => self.visit_u64_trunc_f64(),
+            Instr::F32ConvertI32S => self.visit_f32_convert_i32(),
+            Instr::F32ConvertI32U => self.visit_f32_convert_u32(),
+            Instr::F32ConvertI64S => self.visit_f32_convert_i64(),
+            Instr::F32ConvertI64U => self.visit_f32_convert_u64(),
+            Instr::F32DemoteF64 => self.visit_f32_demote_f64(),
+            Instr::F64ConvertI32S => self.visit_f64_convert_i32(),
+            Instr::F64ConvertI32U => self.visit_f64_convert_u32(),
+            Instr::F64ConvertI64S => self.visit_f64_convert_i64(),
+            Instr::F64ConvertI64U => self.visit_f64_convert_u64(),
+            Instr::F64PromoteF32 => self.visit_f64_promote_f32(),
+            Instr::I32ReinterpretF32 => self.visit_i32_reinterpret_f32(),
+            Instr::I64ReinterpretF64 => self.visit_i64_reinterpret_f64(),
+            Instr::F32ReinterpretI32 => self.visit_f32_reinterpret_i32(),
+            Instr::F64ReinterpretI64 => self.visit_f64_reinterpret_i64(),
+            Instr::I32TruncSatF32S => self.visit_i32_trunc_sat_f32(),
+            Instr::I32TruncSatF32U => self.visit_u32_trunc_sat_f32(),
+            Instr::I32TruncSatF64S => self.visit_i32_trunc_sat_f64(),
+            Instr::I32TruncSatF64U => self.visit_u32_trunc_sat_f64(),
+            Instr::I64TruncSatF32S => self.visit_i64_trunc_sat_f32(),
+            Instr::I64TruncSatF32U => self.visit_u64_trunc_sat_f32(),
+            Instr::I64TruncSatF64S => self.visit_i64_trunc_sat_f64(),
+            Instr::I64TruncSatF64U => self.visit_u64_trunc_sat_f64(),
+            Instr::I32Extend8S => self.visit_i32_sign_extend8(),
+            Instr::I32Extend16S => self.visit_i32_sign_extend16(),
+            Instr::I64Extend8S => self.visit_i64_sign_extend8(),
+            Instr::I64Extend16S => self.visit_i64_sign_extend16(),
+            Instr::I64Extend32S => self.visit_i64_sign_extend32(),
         }
     }
 
@@ -921,6 +955,16 @@ impl InstExecutor {
         Ok(())
     }
 
+    fn execute_reinterpret<T, U>(&mut self) -> Result<()>
+    where
+        UntypedValue: From<U>,
+        T: From<UntypedValue>,
+    {
+        // Nothing to do for `wasmi` bytecode.
+        self.next_pc();
+        Ok(())
+    }
+
     fn execute_unary(&mut self, f: fn(UntypedValue) -> UntypedValue) -> Result<()> {
         self.value_stack
             .eval_top(f)
@@ -1368,5 +1412,157 @@ impl InstExecutor {
 
     fn visit_f64_copysign(&mut self) -> Result<()> {
         self.execute_binary(UntypedValue::f64_copysign)
+    }
+
+    fn visit_i32_wrap_i64(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i32_wrap_i64)
+    }
+
+    fn visit_i32_trunc_f32(&mut self) -> Result<()> {
+        self.try_execute_unary(UntypedValue::i32_trunc_f32_s)
+    }
+
+    fn visit_u32_trunc_f32(&mut self) -> Result<()> {
+        self.try_execute_unary(UntypedValue::i32_trunc_f32_u)
+    }
+
+    fn visit_i32_trunc_f64(&mut self) -> Result<()> {
+        self.try_execute_unary(UntypedValue::i32_trunc_f64_s)
+    }
+
+    fn visit_u32_trunc_f64(&mut self) -> Result<()> {
+        self.try_execute_unary(UntypedValue::i32_trunc_f64_u)
+    }
+
+    fn visit_i64_extend_i32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_extend_i32_s)
+    }
+
+    fn visit_i64_extend_u32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_extend_i32_u)
+    }
+
+    fn visit_i64_trunc_f32(&mut self) -> Result<()> {
+        self.try_execute_unary(UntypedValue::i64_trunc_f32_s)
+    }
+
+    fn visit_u64_trunc_f32(&mut self) -> Result<()> {
+        self.try_execute_unary(UntypedValue::i64_trunc_f32_u)
+    }
+
+    fn visit_i64_trunc_f64(&mut self) -> Result<()> {
+        self.try_execute_unary(UntypedValue::i64_trunc_f64_s)
+    }
+
+    fn visit_u64_trunc_f64(&mut self) -> Result<()> {
+        self.try_execute_unary(UntypedValue::i64_trunc_f64_u)
+    }
+
+    fn visit_f32_convert_i32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_convert_i32_s)
+    }
+
+    fn visit_f32_convert_u32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_convert_i32_u)
+    }
+
+    fn visit_f32_convert_i64(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_convert_i64_s)
+    }
+
+    fn visit_f32_convert_u64(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_convert_i64_u)
+    }
+
+    fn visit_f32_demote_f64(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f32_demote_f64)
+    }
+
+    fn visit_f64_convert_i32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_convert_i32_s)
+    }
+
+    fn visit_f64_convert_u32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_convert_i32_u)
+    }
+
+    fn visit_f64_convert_i64(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_convert_i64_s)
+    }
+
+    fn visit_f64_convert_u64(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_convert_i64_u)
+    }
+
+    fn visit_f64_promote_f32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::f64_promote_f32)
+    }
+
+    fn visit_i32_reinterpret_f32(&mut self) -> Result<()> {
+        self.execute_reinterpret::<F32, i32>()
+    }
+
+    fn visit_i64_reinterpret_f64(&mut self) -> Result<()> {
+        self.execute_reinterpret::<F64, i64>()
+    }
+
+    fn visit_f32_reinterpret_i32(&mut self) -> Result<()> {
+        self.execute_reinterpret::<i32, F32>()
+    }
+
+    fn visit_f64_reinterpret_i64(&mut self) -> Result<()> {
+        self.execute_reinterpret::<i64, F64>()
+    }
+
+    fn visit_i32_sign_extend8(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i32_extend8_s)
+    }
+
+    fn visit_i32_sign_extend16(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i32_extend16_s)
+    }
+
+    fn visit_i64_sign_extend8(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_extend8_s)
+    }
+
+    fn visit_i64_sign_extend16(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_extend16_s)
+    }
+
+    fn visit_i64_sign_extend32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_extend32_s)
+    }
+
+    fn visit_i32_trunc_sat_f32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i32_trunc_sat_f32_s)
+    }
+
+    fn visit_u32_trunc_sat_f32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i32_trunc_sat_f32_u)
+    }
+
+    fn visit_i32_trunc_sat_f64(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i32_trunc_sat_f64_s)
+    }
+
+    fn visit_u32_trunc_sat_f64(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i32_trunc_sat_f64_u)
+    }
+
+    fn visit_i64_trunc_sat_f32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_trunc_sat_f32_s)
+    }
+
+    fn visit_u64_trunc_sat_f32(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_trunc_sat_f32_u)
+    }
+
+    fn visit_i64_trunc_sat_f64(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_trunc_sat_f64_s)
+    }
+
+    fn visit_u64_trunc_sat_f64(&mut self) -> Result<()> {
+        self.execute_unary(UntypedValue::i64_trunc_sat_f64_u)
     }
 }
