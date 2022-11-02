@@ -29,6 +29,7 @@ pub type Result<T> = result::Result<T, ExecError>;
 /// All execution error means this prove data is invalid.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecError {
+    GlobalsRootNotExist,
     GlobalsRootNotMatch,
     TableRootsNotMatch,
     EmptyValueStack,
@@ -50,11 +51,11 @@ pub(super) struct OspExecutor<'a> {
     value_stack: &'a mut ValueStackProof,
 
     inst_root: &'a Bytes32,
-    globals_root: Bytes32,
+    globals_root: &'a mut Option<Bytes32>,
     table_roots: &'a [Bytes32],
     memory_roots: &'a mut [Bytes32],
 
-    current_pc: u32,
+    current_pc: &'a mut u32,
     inst: Instruction,
     inst_prove: &'a ProveData,
     extra: &'a mut ExtraProof,
@@ -298,9 +299,7 @@ impl<'a> OspExecutor<'a> {
 
     fn prove_inst(&mut self) -> Result<()> {
         let inst_hash = self.inst.to_bytes32();
-        let inst_root = self
-            .inst_prove
-            .compute_root(self.current_pc as usize, inst_hash);
+        let inst_root = self.inst_prove.compute_root(self.pc() as usize, inst_hash);
         if inst_root != *self.inst_root {
             Err(ExecError::IllegalInstruction)
         } else {
@@ -310,12 +309,12 @@ impl<'a> OspExecutor<'a> {
 
     #[inline]
     fn next_pc(&mut self) {
-        self.current_pc += 1;
+        *self.current_pc += 1;
     }
 
     #[inline]
     fn pc(&self) -> u32 {
-        self.current_pc
+        *self.current_pc
     }
 
     #[inline]
@@ -331,7 +330,7 @@ impl<'a> OspExecutor<'a> {
 
     #[inline]
     fn set_pc(&mut self, pc: u32) {
-        self.current_pc = pc;
+        *self.current_pc = pc;
     }
 
     fn visit_local_get(&mut self, local_depth: LocalDepth) -> Result<()> {
@@ -378,10 +377,17 @@ impl<'a> OspExecutor<'a> {
             .pop_as()
             .ok_or(ExecError::EmptyValueStack)?;
         // The index of the default target which is the last target of the slice.
-        let max_index = len_targets as u32 - 1;
+        let max_index = (len_targets as u32)
+            .checked_sub(1)
+            .ok_or(ExecError::IllegalInstruction)?;
         // A normalized index will always yield a target without panicking.
         let normalized_index = cmp::min(index, max_index);
-        self.set_pc(self.pc() + normalized_index + 1);
+        let new_pc = self
+            .pc()
+            .checked_add(normalized_index)
+            .and_then(|pc| pc.checked_add(1))
+            .ok_or(ExecError::BranchToIllegalPc)?;
+        self.set_pc(new_pc);
         Ok(())
     }
 
@@ -463,6 +469,10 @@ impl<'a> OspExecutor<'a> {
     }
 
     fn visit_global_set_get(&mut self, global_index: GlobalIdx, is_set: bool) -> Result<()> {
+        let cur_globals_root = self
+            .globals_root
+            .as_mut()
+            .ok_or(ExecError::GlobalsRootNotExist)?;
         match &self.extra {
             ExtraProof::GlobalGetSet(proof) => {
                 let idx = global_index.into_inner() as usize;
@@ -471,7 +481,7 @@ impl<'a> OspExecutor<'a> {
 
                 // prove old globals root before using global value.
                 let globals_root = proof.prove_data.compute_root(idx, leaf_hash);
-                if globals_root != self.globals_root {
+                if globals_root != *cur_globals_root {
                     return Err(ExecError::GlobalsRootNotMatch);
                 }
 
@@ -482,7 +492,7 @@ impl<'a> OspExecutor<'a> {
                         .ok_or(ExecError::InsufficientValueStack)?;
                     let leaf_hash = value_hash(global);
                     // update globals root
-                    self.globals_root = proof.prove_data.compute_root(idx, leaf_hash)
+                    *cur_globals_root = proof.prove_data.compute_root(idx, leaf_hash)
                 } else {
                     self.value_stack.push(global);
                 }
@@ -621,10 +631,12 @@ impl<'a> OspExecutor<'a> {
             .ok_or(TrapCode::MemoryAccessOutOfBounds)
     }
 
+    #[inline]
     fn ensure_same_memory(&self, memory_root: Bytes32) -> Result<()> {
         Self::ensure_same_root(self.memory_roots[0], memory_root)
     }
 
+    #[inline]
     fn ensure_same_root(root1: Bytes32, root2: Bytes32) -> Result<()> {
         if root1 != root2 {
             return Err(ExecError::IllegalExtraProof);
@@ -632,6 +644,7 @@ impl<'a> OspExecutor<'a> {
         Ok(())
     }
 
+    #[inline]
     fn update_default_memory(&mut self, memory_root: Bytes32) {
         self.memory_roots[0] = memory_root;
     }

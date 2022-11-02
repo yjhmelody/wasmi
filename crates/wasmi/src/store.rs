@@ -163,7 +163,7 @@ mod proof {
             let instance_merkle = InstanceProof::create_by_snapshot(instance_snapshot);
 
             let static_merkle = StaticMerkle {
-                code: self.engine().clone().make_code_merkle(),
+                code: self.engine().make_inst_merkle(),
             };
 
             self.engine().clone().make_inst_proof(

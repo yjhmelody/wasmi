@@ -3,7 +3,7 @@ mod instance;
 mod utils;
 
 use crate::{snapshot::InstanceSnapshot, MemoryEntity};
-use accel_merkle::Merkle;
+use accel_merkle::{GlobalMerkle, InstructionMerkle, MemoryMerkle, TableMerkle};
 use alloc::vec::Vec;
 use core::cmp;
 pub use engine::*;
@@ -22,9 +22,11 @@ pub fn get_memory_leaf(memory: &MemoryEntity, leaf_idx: usize) -> [u8; MEMORY_LE
 }
 
 // TODO: consider functions type as merkle
+
+/// All proof data for an instance.
 #[derive(Debug)]
 pub struct InstanceProof {
-    pub globals: Merkle,
+    pub globals: Option<GlobalMerkle>,
     pub memories: Vec<MemoryProof>,
     pub tables: Vec<TableProof>,
 }
@@ -32,26 +34,26 @@ pub struct InstanceProof {
 #[derive(Debug)]
 pub struct MemoryProof {
     pub page: MemoryPage,
-    pub merkle: Merkle,
+    pub merkle: MemoryMerkle,
 }
 
 #[derive(Debug)]
 pub struct TableProof {
     pub initial: u32,
     pub maximum: Option<u32>,
-    pub merkle: Merkle,
+    pub merkle: TableMerkle,
 }
 
 /// This contains some merkle trees whose data should never be changed during wasm execution.
 #[derive(Debug)]
 pub struct StaticMerkle {
-    pub code: Merkle,
+    pub(crate) code: InstructionMerkle,
 }
 
 impl InstanceProof {
     pub fn create_by_snapshot(instance: InstanceSnapshot) -> Self {
         Self {
-            globals: instance.globals_proof(),
+            globals: instance.global_merkle(),
             memories: instance.memory_proofs(),
             tables: instance.table_proofs(),
         }

@@ -1,58 +1,11 @@
 use alloc::vec::Vec;
+use core::fmt::Debug;
 
 use codec::{Decode, Encode};
 use digest::Digest;
 use sha3::Keccak256;
 
 use crate::bytes32::Bytes32;
-
-// #[derive(Debug, Eq, PartialEq)]
-// #[repr(u8)]
-// pub enum ProofKind {
-//     Stack = 0,
-//     ValueStack = 1,
-//     CallStack = 2,
-//     Memory = 3,
-//     Global = 4,
-// }
-//
-// // TODO: design the encode/decode spec.
-// pub trait ProofGenerator {
-//     /// Write the part of state proof of executor.
-//     fn write_proof(&self, proof_buf: &mut Vec<u8>);
-// }
-
-// TODO: remove this enum. We should use generics merkle type.
-/// The merkle node type for different wasm part state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-#[non_exhaustive]
-pub enum MerkleType {
-    // TODO: I think these are useless, let's remove these.
-    Empty = 0,
-    Value = 1,
-    Function = 2,
-    Instruction = 3,
-    Memory = 4,
-    Table = 5,
-    TableElement = 6,
-    Module = 7,
-    Global = 8,
-}
-
-impl Default for MerkleType {
-    fn default() -> Self {
-        Self::Empty
-    }
-}
-
-// TODO: it's altered from arb. Should be generalized to be a good crate.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Merkle {
-    ty: MerkleType,
-    layers: Vec<Vec<Bytes32>>,
-    empty_layers: Vec<Bytes32>,
-}
 
 pub fn keccak256(bytes: &[u8]) -> Bytes32 {
     let mut h = Keccak256::new();
@@ -65,6 +18,38 @@ pub fn hash_node(a: Bytes32, b: Bytes32) -> Bytes32 {
     h.update(a);
     h.update(b);
     h.finalize().into()
+}
+
+// TODO: generalize
+pub trait MerkleTrait: Debug {}
+
+#[derive(Debug)]
+pub struct MemoryType;
+pub type MemoryMerkle = Merkle<MemoryType>;
+impl MerkleTrait for MemoryType {}
+
+#[derive(Debug)]
+pub struct TableType;
+pub type TableMerkle = Merkle<TableType>;
+impl MerkleTrait for TableType {}
+
+#[derive(Debug)]
+pub struct GlobalType;
+pub type GlobalMerkle = Merkle<GlobalType>;
+impl MerkleTrait for GlobalType {}
+
+#[derive(Debug)]
+pub struct InstructionType;
+pub type InstructionMerkle = Merkle<InstructionType>;
+impl MerkleTrait for InstructionType {}
+
+// TODO: it's altered from arb. Should be generalized to be a good crate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Merkle<T: MerkleTrait> {
+    _type: core::marker::PhantomData<T>,
+    layers: Vec<Vec<Bytes32>>,
+    /// Keep the empty hash value of different layer.
+    empty_layers: Vec<Bytes32>,
 }
 
 /// The struct contains a merkle proof for a leaf.
@@ -101,25 +86,23 @@ fn compute_root(prove_data: &[Bytes32], mut index: usize, leaf_hash: Bytes32) ->
     hash
 }
 
-// TODO: redesign this data structure.
-impl Merkle {
-    pub fn ty(&self) -> MerkleType {
-        self.ty
+impl<T: MerkleTrait> Merkle<T> {
+    /// Creates a merkle tree according to hashes.
+    ///
+    /// # Note
+    ///
+    /// Panic if hashes is empty.
+    pub fn new(hashes: Vec<Bytes32>) -> Self {
+        Self::new_advanced(hashes, Bytes32::default(), 0)
     }
 
-    pub fn new(ty: MerkleType, hashes: Vec<Bytes32>) -> Self {
-        Self::new_advanced(ty, hashes, Bytes32::default(), 0)
-    }
-
-    pub fn new_advanced(
-        ty: MerkleType,
-        hashes: Vec<Bytes32>,
-        empty_hash: Bytes32,
-        min_depth: usize,
-    ) -> Self {
-        if hashes.is_empty() {
-            return Self::default();
-        }
+    /// Creates a merkle tree according to hashes.
+    ///
+    /// # Note
+    ///
+    /// Panic if hashes is empty.
+    pub fn new_advanced(hashes: Vec<Bytes32>, empty_hash: Bytes32, min_depth: usize) -> Self {
+        assert!(hashes.len() > 0);
         let mut layers = vec![hashes];
         let mut empty_layers = vec![empty_hash];
         while layers.last().unwrap().len() > 1 || layers.len() < min_depth {
@@ -134,10 +117,10 @@ impl Merkle {
             empty_layers.push(hash_node(empty_layer, empty_layer));
             layers.push(new_layer);
         }
-        Merkle {
-            ty,
+        Self {
             layers,
             empty_layers,
+            _type: Default::default(),
         }
     }
 
@@ -164,10 +147,8 @@ impl Merkle {
         }
         // TODO: redesign this codec
         let mut proof = ProveData(Vec::new());
-        for (layer_i, layer) in self.layers.iter().enumerate() {
-            if layer_i == self.layers.len() - 1 {
-                break;
-            }
+        let len = self.layers.len();
+        for (layer_i, layer) in self.layers[..len - 1].iter().enumerate() {
             let counterpart = idx ^ 1;
             let hash = layer
                 .get(counterpart)

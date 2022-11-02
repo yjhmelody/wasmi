@@ -6,8 +6,7 @@ use accel_merkle::{
     hash_node,
     sha3::Keccak256,
     Bytes32,
-    Merkle,
-    MerkleType,
+    InstructionMerkle,
     ProveData,
 };
 use wasmi_core::{TrapCode, UntypedValue};
@@ -71,16 +70,19 @@ pub struct InstructionProof {
 pub enum ExtraProof {
     /// Most instructions do not need more proof.
     Empty,
+    /// Proof data for global instructions.
     GlobalGetSet(GlobalProof),
+    /// Proof data for memory.page.
     MemoryPage(MemoryPage),
+    /// Proof data for some memory instructions.
     MemoryChunkNeighbor(MemoryChunkNeighbor),
+    /// Proof data for some memory instructions.
     MemoryChunkSibling(MemoryChunkSibling),
     // TODO: Still need to design these call proof.
     /// The pc that call jump to.
     CallWasm(u32),
     /// Now we do not support extra proof for host function.
     CallHost,
-    // I am still confused about it.
     // Maybe need to prove this function is in the table.
     CallWasmIndirect(u32, CallIndirectProof),
     CallHostIndirect(CallIndirectProof),
@@ -142,12 +144,12 @@ impl MemoryChunkNeighbor {
         }
         let mut next_index = index + 1;
 
-        let mut parent_hash = hash_node(hash_memory_leaf(self.chunks.leaf), self.leaf_sibling);
+        let mut parent_hash = hash_node(hash_memory_leaf(*self.chunks.leaf()), self.leaf_sibling);
         index >>= 1;
         let first_root = self.prove_data.compute_root(index, parent_hash);
 
         parent_hash = hash_node(
-            hash_memory_leaf(self.chunks.next_leaf),
+            hash_memory_leaf(*self.chunks.next_leaf()),
             self.next_leaf_sibling,
         );
         next_index >>= 1;
@@ -194,8 +196,8 @@ impl MemoryChunkSibling {
         index >>= 1;
 
         let parent_hash = hash_node(
-            hash_memory_leaf(self.chunks.leaf),
-            hash_memory_leaf(self.chunks.next_leaf),
+            hash_memory_leaf(*self.chunks.leaf()),
+            hash_memory_leaf(*self.chunks.next_leaf()),
         );
 
         self.prove_data.compute_root(index, parent_hash)
@@ -617,11 +619,8 @@ mod tests {
 // Note: For static state(such as instructions), we just need to generate merkle once and keep it in memory.
 
 /// Generate a merkle for instructions.
-pub fn instructions_merkle(insts: &[Instruction]) -> Merkle {
-    Merkle::new(
-        MerkleType::Instruction,
-        insts.iter().map(|i| i.to_bytes32()).collect(),
-    )
+pub fn instructions_merkle(insts: &[Instruction]) -> InstructionMerkle {
+    InstructionMerkle::new(insts.iter().map(|i| i.to_bytes32()).collect())
 }
 
 impl Decode for Instruction {
@@ -848,7 +847,7 @@ impl Encode for Instruction {
     }
 
     fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {
-        dest.write(&self.repr().to_le_bytes());
+        dest.write(&self.opcode().to_le_bytes());
 
         match self {
             Instruction::Unreachable
@@ -1051,24 +1050,6 @@ impl Encode for Instruction {
     }
 }
 
-// impl Decode for Instruction {
-//     fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
-//         let b1 = input.read_byte()? as u16;
-//         let b2 = input.read_byte()? as u16;
-//         let repr = b2 << 16 | b1;
-//         let inst = match repr {
-//             0x00 => Instruction::Unreachable,
-//             ox0C => {
-//
-//             }
-//
-//             _ => todo!(),
-//         };
-//
-//         Ok(inst)
-//     }
-// }
-
 impl Instruction {
     // TODO: since instruction is less than byte32, should we keep the origin content as hash?
     pub fn to_bytes32(&self) -> Bytes32 {
@@ -1080,7 +1061,7 @@ impl Instruction {
         Bytes32::from(b)
     }
 
-    fn repr(&self) -> u16 {
+    fn opcode(&self) -> u16 {
         match self {
             Instruction::Unreachable => 0x00,
             Instruction::Br(..) => 0x0C,

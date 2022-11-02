@@ -4,8 +4,8 @@ use core::fmt::Debug;
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub(crate) struct TwoMemoryChunks {
-    pub leaf: [u8; MEMORY_LEAF_SIZE],
-    pub next_leaf: [u8; MEMORY_LEAF_SIZE],
+    leaf: [u8; MEMORY_LEAF_SIZE],
+    next_leaf: [u8; MEMORY_LEAF_SIZE],
 }
 
 impl TwoMemoryChunks {
@@ -13,11 +13,22 @@ impl TwoMemoryChunks {
         Self { leaf, next_leaf }
     }
 
+    /// Returns current memory leaf.
+    pub fn leaf(&self) -> &[u8; MEMORY_LEAF_SIZE] {
+        &self.leaf
+    }
+
+    /// Returns the next memory leaf.
+    pub fn next_leaf(&self) -> &[u8; MEMORY_LEAF_SIZE] {
+        &self.next_leaf
+    }
+
     /// Two leaves are adjacent in memory
     fn leaves(&self) -> &[u8; MEMORY_LEAF_SIZE * 2] {
         unsafe { core::mem::transmute(&self.leaf) }
     }
 
+    /// Two leaves are adjacent in memory
     fn leaves_mut(&mut self) -> &mut [u8; MEMORY_LEAF_SIZE * 2] {
         unsafe { core::mem::transmute(&mut self.leaf) }
     }

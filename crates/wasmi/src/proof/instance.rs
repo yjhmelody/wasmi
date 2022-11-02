@@ -3,12 +3,21 @@ use crate::{
     snapshot::{InstanceSnapshot, MemorySnapshot, TableElementSnapshot, TableSnapshot},
     GlobalEntity,
 };
-use accel_merkle::{digest::Digest, keccak256, sha3::Keccak256, Bytes32, Merkle, MerkleType};
+use accel_merkle::{
+    digest::Digest,
+    keccak256,
+    sha3::Keccak256,
+    Bytes32,
+    GlobalMerkle,
+    MemoryMerkle,
+    TableMerkle,
+};
 use alloc::vec::Vec;
 use codec::Encode;
 use wasmi_core::UntypedValue;
 
 pub const MEMORY_LEAF_SIZE: usize = 32;
+// TODO: redesign this part
 /// The number of layers in the memory merkle tree
 /// 1 + log2(2^32 / LEAF_SIZE) = 1 + log2(2^(32 - log2(LEAF_SIZE))) = 1 + 32 - 5
 const MEMORY_LAYERS: usize = 1 + 32 - 5;
@@ -60,14 +69,17 @@ impl InstanceSnapshot {
     //     self.hash().to_vec()
     // }
 
-    pub fn globals_proof(&self) -> Merkle {
+    pub fn global_merkle(&self) -> Option<GlobalMerkle> {
+        if self.globals.is_empty() {
+            return None;
+        }
         let globals = self
             .globals
             .iter()
             .map(|global| global_hash(global))
             .collect();
 
-        Merkle::new(MerkleType::Global, globals)
+        Some(GlobalMerkle::new(globals))
     }
 
     pub fn memory_proofs(&self) -> Vec<MemoryProof> {
@@ -100,7 +112,7 @@ impl InstanceSnapshot {
 }
 
 impl MemorySnapshot {
-    pub fn merkle(&self) -> Merkle {
+    pub fn merkle(&self) -> MemoryMerkle {
         // TODO: maybe we do not need to hash byte32 leaf twice.
         // Round the size up to 32 bytes size leaves, then round up to the next power of two number of leaves
         let leaves = round_up_to_power_of_two(div_round_up(self.bytes.len(), MEMORY_LEAF_SIZE));
@@ -117,8 +129,7 @@ impl MemorySnapshot {
             let empty_hash = hash_memory_leaf([0u8; MEMORY_LEAF_SIZE]);
             leaf_hashes.resize(leaves, empty_hash);
         }
-        Merkle::new_advanced(
-            MerkleType::Memory,
+        MemoryMerkle::new_advanced(
             leaf_hashes,
             // TODO: should we relly use this as empty hash?
             hash_memory_leaf([0u8; MEMORY_LEAF_SIZE]),
@@ -128,7 +139,6 @@ impl MemorySnapshot {
 
     pub fn hash(&self) -> Bytes32 {
         let mut h = Keccak256::new();
-        h.update([MerkleType::Memory as u8]);
         // TODO: add other memory data to hash.
         h.update(self.merkle().root());
         h.finalize().into()
@@ -149,13 +159,13 @@ pub fn global_hash(global: &GlobalEntity) -> Bytes32 {
 }
 
 impl TableSnapshot {
-    pub fn merkle(&self) -> Merkle {
+    pub fn merkle(&self) -> TableMerkle {
         let hashes = self
             .elements
             .iter()
             .map(table_element_hash)
             .collect::<Vec<Bytes32>>();
-        Merkle::new(MerkleType::Table, hashes)
+        TableMerkle::new(hashes)
     }
 
     pub fn hash(&self) -> Bytes32 {

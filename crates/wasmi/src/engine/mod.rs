@@ -642,7 +642,7 @@ mod proof {
         AsContext,
         Instance,
     };
-    use accel_merkle::{Merkle, ProveData};
+    use accel_merkle::{InstructionMerkle, ProveData};
 
     /// Meet some errors when generate normal extra proof for the another instruction.
     #[derive(Debug, Clone)]
@@ -650,6 +650,7 @@ mod proof {
         TrapCode(TrapCode),
         MemoryNotImported,
         MemoryIllegal,
+        GlobalsNotExist,
         GlobalNotFound,
         EmtpyValueStack,
         IllegalPc,
@@ -673,11 +674,10 @@ mod proof {
             engine.make_inst_proof(store, params, &mut cache)
         }
 
-        // TODO:
-        pub fn make_code_merkle(&self) -> Merkle {
+        pub fn make_inst_merkle(&self) -> InstructionMerkle {
             let engine = self.inner.lock();
             // TODO: maybe also need merkle headers
-            engine.make_code_proof()
+            instructions_merkle(&engine.code_map.insts)
         }
     }
 
@@ -713,10 +713,6 @@ mod proof {
     }
 
     impl EngineInner {
-        fn make_code_proof(&self) -> Merkle {
-            instructions_merkle(&self.code_map.insts)
-        }
-
         /// Generate a instruction level proof for current pc.
         ///
         /// # Note
@@ -797,6 +793,8 @@ mod proof {
                     let prove_data = params
                         .instance_merkle
                         .globals
+                        .as_ref()
+                        .ok_or(ProofError::GlobalsNotExist)?
                         .prove(idx as usize)
                         .ok_or(ProofError::GlobalNotFound)?;
 
