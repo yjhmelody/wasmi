@@ -11,7 +11,7 @@ use wasmi::{
     StepResult,
     Store,
 };
-use wasmi_core::{Value, ValueType};
+use wasmi_core::Value;
 
 fn setup_module<T>(store: &mut Store<T>, wat: impl AsRef<str>) -> Result<Module, Error> {
     let wasm = wat::parse_str(wat).expect("Illegal wat");

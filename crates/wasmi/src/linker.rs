@@ -268,12 +268,12 @@ mod snapshot {
 
     impl<T> Linker<T> {
         /// Restore a wasm instance by snapshot.
-        pub fn restore_instance<'a>(
+        pub fn restore_instance(
             &mut self,
             mut context: impl AsContextMut,
-            module: &'a Module,
+            module: &Module,
             snapshot: InstanceSnapshot,
-        ) -> Result<InstancePre<'a>, Error> {
+        ) -> Result<InstancePre, Error> {
             let externals = self.extract_externals(context.as_context_mut(), module)?;
             module.restore_instance(context, externals, snapshot)
         }
@@ -333,9 +333,9 @@ impl<T> Linker<T> {
     fn insert(&mut self, key: ImportKey, item: Extern) -> Result<(), LinkerError> {
         match self.definitions.entry(key) {
             Entry::Occupied(_) => {
-                let (module_name, field_name) = self.resolve_import_key(key).unwrap_or_else(|| {
-                    panic!("encountered missing import names for key {:?}", key)
-                });
+                let (module_name, field_name) = self
+                    .resolve_import_key(key)
+                    .unwrap_or_else(|| panic!("encountered missing import names for key {key:?}"));
                 let import_name = ImportName::new(module_name, field_name);
                 return Err(LinkerError::DuplicateDefinition {
                     import_name,
@@ -370,11 +370,11 @@ impl<T> Linker<T> {
     ///
     /// - If the linker does not define imports of the instantiated [`Module`].
     /// - If any imported item does not satisfy its type requirements.
-    pub fn instantiate<'a>(
+    pub fn instantiate(
         &self,
         mut context: impl AsContextMut,
-        module: &'a Module,
-    ) -> Result<InstancePre<'a>, Error> {
+        module: &Module,
+    ) -> Result<InstancePre, Error> {
         let externals = self.extract_externals(&mut context, module)?;
         module.instantiate(context, externals)
     }

@@ -1,6 +1,7 @@
 //! Module instance level snapshot.
 
 use crate::{memory::ByteBuffer, GlobalEntity, MemoryEntity, MemoryType, TableType};
+use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use wasmi_core::{Pages, ValueType};
 

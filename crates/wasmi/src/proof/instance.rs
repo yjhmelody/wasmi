@@ -4,6 +4,7 @@ use crate::{
     GlobalEntity,
 };
 use accel_merkle::{digest::Digest, keccak256, sha3::Keccak256, Bytes32, Merkle, MerkleType};
+use alloc::vec::Vec;
 use codec::Encode;
 use wasmi_core::UntypedValue;
 

@@ -1,5 +1,5 @@
-use core::{fmt::Debug};
 use alloc::vec::Vec;
+use core::fmt::Debug;
 
 use accel_merkle::{
     digest::Digest,
@@ -286,15 +286,17 @@ where
         }
     }
 
+    /// Returns the last element of the slice, or `None` if it is empty.
     pub fn last(&self) -> Option<&T> {
         self.entries.last()
     }
 
+    /// Returns a mutable pointer to the last item in the slice.
     pub fn last_mut(&mut self) -> Option<&mut T> {
         self.entries.last_mut()
     }
 
-    /// Note: depth must be great than 0.
+    /// A `depth` of 0 is invalid.
     pub fn peek_mut(&mut self, depth: usize) -> Option<&mut T> {
         let len = self.entries.len();
         if len >= depth {
@@ -304,6 +306,7 @@ where
         }
     }
 
+    /// Appends an element to the back of a collection.
     pub fn push(&mut self, val: T) {
         self.entries.push(val)
     }
@@ -351,7 +354,6 @@ impl ValueStackProof {
         self.0.last_mut()
     }
 
-    // Panic if len is 0.
     pub fn last_as<T>(&self) -> Option<T>
     where
         T: From<UntypedValue>,
@@ -359,7 +361,11 @@ impl ValueStackProof {
         self.last().copied().map(T::from)
     }
 
+    /// Peek the depth value start from stack top.
     pub fn peek_mut(&mut self, depth: usize) -> Option<&mut UntypedValue> {
+        if depth == 0 {
+            return None;
+        }
         self.0.peek_mut(depth)
     }
 

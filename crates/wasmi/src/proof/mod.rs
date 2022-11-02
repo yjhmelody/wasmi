@@ -4,6 +4,7 @@ mod utils;
 
 use crate::{snapshot::InstanceSnapshot, MemoryEntity};
 use accel_merkle::Merkle;
+use alloc::vec::Vec;
 use core::cmp;
 pub use engine::*;
 pub use instance::*;

@@ -12,6 +12,7 @@ mod parser;
 mod read;
 mod utils;
 
+pub(crate) use self::init_expr::InitExpr;
 use self::{
     builder::ModuleBuilder,
     data::DataSegment,
@@ -19,7 +20,6 @@ use self::{
     export::Export,
     global::Global,
     import::{Import, ImportKind},
-    init_expr::InitExpr,
     parser::parse,
     read::ReadError,
 };
@@ -43,14 +43,14 @@ use crate::{
     MemoryType,
     TableType,
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use core::{iter, slice::Iter as SliceIter};
 
 /// A parsed and validated WebAssembly module.
 #[derive(Debug)]
 pub struct Module {
     engine: Engine,
-    func_types: Box<[DedupFuncType]>,
+    func_types: Arc<[DedupFuncType]>,
     imports: ModuleImports,
     funcs: Box<[DedupFuncType]>,
     tables: Box<[TableType]>,
@@ -131,7 +131,7 @@ impl Module {
     /// # Errors
     ///
     /// - If the `stream` cannot be decoded into a valid Wasm module.
-    /// - If unsupported Wasm proposals are encounterd.
+    /// - If unsupported Wasm proposals are encountered.
     pub fn new(engine: &Engine, stream: impl Read) -> Result<Self, Error> {
         parse(engine, stream).map_err(Into::into)
     }
@@ -160,11 +160,21 @@ impl Module {
         }
     }
 
-    /// Returns a slice over the [`FuncType`] of the [`Module`].
-    ///
-    /// [`FuncType`]: struct.FuncType.html
-    fn func_types(&self) -> &[DedupFuncType] {
-        &self.func_types[..]
+    /// Returns the number of non-imported functions of the [`Module`].
+    pub(crate) fn len_funcs(&self) -> usize {
+        self.funcs.len()
+    }
+    /// Returns the number of non-imported tables of the [`Module`].
+    pub(crate) fn len_tables(&self) -> usize {
+        self.tables.len()
+    }
+    /// Returns the number of non-imported linear memories of the [`Module`].
+    pub(crate) fn len_memories(&self) -> usize {
+        self.memories.len()
+    }
+    /// Returns the number of non-imported global variables of the [`Module`].
+    pub(crate) fn len_globals(&self) -> usize {
+        self.memories.len()
     }
 
     /// Returns an iterator over the imports of the [`Module`].
@@ -228,41 +238,41 @@ pub struct ModuleImportsIter<'a> {
 impl<'a> Iterator for ModuleImportsIter<'a> {
     type Item = ModuleImport<'a>;
 
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.names.size_hint()
-    }
-
     fn next(&mut self) -> Option<Self::Item> {
         let import = match self.names.next() {
             None => return None,
             Some(imported) => match imported {
                 Imported::Func(name) => {
                     let func_type = self.funcs.next().unwrap_or_else(|| {
-                        panic!("unexpected missing imported function for {:?}", name)
+                        panic!("unexpected missing imported function for {name:?}")
                     });
                     ModuleImport::new(name, *func_type)
                 }
                 Imported::Table(name) => {
                     let table_type = self.tables.next().unwrap_or_else(|| {
-                        panic!("unexpected missing imported table for {:?}", name)
+                        panic!("unexpected missing imported table for {name:?}")
                     });
                     ModuleImport::new(name, *table_type)
                 }
                 Imported::Memory(name) => {
                     let memory_type = self.memories.next().unwrap_or_else(|| {
-                        panic!("unexpected missing imported linear memory for {:?}", name)
+                        panic!("unexpected missing imported linear memory for {name:?}")
                     });
                     ModuleImport::new(name, *memory_type)
                 }
                 Imported::Global(name) => {
                     let global_type = self.globals.next().unwrap_or_else(|| {
-                        panic!("unexpected missing imported global variable for {:?}", name)
+                        panic!("unexpected missing imported global variable for {name:?}")
                     });
                     ModuleImport::new(name, *global_type)
                 }
             },
         };
         Some(import)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.names.size_hint()
     }
 }
 
@@ -366,14 +376,14 @@ pub struct InternalFuncsIter<'a> {
 impl<'a> Iterator for InternalFuncsIter<'a> {
     type Item = (DedupFuncType, FuncBody);
 
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
-
     fn next(&mut self) -> Option<Self::Item> {
         self.iter
             .next()
             .map(|(func_type, func_body)| (*func_type, *func_body))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
     }
 }
 
@@ -392,12 +402,12 @@ pub struct InternalGlobalsIter<'a> {
 impl<'a> Iterator for InternalGlobalsIter<'a> {
     type Item = (&'a GlobalType, &'a InitExpr);
 
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
-
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
     }
 }
 

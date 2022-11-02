@@ -1,4 +1,5 @@
 //! Engine level snapshot.
+use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use wasmi_core::UntypedValue;
 
