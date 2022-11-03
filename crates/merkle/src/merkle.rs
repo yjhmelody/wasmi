@@ -7,78 +7,151 @@ use sha3::Keccak256;
 
 use crate::bytes32::Bytes32;
 
-pub fn keccak256(bytes: &[u8]) -> Bytes32 {
-    let mut h = Keccak256::new();
-    h.update(bytes);
-    h.finalize().into()
+/// The trait for different proof of wasm state component.
+///
+/// User could choose custom hash algorithm.
+pub trait MerkleTrait<Hasher: MerkleHasher>: Debug {}
+
+/// The Hasher type used in merkle proof.
+pub trait MerkleHasher: Send + Sync {
+    /// The output hash type.
+    type Output: HashOutput;
+
+    /// Creates a hash according to bytes.
+    fn hash(bytes: &[u8]) -> Self::Output;
+
+    /// Produce the hash of some codec-encodable value.
+    fn hash_of<S: Encode + ?Sized>(s: &S) -> Self::Output {
+        Encode::using_encoded(s, Self::hash)
+    }
+
+    /// Creates parent hash by two child hash.
+    fn hash_node(a: &Self::Output, b: &Self::Output) -> Self::Output;
 }
 
-pub fn hash_node(a: Bytes32, b: Bytes32) -> Bytes32 {
-    let mut h = Keccak256::new();
-    h.update(a);
-    h.update(b);
-    h.finalize().into()
+/// The output type of a hash algorithm.
+pub trait HashOutput:
+    core::hash::Hash
+    + Encode
+    + Decode
+    + Debug
+    + Default
+    + Clone
+    + PartialEq
+    + Eq
+    + AsRef<[u8]>
+    + AsMut<[u8]>
+    + Send
+    + Sync
+    + Sized
+{
+    const LENGTH: usize;
+
+    /// Cast bytes to `Self`.
+    ///
+    /// # Note
+    ///
+    /// The bytes len must equal to `Self::LENGTH`, otherwise it should panic.
+    fn from_slice(b: &[u8]) -> Self;
 }
 
-// TODO: generalize
-pub trait MerkleTrait: Debug {}
+impl HashOutput for Bytes32 {
+    const LENGTH: usize = 32;
+
+    fn from_slice(slice: &[u8]) -> Self {
+        let array = match slice.try_into() {
+            Ok(ba) => ba,
+            Err(_) => panic!(
+                "Expected a slice of length {} but it was {}",
+                Self::LENGTH,
+                slice.len()
+            ),
+        };
+        Self(array)
+    }
+}
+
+#[derive(Debug)]
+pub struct MerkleKeccak256;
+
+impl MerkleHasher for MerkleKeccak256 {
+    type Output = Bytes32;
+
+    fn hash(bytes: &[u8]) -> Self::Output {
+        let mut h = Keccak256::new();
+        h.update(bytes);
+        h.finalize().into()
+    }
+
+    fn hash_node(a: &Self::Output, b: &Self::Output) -> Self::Output {
+        let mut h = Keccak256::new();
+        h.update(a);
+        h.update(b);
+        h.finalize().into()
+    }
+}
 
 #[derive(Debug)]
 pub struct MemoryType;
-pub type MemoryMerkle = Merkle<MemoryType>;
-impl MerkleTrait for MemoryType {}
+pub type MemoryMerkle<Hasher> = Merkle<MemoryType, Hasher>;
+impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for MemoryType {}
 
 #[derive(Debug)]
 pub struct TableType;
-pub type TableMerkle = Merkle<TableType>;
-impl MerkleTrait for TableType {}
+pub type TableMerkle<Hasher> = Merkle<TableType, Hasher>;
+impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for TableType {}
 
 #[derive(Debug)]
 pub struct GlobalType;
-pub type GlobalMerkle = Merkle<GlobalType>;
-impl MerkleTrait for GlobalType {}
+pub type GlobalMerkle<Hasher> = Merkle<GlobalType, Hasher>;
+impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for GlobalType {}
 
 #[derive(Debug)]
 pub struct InstructionType;
-pub type InstructionMerkle = Merkle<InstructionType>;
-impl MerkleTrait for InstructionType {}
+pub type InstructionMerkle<Hasher> = Merkle<InstructionType, Hasher>;
+impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for InstructionType {}
 
 // TODO: it's altered from arb. Should be generalized to be a good crate.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Merkle<T: MerkleTrait> {
+pub struct Merkle<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> {
     _type: core::marker::PhantomData<T>,
-    layers: Vec<Vec<Bytes32>>,
+    /// The node of different layers.
+    layers: Vec<Vec<Hasher::Output>>,
     /// Keep the empty hash value of different layer.
-    empty_layers: Vec<Bytes32>,
+    empty_layers: Vec<Hasher::Output>,
 }
 
 /// The struct contains a merkle proof for a leaf.
 #[derive(Debug, Clone, Eq, PartialEq, Encode, Decode)]
-pub struct ProveData(Vec<Bytes32>);
+pub struct ProveData<T: MerkleHasher>(Vec<T::Output>);
 
-impl ProveData {
-    pub fn inner(&self) -> &[Bytes32] {
+impl<T: MerkleHasher> ProveData<T> {
+    pub fn inner(&self) -> &[T::Output] {
         &self.0
     }
 
-    pub fn into_inner(self) -> Vec<Bytes32> {
+    pub fn into_inner(self) -> Vec<T::Output> {
         self.0
     }
 
-    pub fn compute_root(&self, index: usize, leaf_hash: Bytes32) -> Bytes32 {
-        compute_root(self.inner(), index, leaf_hash)
+    pub fn compute_root(&self, index: usize, leaf_hash: T::Output) -> T::Output {
+        compute_root::<T>(self.inner(), index, leaf_hash)
     }
 }
 
-fn compute_root(prove_data: &[Bytes32], mut index: usize, leaf_hash: Bytes32) -> Bytes32 {
+fn compute_root<T: MerkleHasher>(
+    prove_data: &[T::Output],
+    mut index: usize,
+    leaf_hash: T::Output,
+) -> T::Output {
     let mut hash = leaf_hash;
     for sibling_hash in prove_data.iter() {
         if index & 1 == 0 {
             // even
-            hash = hash_node(hash, *sibling_hash);
+            hash = T::hash_node(&hash, sibling_hash);
         } else {
             // odd
-            hash = hash_node(*sibling_hash, hash);
+            hash = T::hash_node(sibling_hash, &hash);
         }
         index >>= 1;
     }
@@ -86,14 +159,14 @@ fn compute_root(prove_data: &[Bytes32], mut index: usize, leaf_hash: Bytes32) ->
     hash
 }
 
-impl<T: MerkleTrait> Merkle<T> {
+impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
     /// Creates a merkle tree according to hashes.
     ///
     /// # Note
     ///
     /// Panic if hashes is empty.
-    pub fn new(hashes: Vec<Bytes32>) -> Self {
-        Self::new_advanced(hashes, Bytes32::default(), 0)
+    pub fn new(hashes: Vec<Hasher::Output>) -> Self {
+        Self::new_advanced(hashes, Hasher::Output::default(), 0)
     }
 
     /// Creates a merkle tree according to hashes.
@@ -101,20 +174,24 @@ impl<T: MerkleTrait> Merkle<T> {
     /// # Note
     ///
     /// Panic if hashes is empty.
-    pub fn new_advanced(hashes: Vec<Bytes32>, empty_hash: Bytes32, min_depth: usize) -> Self {
+    pub fn new_advanced(
+        hashes: Vec<Hasher::Output>,
+        empty_hash: Hasher::Output,
+        min_depth: usize,
+    ) -> Self {
         assert!(hashes.len() > 0);
         let mut layers = vec![hashes];
         let mut empty_layers = vec![empty_hash];
         while layers.last().unwrap().len() > 1 || layers.len() < min_depth {
-            let empty_layer = *empty_layers
+            let empty_layer = empty_layers
                 .last()
                 .expect("empty layer size is not empty; qed");
             let layer = layers.last().expect("layers size is not empty; qed");
             let new_layer = layer
                 .chunks(2)
-                .map(|window| hash_node(window[0], window.get(1).cloned().unwrap_or(empty_layer)))
+                .map(|window| Hasher::hash_node(&window[0], window.get(1).unwrap_or(empty_layer)))
                 .collect();
-            empty_layers.push(hash_node(empty_layer, empty_layer));
+            empty_layers.push(Hasher::hash_node(empty_layer, empty_layer));
             layers.push(new_layer);
         }
         Self {
@@ -124,16 +201,16 @@ impl<T: MerkleTrait> Merkle<T> {
         }
     }
 
-    pub fn root(&self) -> Bytes32 {
+    pub fn root(&self) -> Hasher::Output {
         if let Some(layer) = self.layers.last() {
             assert_eq!(layer.len(), 1);
-            layer[0]
+            layer[0].clone()
         } else {
-            Bytes32::default()
+            Default::default()
         }
     }
 
-    pub fn leaves(&self) -> &[Bytes32] {
+    pub fn leaves(&self) -> &[Hasher::Output] {
         if self.layers.is_empty() {
             &[]
         } else {
@@ -141,7 +218,7 @@ impl<T: MerkleTrait> Merkle<T> {
         }
     }
 
-    pub fn prove(&self, mut idx: usize) -> Option<ProveData> {
+    pub fn prove(&self, mut idx: usize) -> Option<ProveData<Hasher>> {
         if idx >= self.leaves().len() {
             return None;
         }
@@ -153,7 +230,7 @@ impl<T: MerkleTrait> Merkle<T> {
             let hash = layer
                 .get(counterpart)
                 .cloned()
-                .unwrap_or_else(|| self.empty_layers[layer_i]);
+                .unwrap_or_else(|| self.empty_layers[layer_i].clone());
             idx >>= 1;
             proof.0.push(hash);
         }
@@ -161,7 +238,7 @@ impl<T: MerkleTrait> Merkle<T> {
     }
 
     /// A variant prove that not contains the leaf node.
-    pub fn prove_without_leaf(&self, idx: usize) -> Option<ProveData> {
+    pub fn prove_without_leaf(&self, idx: usize) -> Option<ProveData<Hasher>> {
         // TODO: optimize this ops
         self.prove(idx).map(|mut proof| {
             proof.0.remove(0);
@@ -169,7 +246,7 @@ impl<T: MerkleTrait> Merkle<T> {
         })
     }
 
-    pub fn set(&mut self, mut idx: usize, hash: Bytes32) {
+    pub fn set(&mut self, mut idx: usize, hash: Hasher::Output) {
         if self.layers[0][idx] == hash {
             return;
         }
@@ -177,19 +254,16 @@ impl<T: MerkleTrait> Merkle<T> {
         let empty_layers = &self.empty_layers;
         let layers_len = self.layers.len();
         for (layer_i, layer) in self.layers.iter_mut().enumerate() {
-            layer[idx] = next_hash;
+            layer[idx] = next_hash.clone();
             if layer_i == layers_len - 1 {
                 // next_hash isn't needed
                 break;
             }
-            let counterpart = layer
-                .get(idx ^ 1)
-                .cloned()
-                .unwrap_or_else(|| empty_layers[layer_i]);
+            let counterpart = layer.get(idx ^ 1).unwrap_or_else(|| &empty_layers[layer_i]);
             if idx % 2 == 0 {
-                next_hash = hash_node(next_hash, counterpart);
+                next_hash = Hasher::hash_node(&next_hash, counterpart);
             } else {
-                next_hash = hash_node(counterpart, next_hash);
+                next_hash = Hasher::hash_node(counterpart, &next_hash);
             }
             idx >>= 1;
         }

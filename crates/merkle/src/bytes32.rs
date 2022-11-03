@@ -28,6 +28,12 @@ impl AsRef<[u8]> for Bytes32 {
     }
 }
 
+impl AsMut<[u8]> for Bytes32 {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+}
+
 impl Borrow<[u8]> for Bytes32 {
     fn borrow(&self) -> &[u8] {
         &self.0

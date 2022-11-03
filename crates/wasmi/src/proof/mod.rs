@@ -2,55 +2,57 @@ mod engine;
 mod instance;
 mod utils;
 
-use crate::{snapshot::InstanceSnapshot, MemoryEntity};
-use accel_merkle::{GlobalMerkle, InstructionMerkle, MemoryMerkle, TableMerkle};
+use crate::snapshot::InstanceSnapshot;
+use accel_merkle::{GlobalMerkle, InstructionMerkle, MemoryMerkle, MerkleHasher, TableMerkle};
 use alloc::vec::Vec;
-use core::cmp;
 pub use engine::*;
 pub use instance::*;
-
-/// Get memory byte32 by leaf index. Returns a empty leaf if not exists.
-pub fn get_memory_leaf(memory: &MemoryEntity, leaf_idx: usize) -> [u8; MEMORY_LEAF_SIZE] {
-    let mut buf = [0u8; MEMORY_LEAF_SIZE];
-    let idx = match leaf_idx.checked_mul(MEMORY_LEAF_SIZE) {
-        Some(x) if x < memory.data().len() => x,
-        _ => return buf,
-    };
-    let size = cmp::min(MEMORY_LEAF_SIZE, memory.data().len() - idx);
-    buf[..size].copy_from_slice(&memory.data()[idx..(idx + size)]);
-    buf
-}
 
 // TODO: consider functions type as merkle
 
 /// All proof data for an instance.
 #[derive(Debug)]
-pub struct InstanceProof {
-    pub globals: Option<GlobalMerkle>,
-    pub memories: Vec<MemoryProof>,
-    pub tables: Vec<TableProof>,
+pub struct InstanceProof<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    pub globals: Option<GlobalMerkle<Hasher>>,
+    pub memories: Vec<MemoryProof<Hasher>>,
+    pub tables: Vec<TableProof<Hasher>>,
 }
 
 #[derive(Debug)]
-pub struct MemoryProof {
+pub struct MemoryProof<Hasher>
+where
+    Hasher: MerkleHasher,
+{
     pub page: MemoryPage,
-    pub merkle: MemoryMerkle,
+    pub merkle: MemoryMerkle<Hasher>,
 }
 
 #[derive(Debug)]
-pub struct TableProof {
+pub struct TableProof<Hasher>
+where
+    Hasher: MerkleHasher,
+{
     pub initial: u32,
     pub maximum: Option<u32>,
-    pub merkle: TableMerkle,
+    pub merkle: TableMerkle<Hasher>,
 }
 
 /// This contains some merkle trees whose data should never be changed during wasm execution.
 #[derive(Debug)]
-pub struct StaticMerkle {
-    pub(crate) code: InstructionMerkle,
+pub struct StaticMerkle<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    pub(crate) code: InstructionMerkle<Hasher>,
 }
 
-impl InstanceProof {
+impl<Hasher> InstanceProof<Hasher>
+where
+    Hasher: MerkleHasher,
+{
     pub fn create_by_snapshot(instance: InstanceSnapshot) -> Self {
         Self {
             globals: instance.global_merkle(),

@@ -3,17 +3,8 @@ use crate::{
     snapshot::{InstanceSnapshot, MemorySnapshot, TableElementSnapshot, TableSnapshot},
     GlobalEntity,
 };
-use accel_merkle::{
-    digest::Digest,
-    keccak256,
-    sha3::Keccak256,
-    Bytes32,
-    GlobalMerkle,
-    MemoryMerkle,
-    TableMerkle,
-};
+use accel_merkle::{GlobalMerkle, MemoryMerkle, MerkleHasher, TableMerkle};
 use alloc::vec::Vec;
-use codec::Encode;
 use wasmi_core::UntypedValue;
 
 pub const MEMORY_LEAF_SIZE: usize = 32;
@@ -22,11 +13,10 @@ pub const MEMORY_LEAF_SIZE: usize = 32;
 /// 1 + log2(2^32 / LEAF_SIZE) = 1 + log2(2^(32 - log2(LEAF_SIZE))) = 1 + 32 - 5
 const MEMORY_LAYERS: usize = 1 + 32 - 5;
 
+// TODO: maybe need to redesign
 /// hash the memory bytes.
-pub fn hash_memory_leaf(bytes: [u8; MEMORY_LEAF_SIZE]) -> Bytes32 {
-    let mut h = Keccak256::new();
-    h.update(bytes);
-    h.finalize().into()
+pub fn hash_memory_leaf<Hasher: MerkleHasher>(bytes: [u8; MEMORY_LEAF_SIZE]) -> Hasher::Output {
+    Hasher::hash(&bytes)
 }
 
 fn round_up_to_power_of_two(mut input: usize) -> usize {
@@ -51,42 +41,30 @@ fn div_round_up(num: usize, denom: usize) -> usize {
 // TODO: design cache for some merkle nodes.
 
 impl InstanceSnapshot {
-    // pub fn hash(&self) -> Bytes32 {
-    //     let mut h = Keccak256::new();
-    //     // TODO: should use this type?
-    //     h.update([MerkleType::Module as u8]);
-    //     // TODO: add func merkle root
-    //
-    //
-    //     self.memories.iter().for_each(|mem| h.update(mem.hash()));
-    //     self.tables.iter().for_each(|table| h.update(table.hash()));
-    //
-    //     h.finalize().into()
-    // }
-    //
-    // /// Since one instance only have one module, so we use module instance hash as proof here.
-    // pub fn generate_proof(&self) -> Vec<u8> {
-    //     self.hash().to_vec()
-    // }
-
-    pub fn global_merkle(&self) -> Option<GlobalMerkle> {
+    pub fn global_merkle<Hasher>(&self) -> Option<GlobalMerkle<Hasher>>
+    where
+        Hasher: MerkleHasher,
+    {
         if self.globals.is_empty() {
             return None;
         }
         let globals = self
             .globals
             .iter()
-            .map(|global| global_hash(global))
+            .map(|global| global_hash::<Hasher>(global))
             .collect();
 
         Some(GlobalMerkle::new(globals))
     }
 
-    pub fn memory_proofs(&self) -> Vec<MemoryProof> {
+    pub fn memory_proofs<Hasher>(&self) -> Vec<MemoryProof<Hasher>>
+    where
+        Hasher: MerkleHasher,
+    {
         self.memories
             .iter()
             .map(|mem| {
-                let merkle = mem.merkle();
+                let merkle = mem.merkle::<Hasher>();
                 MemoryProof {
                     page: MemoryPage {
                         initial_pages: mem.memory_type.initial_pages,
@@ -99,10 +77,13 @@ impl InstanceSnapshot {
             .collect()
     }
 
-    pub fn table_proofs(&self) -> Vec<TableProof> {
+    pub fn table_proofs<Hasher>(&self) -> Vec<TableProof<Hasher>>
+    where
+        Hasher: MerkleHasher,
+    {
         self.tables
             .iter()
-            .map(|table| TableProof {
+            .map(|table| TableProof::<Hasher> {
                 merkle: table.merkle(),
                 initial: table.table_type.initial,
                 maximum: table.table_type.maximum,
@@ -112,65 +93,70 @@ impl InstanceSnapshot {
 }
 
 impl MemorySnapshot {
-    pub fn merkle(&self) -> MemoryMerkle {
+    pub fn merkle<Hasher>(&self) -> MemoryMerkle<Hasher>
+    where
+        Hasher: MerkleHasher,
+    {
         // TODO: maybe we do not need to hash byte32 leaf twice.
         // Round the size up to 32 bytes size leaves, then round up to the next power of two number of leaves
         let leaves = round_up_to_power_of_two(div_round_up(self.bytes.len(), MEMORY_LEAF_SIZE));
-        let mut leaf_hashes: Vec<Bytes32> = self
+        let mut leaf_hashes: Vec<Hasher::Output> = self
             .bytes
             .chunks(MEMORY_LEAF_SIZE)
             .map(|leaf| {
                 let mut full_leaf = [0u8; MEMORY_LEAF_SIZE];
                 full_leaf[..leaf.len()].copy_from_slice(leaf);
-                hash_memory_leaf(full_leaf)
+                hash_memory_leaf::<Hasher>(full_leaf)
             })
             .collect();
         if leaf_hashes.len() < leaves {
-            let empty_hash = hash_memory_leaf([0u8; MEMORY_LEAF_SIZE]);
+            let empty_hash = hash_memory_leaf::<Hasher>([0u8; MEMORY_LEAF_SIZE]);
             leaf_hashes.resize(leaves, empty_hash);
         }
         MemoryMerkle::new_advanced(
             leaf_hashes,
             // TODO: should we relly use this as empty hash?
-            hash_memory_leaf([0u8; MEMORY_LEAF_SIZE]),
+            hash_memory_leaf::<Hasher>([0u8; MEMORY_LEAF_SIZE]),
             MEMORY_LAYERS,
         )
     }
-
-    pub fn hash(&self) -> Bytes32 {
-        let mut h = Keccak256::new();
-        // TODO: add other memory data to hash.
-        h.update(self.merkle().root());
-        h.finalize().into()
-    }
 }
 
-pub fn table_element_hash(elem: &TableElementSnapshot) -> Bytes32 {
-    keccak256(&elem.encode())
+/// The hashing rule for wasm table element.
+pub fn table_element_hash<Hasher>(elem: &TableElementSnapshot) -> Hasher::Output
+where
+    Hasher: MerkleHasher,
+{
+    Hasher::hash_of(elem)
 }
 
-pub fn value_hash(val: UntypedValue) -> Bytes32 {
-    keccak256(&val.encode())
+/// The hashing rule for wasm value.
+pub fn value_hash<Hasher>(val: UntypedValue) -> Hasher::Output
+where
+    Hasher: MerkleHasher,
+{
+    Hasher::hash_of(&val)
 }
 
-// TODO: define our own global state.
-pub fn global_hash(global: &GlobalEntity) -> Bytes32 {
-    value_hash(global.get_untyped())
+/// The hashing rule for wasm global value.
+pub fn global_hash<Hasher>(global: &GlobalEntity) -> Hasher::Output
+where
+    Hasher: MerkleHasher,
+{
+    value_hash::<Hasher>(global.get_untyped())
 }
 
 impl TableSnapshot {
-    pub fn merkle(&self) -> TableMerkle {
+    pub fn merkle<Hasher>(&self) -> TableMerkle<Hasher>
+    where
+        Hasher: MerkleHasher,
+    {
         let hashes = self
             .elements
             .iter()
-            .map(table_element_hash)
-            .collect::<Vec<Bytes32>>();
-        TableMerkle::new(hashes)
-    }
-
-    pub fn hash(&self) -> Bytes32 {
-        let merkle = self.merkle();
-        keccak256(merkle.root().as_ref())
+            .map(table_element_hash::<Hasher>)
+            .collect::<Vec<Hasher::Output>>();
+        TableMerkle::<Hasher>::new(hashes)
     }
 }
 

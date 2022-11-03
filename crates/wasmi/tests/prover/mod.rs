@@ -1,3 +1,4 @@
+use accel_merkle::MerkleKeccak256;
 use codec::{Decode, Encode};
 use wasmi::{
     snapshot::*,
@@ -141,7 +142,9 @@ fn test_snapshot() {
 
         let mut result = vec![Value::I32(0)];
 
-        let proof = store.make_inst_proof(pc, instance).unwrap();
+        let proof = store
+            .make_inst_proof::<MerkleKeccak256>(pc, instance)
+            .unwrap();
         println!("{:?}", proof);
 
         // TODO: improve this api

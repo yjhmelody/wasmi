@@ -624,7 +624,6 @@ mod proof {
     use crate::{
         engine::bytecode::Offset,
         proof::{
-            get_memory_leaf,
             instructions_merkle,
             CallIndirectProof,
             EngineProof,
@@ -641,8 +640,10 @@ mod proof {
         },
         AsContext,
         Instance,
+        MemoryEntity,
     };
-    use accel_merkle::{InstructionMerkle, ProveData};
+    use accel_merkle::{InstructionMerkle, MerkleHasher, ProveData};
+    use core::cmp;
 
     /// Meet some errors when generate normal extra proof for the another instruction.
     #[derive(Debug, Clone)]
@@ -663,32 +664,32 @@ mod proof {
     }
 
     impl Engine {
-        pub fn make_inst_proof(
+        pub fn make_inst_proof<Hasher: MerkleHasher>(
             &self,
             store: impl AsContextMut,
-            params: InstProofParams,
+            params: InstProofParams<Hasher>,
             instance: Instance,
-        ) -> Result<InstructionProof, ProofError> {
+        ) -> Result<InstructionProof<Hasher>, ProofError> {
             let engine = self.inner.lock();
             let mut cache = InstanceCache::from(instance);
             engine.make_inst_proof(store, params, &mut cache)
         }
 
-        pub fn make_inst_merkle(&self) -> InstructionMerkle {
+        pub fn make_inst_merkle<Hasher: MerkleHasher>(&self) -> InstructionMerkle<Hasher> {
             let engine = self.inner.lock();
             // TODO: maybe also need merkle headers
             instructions_merkle(&engine.code_map.insts)
         }
     }
 
-    pub struct InstProofParams<'a> {
+    pub struct InstProofParams<'a, Hasher: MerkleHasher> {
         pub current_pc: u32,
-        pub instance_merkle: &'a InstanceProof,
-        pub static_merkle: &'a StaticMerkle,
+        pub instance_merkle: &'a InstanceProof<Hasher>,
+        pub static_merkle: &'a StaticMerkle<Hasher>,
     }
 
-    impl<'a> InstProofParams<'a> {
-        fn default_memory(&self) -> Result<&MemoryProof, ProofError> {
+    impl<'a, Hasher: MerkleHasher> InstProofParams<'a, Hasher> {
+        fn default_memory(&self) -> Result<&MemoryProof<Hasher>, ProofError> {
             // Wasm module must import memory when meet these instruction.
             self.instance_merkle
                 .memories
@@ -696,7 +697,7 @@ mod proof {
                 .ok_or(ProofError::MemoryNotImported)
         }
 
-        fn default_table(&self) -> Result<&TableProof, ProofError> {
+        fn default_table(&self) -> Result<&TableProof<Hasher>, ProofError> {
             // Wasm module must import memory when meet these instruction.
             self.instance_merkle
                 .tables
@@ -704,7 +705,7 @@ mod proof {
                 .ok_or(ProofError::MemoryNotImported)
         }
 
-        fn get_inst_prove(&self) -> Result<ProveData, ProofError> {
+        fn get_inst_prove(&self) -> Result<ProveData<Hasher>, ProofError> {
             self.static_merkle
                 .code
                 .prove(self.current_pc as usize)
@@ -720,12 +721,12 @@ mod proof {
         /// The current pc must be valid.
         /// All merkle trees must belong to current engine state in logic.
         /// Otherwise return proof error.
-        pub fn make_inst_proof(
+        pub fn make_inst_proof<Hasher: MerkleHasher>(
             &self,
             mut store: impl AsContextMut,
-            params: InstProofParams,
+            params: InstProofParams<Hasher>,
             cache: &mut InstanceCache,
-        ) -> Result<InstructionProof, ProofError> {
+        ) -> Result<InstructionProof<Hasher>, ProofError> {
             let current_pc = params.current_pc;
             let inst_prove = params.get_inst_prove()?;
             let inst = self.code_map.insts[current_pc as usize];
@@ -845,17 +846,17 @@ mod proof {
                     idx /= MEMORY_LEAF_SIZE;
                     let memory = cache.default_memory(store.as_context());
                     let memory = store.as_context().store.resolve_memory(memory);
-                    let leaf = get_memory_leaf(memory, idx);
+                    let leaf = Self::get_memory_leaf(memory, idx);
                     let next_leaf_idx = idx.saturating_add(1);
-                    let next_leaf = get_memory_leaf(memory, next_leaf_idx);
+                    let next_leaf = Self::get_memory_leaf(memory, next_leaf_idx);
                     let prove_data = memory_merkle
                         .prove_without_leaf(idx)
                         .ok_or(ProofError::MemoryIllegal)?;
                     // if the number is odd
                     if idx % 2 == 1 {
-                        let leaf_sibling = memory_merkle.leaves()[idx - 1];
+                        let leaf_sibling = memory_merkle.leaves()[idx - 1].clone();
                         let next_leaf_sibling =
-                            memory_merkle.leaves()[next_leaf_idx.saturating_add(1)];
+                            memory_merkle.leaves()[next_leaf_idx.saturating_add(1)].clone();
 
                         ExtraProof::MemoryChunkNeighbor(MemoryChunkNeighbor::new(
                             prove_data,
@@ -888,17 +889,17 @@ mod proof {
             })
         }
 
-        fn make_engine_proof(&self) -> EngineProof {
+        fn make_engine_proof<Hasher: MerkleHasher>(&self) -> EngineProof<Hasher> {
             // TODO(opt): directly make proof and skip snapshot
             self.make_snapshot().make_proof()
         }
 
-        fn make_call_proof(
+        fn make_call_proof<Hasher: MerkleHasher>(
             &self,
             store: impl AsContext,
             func: Func,
-            proof: Option<CallIndirectProof>,
-        ) -> ExtraProof {
+            proof: Option<CallIndirectProof<Hasher>>,
+        ) -> ExtraProof<Hasher> {
             match func.as_internal(store.as_context()) {
                 FuncEntityInternal::Wasm(entity) => {
                     let body = entity.func_body();
@@ -923,6 +924,7 @@ mod proof {
             }
         }
 
+        /// Get memory offset from stack.
         fn get_memory_index(&self, offset: Offset, is_store: bool) -> usize {
             let offset = offset.into_inner() as u64;
             let entries = self.stack.values.entries();
@@ -935,6 +937,18 @@ mod proof {
 
             base.checked_add(offset)
                 .expect("get_memory_index should be legal") as usize
+        }
+
+        /// Get the memory leaf from memory entity by index.
+        fn get_memory_leaf(memory: &MemoryEntity, leaf_idx: usize) -> [u8; MEMORY_LEAF_SIZE] {
+            let mut buf = [0u8; MEMORY_LEAF_SIZE];
+            let idx = match leaf_idx.checked_mul(MEMORY_LEAF_SIZE) {
+                Some(x) if x < memory.data().len() => x,
+                _ => return buf,
+            };
+            let size = cmp::min(MEMORY_LEAF_SIZE, memory.data().len() - idx);
+            buf[..size].copy_from_slice(&memory.data()[idx..(idx + size)]);
+            buf
         }
     }
 }

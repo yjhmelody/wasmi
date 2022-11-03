@@ -150,19 +150,23 @@ mod proof {
         engine::{InstProofParams, ProofError},
         proof::{InstanceProof, InstructionProof, StaticMerkle},
     };
+    use accel_merkle::MerkleHasher;
 
     impl<T> Store<T> {
-        pub fn make_inst_proof(
+        pub fn make_inst_proof<Hasher>(
             &mut self,
             current_pc: u32,
             instance: Instance,
-        ) -> Result<InstructionProof, ProofError> {
+        ) -> Result<InstructionProof<Hasher>, ProofError>
+        where
+            Hasher: MerkleHasher,
+        {
             let instance_entity = self.resolve_instance(instance);
             let instance_snapshot = instance_entity.make_snapshot(self);
 
             let instance_merkle = InstanceProof::create_by_snapshot(instance_snapshot);
 
-            let static_merkle = StaticMerkle {
+            let static_merkle = StaticMerkle::<Hasher> {
                 code: self.engine().make_inst_merkle(),
             };
 

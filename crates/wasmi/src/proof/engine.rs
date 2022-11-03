@@ -1,14 +1,7 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use accel_merkle::{
-    digest::Digest,
-    hash_node,
-    sha3::Keccak256,
-    Bytes32,
-    InstructionMerkle,
-    ProveData,
-};
+use accel_merkle::{HashOutput, InstructionMerkle, MerkleHasher, ProveData};
 use wasmi_core::{TrapCode, UntypedValue};
 
 use codec::{Codec, Decode, Encode, Error, Input, Output};
@@ -18,7 +11,7 @@ use crate::{
         bytecode::{BranchParams, Instruction},
         DropKeep,
     },
-    proof::{hash_memory_leaf, utils::TwoMemoryChunks, MEMORY_LEAF_SIZE},
+    proof::{utils::TwoMemoryChunks, value_hash, MEMORY_LEAF_SIZE},
     snapshot::{
         CallStackSnapshot,
         EngineConfig,
@@ -30,9 +23,10 @@ use crate::{
 };
 
 impl EngineSnapshot {
-    pub fn make_proof(&self) -> EngineProof {
+    pub fn make_proof<Hasher: MerkleHasher>(&self) -> EngineProof<Hasher> {
         // TODO(optimization): arb always use 3 for most instructions.
-        // But we could use different len for different instructions.
+        // FIXME: since we store local value in value stack,
+        // we need to ensure the value stack entries size is bigger than local depth when prove local instruction.
         let value_proof = self.values.make_proof(3);
         let call_proof = self.frames.make_proof(1);
 
@@ -46,46 +40,46 @@ impl EngineSnapshot {
 
 /// The contains engine level proof data used for instruction proof.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct EngineProof {
+pub struct EngineProof<Hasher: MerkleHasher> {
     pub config: EngineConfig,
-    pub value_proof: ValueStackProof,
-    pub call_proof: CallStackProof,
+    pub value_proof: ValueStackProof<Hasher>,
+    pub call_proof: CallStackProof<Hasher>,
 }
 
 /// Instruction level proof.
 ///
 /// It includes engine relate data proof.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct InstructionProof {
-    pub(crate) engine_proof: EngineProof,
+pub struct InstructionProof<Hasher: MerkleHasher> {
+    pub(crate) engine_proof: EngineProof<Hasher>,
     pub(crate) current_pc: u32,
     pub(crate) inst: Instruction,
     /// The prove current instruction is legal.
-    pub(crate) inst_prove: ProveData,
-    pub(crate) extra: ExtraProof,
+    pub(crate) inst_prove: ProveData<Hasher>,
+    pub(crate) extra: ExtraProof<Hasher>,
 }
 
 /// This struct contains extra proof data needed for some special instructions.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub enum ExtraProof {
+pub enum ExtraProof<Hasher: MerkleHasher> {
     /// Most instructions do not need more proof.
     Empty,
     /// Proof data for global instructions.
-    GlobalGetSet(GlobalProof),
+    GlobalGetSet(GlobalProof<Hasher>),
     /// Proof data for memory.page.
     MemoryPage(MemoryPage),
     /// Proof data for some memory instructions.
-    MemoryChunkNeighbor(MemoryChunkNeighbor),
+    MemoryChunkNeighbor(MemoryChunkNeighbor<Hasher>),
     /// Proof data for some memory instructions.
-    MemoryChunkSibling(MemoryChunkSibling),
+    MemoryChunkSibling(MemoryChunkSibling<Hasher>),
     // TODO: Still need to design these call proof.
     /// The pc that call jump to.
     CallWasm(u32),
     /// Now we do not support extra proof for host function.
     CallHost,
-    // Maybe need to prove this function is in the table.
-    CallWasmIndirect(u32, CallIndirectProof),
-    CallHostIndirect(CallIndirectProof),
+    /// Maybe need to prove this function is in the table.
+    CallWasmIndirect(u32, CallIndirectProof<Hasher>),
+    CallHostIndirect(CallIndirectProof<Hasher>),
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
@@ -97,33 +91,45 @@ pub struct MemoryPage {
 
 // TODO: still need func signature proof.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct CallIndirectProof {
+pub struct CallIndirectProof<Hasher>
+where
+    Hasher: MerkleHasher,
+{
     pub func_type: FuncType,
-    pub prove_data: ProveData,
+    pub prove_data: ProveData<Hasher>,
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct GlobalProof {
+pub struct GlobalProof<Hasher>
+where
+    Hasher: MerkleHasher,
+{
     pub value: UntypedValue,
-    pub prove_data: ProveData,
+    pub prove_data: ProveData<Hasher>,
 }
 
 /// The contains a proof that a memory store instruction touch two neighbor leaves which have `not` same parent.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct MemoryChunkNeighbor {
-    prove_data: ProveData,
+pub struct MemoryChunkNeighbor<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    prove_data: ProveData<Hasher>,
     chunks: TwoMemoryChunks,
-    leaf_sibling: Bytes32,
-    next_leaf_sibling: Bytes32,
+    leaf_sibling: Hasher::Output,
+    next_leaf_sibling: Hasher::Output,
 }
 
-impl MemoryChunkNeighbor {
+impl<Hasher> MemoryChunkNeighbor<Hasher>
+where
+    Hasher: MerkleHasher,
+{
     pub fn new(
-        prove_data: ProveData,
+        prove_data: ProveData<Hasher>,
         leaf: [u8; MEMORY_LEAF_SIZE],
         next_leaf: [u8; MEMORY_LEAF_SIZE],
-        leaf_sibling: Bytes32,
-        next_leaf_sibling: Bytes32,
+        leaf_sibling: Hasher::Output,
+        next_leaf_sibling: Hasher::Output,
     ) -> Self {
         Self {
             prove_data,
@@ -137,20 +143,21 @@ impl MemoryChunkNeighbor {
     /// # Note
     ///
     /// Return None if index is not odd or root is invalid.
-    pub fn compute_root(&self, address: usize) -> Option<Bytes32> {
+    pub fn compute_root(&self, address: usize) -> Option<Hasher::Output> {
         let mut index = address / MEMORY_LEAF_SIZE;
         if index & 1 == 0 {
             return None;
         }
         let mut next_index = index + 1;
 
-        let mut parent_hash = hash_node(hash_memory_leaf(*self.chunks.leaf()), self.leaf_sibling);
+        let mut parent_hash =
+            Hasher::hash_node(&self.chunks.hash_leaf::<Hasher>(), &self.leaf_sibling);
         index >>= 1;
         let first_root = self.prove_data.compute_root(index, parent_hash);
 
-        parent_hash = hash_node(
-            hash_memory_leaf(*self.chunks.next_leaf()),
-            self.next_leaf_sibling,
+        parent_hash = Hasher::hash_node(
+            &self.chunks.hash_next_leaf::<Hasher>(),
+            &self.next_leaf_sibling,
         );
         next_index >>= 1;
         let second_root = self.prove_data.compute_root(next_index, parent_hash);
@@ -173,14 +180,20 @@ impl MemoryChunkNeighbor {
 
 /// The contains a proof that a memory store instruction touch two sibling leaves which have same parent.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct MemoryChunkSibling {
+pub struct MemoryChunkSibling<Hasher>
+where
+    Hasher: MerkleHasher,
+{
     chunks: TwoMemoryChunks,
-    prove_data: ProveData,
+    prove_data: ProveData<Hasher>,
 }
 
-impl MemoryChunkSibling {
+impl<Hasher> MemoryChunkSibling<Hasher>
+where
+    Hasher: MerkleHasher,
+{
     pub fn new(
-        prove_data: ProveData,
+        prove_data: ProveData<Hasher>,
         leaf: [u8; MEMORY_LEAF_SIZE],
         next_leaf: [u8; MEMORY_LEAF_SIZE],
     ) -> Self {
@@ -191,13 +204,13 @@ impl MemoryChunkSibling {
     }
 
     /// Compute root according to memory address.
-    pub fn compute_root(&self, address: usize) -> Bytes32 {
+    pub fn compute_root(&self, address: usize) -> Hasher::Output {
         let mut index = address / MEMORY_LEAF_SIZE;
         index >>= 1;
 
-        let parent_hash = hash_node(
-            hash_memory_leaf(*self.chunks.leaf()),
-            hash_memory_leaf(*self.chunks.next_leaf()),
+        let parent_hash = Hasher::hash_node(
+            &self.chunks.hash_leaf::<Hasher>(),
+            &self.chunks.hash_next_leaf::<Hasher>(),
         );
 
         self.prove_data.compute_root(index, parent_hash)
@@ -212,68 +225,79 @@ impl MemoryChunkSibling {
     }
 }
 
-// TODO: borrowed from arb. Need to consider a new design?
-// TODO: need to know the solidity keccak256 api usage firstly.
-fn hash_stack_with_init<I, D>(stack: I, init_hash: Bytes32) -> Bytes32
+fn hash_stack<Hasher, I>(stack: I, init_hash: Hasher::Output) -> Hasher::Output
 where
-    I: IntoIterator<Item = D>,
-    D: AsRef<[u8]>,
+    Hasher: MerkleHasher,
+    I: IntoIterator<Item = Hasher::Output>,
 {
     let mut hash = init_hash;
     // Note: do keccak N times recursively.
     for item in stack.into_iter() {
-        let mut h = Keccak256::new();
-        h.update(item.as_ref());
-        h.update(&hash);
-        hash = h.finalize().into();
+        hash = Hasher::hash_node(&item, &hash)
     }
     hash
 }
 
-fn hash_stack<V: Encode>(stack: &[V]) -> Bytes32 {
-    let iter = stack.iter().map(|v| v.encode());
-    hash_stack_with_init(iter, Default::default())
+/// The hashing rule for part of value stack.
+fn hash_value_stack<Hasher: MerkleHasher>(
+    stack: &[UntypedValue],
+    init_hash: Hasher::Output,
+) -> Hasher::Output {
+    let iter = stack.iter().map(|v| value_hash::<Hasher>(*v));
+    hash_stack::<Hasher, _>(iter, init_hash)
+}
+
+/// The hashing rule for part of call stack.
+fn hash_call_stack<Hasher: MerkleHasher>(
+    stack: &[FuncFrameSnapshot],
+    init_hash: Hasher::Output,
+) -> Hasher::Output {
+    let iter = stack.iter().map(|f| Hasher::hash_of(f));
+    hash_stack::<Hasher, _>(iter, init_hash)
 }
 
 impl ValueStackSnapshot {
     /// Make a value stack proof.
     ///
     /// Keep the top N stack value original and not be part of hash.
-    pub fn make_proof(&self, keep_len: usize) -> ValueStackProof {
+    pub fn make_proof<Hasher: MerkleHasher>(&self, keep_len: usize) -> ValueStackProof<Hasher> {
         // TODO: return error ?
         debug_assert!(keep_len > 0);
         let len = self.entries.len().saturating_sub(keep_len);
         let (bottoms, tops) = self.entries.split_at(len);
-        let remaining_hash = hash_stack(bottoms);
+        let bottom_hash = hash_value_stack::<Hasher>(bottoms, Default::default());
         let entries = tops.iter().copied().collect();
 
-        ValueStackProof(StackProof {
-            entries,
-            remaining_hash,
-        })
+        ValueStackProof(StackProof::<_, Hasher>::new(entries, bottom_hash))
     }
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct StackProof<T> {
+pub struct StackProof<T, Hasher: MerkleHasher> {
     /// The hash of entries excepting the top N.
-    remaining_hash: Bytes32,
+    bottom_hash: Hasher::Output,
     /// The top N entries in value stack.
     ///
     /// These entries will be used when execute osp.
     entries: Vec<T>,
+    /// The hasher.
+    _hasher: core::marker::PhantomData<Hasher>,
 }
 
-impl<T> StackProof<T>
+impl<T, Hasher> StackProof<T, Hasher>
 where
     T: Codec,
+    Hasher: MerkleHasher,
 {
-    /// Returns the finally hash.
-    pub fn hash(&self) -> Bytes32 {
-        hash_stack_with_init(self.entries.iter().map(|v| v.encode()), self.remaining_hash)
+    pub fn new(entries: Vec<T>, bottom_hash: Hasher::Output) -> Self {
+        Self {
+            entries,
+            bottom_hash,
+            _hasher: Default::default(),
+        }
     }
 
-    /// Pop and return the last value. Panic if len is 0.
+    /// Pop and return the last value.
     pub fn pop(&mut self) -> Option<T> {
         self.entries.pop()
     }
@@ -315,11 +339,11 @@ where
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct ValueStackProof(pub(crate) StackProof<UntypedValue>);
+pub struct ValueStackProof<Hasher: MerkleHasher>(pub(crate) StackProof<UntypedValue, Hasher>);
 
-impl ValueStackProof {
-    pub fn hash(&self) -> Bytes32 {
-        self.0.hash()
+impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
+    pub fn hash(&self) -> Hasher::Output {
+        hash_value_stack::<Hasher>(&self.0.entries, self.0.bottom_hash.clone())
     }
 
     pub fn pop(&mut self) -> Option<UntypedValue> {
@@ -523,19 +547,16 @@ impl ValueStackProof {
 
 impl CallStackSnapshot {
     // TODO: should consider current pc as part of proof ?
-    pub fn make_proof(&self, keep_len: usize) -> CallStackProof {
+    pub fn make_proof<Hasher: MerkleHasher>(&self, keep_len: usize) -> CallStackProof<Hasher> {
         debug_assert!(keep_len > 0);
         let len = self.frames.len().saturating_sub(keep_len);
         let (bottoms, tops) = self.frames.split_at(len);
-        let remaining_hash = hash_stack(bottoms);
+        let bottom_hash = hash_call_stack::<Hasher>(bottoms, Default::default());
         let entries = tops.iter().map(|f| f.clone()).collect();
 
         CallStackProof {
             remaining_depth: len as u32,
-            stack: StackProof {
-                remaining_hash,
-                entries,
-            },
+            stack: StackProof::<_, Hasher>::new(entries, bottom_hash),
             recursion_depth: self.recursion_depth,
         }
     }
@@ -543,23 +564,24 @@ impl CallStackSnapshot {
 
 // TODO: need to consider more, maybe contain the current pc in it.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct CallStackProof {
+pub struct CallStackProof<Hasher: MerkleHasher> {
+    /// The maximum number of nested calls that the Wasm stack allows.
+    recursion_depth: u32,
     /// The remaining depth of call stack excepting entries in `stack`.
     remaining_depth: u32,
     /// The underline stack.
-    stack: StackProof<FuncFrameSnapshot>,
-    /// The maximum number of nested calls that the Wasm stack allows.
-    recursion_depth: u32,
+    stack: StackProof<FuncFrameSnapshot, Hasher>,
 }
 
-impl CallStackProof {
-    pub fn hash(&self) -> Bytes32 {
-        self.stack.hash()
+impl<Hasher: MerkleHasher> CallStackProof<Hasher> {
+    pub fn hash(&self) -> Hasher::Output {
+        hash_call_stack::<Hasher>(&self.stack.entries, self.stack.bottom_hash.clone())
     }
 
     /// Returns None if stack overflow.
     pub fn push(&mut self, val: FuncFrameSnapshot) -> Option<()> {
-        if self.recursion_depth == self.stack.entries.len() as u32 + self.remaining_depth {
+        let cur_depth = (self.stack.entries.len() as u32).checked_add(self.remaining_depth)?;
+        if self.recursion_depth == cur_depth {
             return None;
         }
         self.stack.push(val);
@@ -574,6 +596,7 @@ impl CallStackProof {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use accel_merkle::MerkleKeccak256;
 
     #[test]
     fn test_value_stack_proof() {
@@ -589,8 +612,8 @@ mod tests {
         };
 
         for i in 1..snapshot.entries.len() - 1 {
-            let a = snapshot.make_proof(i);
-            let b = snapshot.make_proof(i + 1);
+            let a = snapshot.make_proof::<MerkleKeccak256>(i);
+            let b = snapshot.make_proof::<MerkleKeccak256>(i + 1);
 
             assert_eq!(a.hash(), b.hash(), "value stack finally hash must be equal")
         }
@@ -608,8 +631,8 @@ mod tests {
         };
 
         for i in 1..snapshot.frames.len() - 1 {
-            let a = snapshot.make_proof(i);
-            let b = snapshot.make_proof(i + 1);
+            let a = snapshot.make_proof::<MerkleKeccak256>(i);
+            let b = snapshot.make_proof::<MerkleKeccak256>(i + 1);
 
             assert_eq!(a.hash(), b.hash(), "call stack finally hash must be equal")
         }
@@ -619,8 +642,15 @@ mod tests {
 // Note: For static state(such as instructions), we just need to generate merkle once and keep it in memory.
 
 /// Generate a merkle for instructions.
-pub fn instructions_merkle(insts: &[Instruction]) -> InstructionMerkle {
-    InstructionMerkle::new(insts.iter().map(|i| i.to_bytes32()).collect())
+pub fn instructions_merkle<Hasher: MerkleHasher>(
+    insts: &[Instruction],
+) -> InstructionMerkle<Hasher> {
+    InstructionMerkle::new(
+        insts
+            .iter()
+            .map(|i| i.to_hash::<Hasher::Output>())
+            .collect(),
+    )
 }
 
 impl Decode for Instruction {
@@ -1051,14 +1081,17 @@ impl Encode for Instruction {
 }
 
 impl Instruction {
-    // TODO: since instruction is less than byte32, should we keep the origin content as hash?
-    pub fn to_bytes32(&self) -> Bytes32 {
+    /// Cast instruction to a HashOutput type.
+    ///
+    /// # Panic
+    ///
+    /// If the Hash length is less than the length of encoded instruction.
+    pub fn to_hash<T: HashOutput>(&self) -> T {
         // Variable length encoding according to the concrete instruction.
         let bytes = self.encode();
-        let len = bytes.len();
-        let mut b = [0u8; 32];
-        b[(32 - len)..].copy_from_slice(&bytes);
-        Bytes32::from(b)
+        let mut b = vec![0u8; T::LENGTH];
+        b[..bytes.len()].copy_from_slice(&bytes);
+        T::from_slice(&b)
     }
 
     fn opcode(&self) -> u16 {
@@ -1247,7 +1280,6 @@ impl Instruction {
             Instruction::I64Extend32S => 0xC4,
 
             // Internal instruction that is not in wasm spec.
-            // TODO: make sure these instructions.
             Instruction::I32TruncSatF32S => 0x8005,
             Instruction::I32TruncSatF32U => 0x8006,
             Instruction::I32TruncSatF64S => 0x8007,
