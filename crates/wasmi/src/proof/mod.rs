@@ -1,4 +1,5 @@
 mod engine;
+mod inst;
 mod instance;
 mod utils;
 

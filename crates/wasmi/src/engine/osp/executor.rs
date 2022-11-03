@@ -603,7 +603,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
 
     fn visit_select(&mut self) -> Result<()> {
         self.value_stack
-            .eval_pop3(|e1, e2, e3| {
+            .eval_top3(|e1, e2, e3| {
                 let condition = <bool as From<UntypedValue>>::from(e3);
                 if condition {
                     e1
@@ -672,50 +672,13 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     /// - `i64.load`
     /// - `f32.load`
     /// - `f64.load`
+    #[inline]
     fn execute_load<T>(&mut self, offset: Offset) -> Result<()>
     where
+        T: ExtendInto<T> + LittleEndianConvert,
         UntypedValue: From<T>,
-        T: LittleEndianConvert,
     {
-        let address = self.pop_value_stack_as::<u32>()?;
-        let address = match Self::effective_address(offset, address) {
-            Ok(address) => address,
-            Err(_trap) => return self.set_trapped(),
-        };
-
-        let value = match &self.extra {
-            ExtraProof::MemoryChunkNeighbor(proof) => {
-                let root = proof
-                    .compute_root(address)
-                    .ok_or(ExecError::IllegalExtraProof)?;
-                // prove memory before use it.
-                self.ensure_same_memory(root)?;
-
-                let mut bytes = <<T as LittleEndianConvert>::Bytes as Default>::default();
-                proof.read(address, bytes.as_mut());
-                let value = <T as LittleEndianConvert>::from_le_bytes(bytes);
-
-                value
-            }
-
-            ExtraProof::MemoryChunkSibling(proof) => {
-                let root = proof.compute_root(address);
-                // prove memory before use it.
-                self.ensure_same_memory(root)?;
-
-                let mut bytes = <<T as LittleEndianConvert>::Bytes as Default>::default();
-                proof.read(address, bytes.as_mut());
-                let value = <T as LittleEndianConvert>::from_le_bytes(bytes);
-
-                value
-            }
-            _ => return Err(ExecError::IllegalExtraProof),
-        };
-
-        self.value_stack.push(value);
-        self.next_pc();
-
-        Ok(())
+        self.execute_load_extend::<T, T>(offset)
     }
 
     /// Loads a value of type `U` from the default memory at the given address offset and extends it into `T`.
@@ -790,58 +753,12 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     /// - `i64.store`
     /// - `f32.store`
     /// - `f64.store`
+    #[inline]
     fn execute_store<T>(&mut self, offset: Offset) -> Result<()>
     where
-        T: LittleEndianConvert + From<UntypedValue>,
+        T: LittleEndianConvert + WrapInto<T> + From<UntypedValue>,
     {
-        let (address, value) = self
-            .value_stack
-            .pop2()
-            .ok_or(ExecError::InsufficientValueStack)?;
-        let value = T::from(value);
-        let address = u32::from(address);
-        let address = match Self::effective_address(offset, address) {
-            Ok(address) => address,
-            Err(_trap) => return self.set_trapped(),
-        };
-
-        let memory_root = match &mut self.extra {
-            ExtraProof::MemoryChunkNeighbor(proof) => {
-                let memory_root = proof
-                    .compute_root(address)
-                    .ok_or(ExecError::IllegalExtraProof)?;
-                // prove memory before use it.
-                Self::ensure_same_root(
-                    Self::default_memory_root(self.memory_roots)?,
-                    &memory_root,
-                )?;
-
-                let bytes = <T as LittleEndianConvert>::into_le_bytes(value);
-                proof.write(address, bytes.as_ref());
-
-                proof.compute_root(address).expect("Checked before; qed")
-            }
-
-            ExtraProof::MemoryChunkSibling(proof) => {
-                let memory_root = proof.compute_root(address);
-                // prove memory before use it.
-                Self::ensure_same_root(
-                    Self::default_memory_root(self.memory_roots)?,
-                    &memory_root,
-                )?;
-
-                let bytes = <T as LittleEndianConvert>::into_le_bytes(value);
-                proof.write(address, bytes.as_ref());
-
-                proof.compute_root(address)
-            }
-            _ => return Err(ExecError::IllegalExtraProof),
-        };
-
-        self.update_default_memory(memory_root);
-        self.next_pc();
-
-        Ok(())
+        self.execute_store_wrap::<T, T>(offset)
     }
 
     /// Stores a value of type `T` wrapped to type `U` into the default memory at the given address offset.

@@ -271,10 +271,7 @@ mod snapshot {
                     maximum_recursion_depth,
                 },
                 values: ValueStackSnapshot { entries },
-                frames: CallStackSnapshot {
-                    recursion_depth: maximum_recursion_depth,
-                    frames,
-                },
+                frames: CallStackSnapshot { frames },
             }
         }
 

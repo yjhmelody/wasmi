@@ -16,7 +16,6 @@ pub struct EngineSnapshot {
     pub frames: CallStackSnapshot,
 }
 
-// TODO: consider some inherent configs.
 /// The configured limits of the engine.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct EngineConfig {
@@ -34,8 +33,6 @@ pub struct ValueStackSnapshot {
 /// The live function call stack storing the live function activation frames.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct CallStackSnapshot {
-    /// The maximum number of nested calls that the Wasm stack allows.
-    pub recursion_depth: u32,
     /// The call stack featuring the function frames in order.
     pub frames: Vec<FuncFrameSnapshot>,
 }
