@@ -876,7 +876,7 @@ mod proof {
                 _ => ExtraProof::Empty,
             };
 
-            let engine_proof = self.make_engine_proof();
+            let engine_proof = self.make_engine_proof(inst).ok_or(ProofError::IllegalPc)?;
             Ok(InstructionProof {
                 engine_proof,
                 current_pc,
@@ -886,9 +886,12 @@ mod proof {
             })
         }
 
-        fn make_engine_proof<Hasher: MerkleHasher>(&self) -> EngineProof<Hasher> {
+        fn make_engine_proof<Hasher: MerkleHasher>(
+            &self,
+            cur_inst: Instruction,
+        ) -> Option<EngineProof<Hasher>> {
             // TODO(opt): directly make proof and skip snapshot
-            self.make_snapshot().make_proof()
+            self.make_snapshot().make_proof(cur_inst)
         }
 
         fn make_call_proof<Hasher: MerkleHasher>(

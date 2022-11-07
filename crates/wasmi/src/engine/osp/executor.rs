@@ -35,7 +35,6 @@ pub enum ExecError {
     MemoryRootsNotExist,
     EmptyValueStack,
     InsufficientValueStack,
-    ValueStackTooSmallForLocalDepth,
     InsufficientCallStack,
     ValueStackTooShortForDropKeep,
     BranchToIllegalPc,
@@ -342,7 +341,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         let value = *self
             .value_stack
             .peek(local_depth.into_inner())
-            .ok_or(ExecError::ValueStackTooSmallForLocalDepth)?;
+            .ok_or(ExecError::InsufficientValueStack)?;
         self.value_stack.push(value);
         self.next_pc();
         Ok(())
@@ -353,7 +352,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         let local = self
             .value_stack
             .peek_mut(local_depth.into_inner())
-            .ok_or(ExecError::ValueStackTooSmallForLocalDepth)?;
+            .ok_or(ExecError::InsufficientValueStack)?;
         *local = new_value;
 
         self.next_pc();
@@ -369,7 +368,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         let local = self
             .value_stack
             .peek_mut(local_depth.into_inner())
-            .ok_or(ExecError::ValueStackTooSmallForLocalDepth)?;
+            .ok_or(ExecError::InsufficientValueStack)?;
         *local = new_value;
 
         self.next_pc();

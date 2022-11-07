@@ -20,20 +20,28 @@ use crate::{
 };
 
 impl EngineSnapshot {
-    pub fn make_proof<Hasher: MerkleHasher>(&self) -> EngineProof<Hasher> {
+    /// Generate stack proofs for specific instruction.
+    pub fn make_proof<Hasher: MerkleHasher>(
+        &self,
+        cur_inst: Instruction,
+    ) -> Option<EngineProof<Hasher>> {
         // TODO(optimization): arb always use 3 for most instructions.
-        // FIXME: since we store local value in value stack,
-        // we need to ensure the value stack entries size is bigger than local depth when prove local instruction.
-        let value_proof = self.values.make_proof(3);
+        let remain_size = match cur_inst {
+            Instruction::LocalTee { local_depth }
+            | Instruction::LocalSet { local_depth }
+            | Instruction::LocalGet { local_depth } => local_depth.into_inner(),
+            _ => 3,
+        };
+        let value_proof = self.values.make_proof(remain_size)?;
         let call_proof = self
             .frames
             .make_proof(1, self.config.maximum_recursion_depth);
 
-        EngineProof {
+        Some(EngineProof {
             config: self.config.clone(),
             value_proof,
             call_proof,
-        }
+        })
     }
 }
 
@@ -262,15 +270,22 @@ impl ValueStackSnapshot {
     /// Make a value stack proof.
     ///
     /// Keep the top N stack value original and not be part of hash.
-    pub fn make_proof<Hasher: MerkleHasher>(&self, keep_len: usize) -> ValueStackProof<Hasher> {
-        // TODO: return error ?
-        debug_assert!(keep_len > 0);
-        let len = self.entries.len().saturating_sub(keep_len);
+    pub fn make_proof<Hasher: MerkleHasher>(
+        &self,
+        keep_len: usize,
+    ) -> Option<ValueStackProof<Hasher>> {
+        if keep_len > self.entries.len() {
+            return None;
+        }
+        let len = self.entries.len() - keep_len;
         let (bottoms, tops) = self.entries.split_at(len);
         let bottom_hash = hash_value_stack::<Hasher>(bottoms, Default::default());
         let entries = tops.iter().copied().collect();
 
-        ValueStackProof(StackProof::<_, Hasher>::new(entries, bottom_hash))
+        Some(ValueStackProof(StackProof::<_, Hasher>::new(
+            entries,
+            bottom_hash,
+        )))
     }
 }
 
@@ -626,8 +641,8 @@ mod tests {
         };
 
         for i in 1..snapshot.entries.len() - 1 {
-            let a = snapshot.make_proof::<MerkleKeccak256>(i);
-            let b = snapshot.make_proof::<MerkleKeccak256>(i + 1);
+            let a = snapshot.make_proof::<MerkleKeccak256>(i).unwrap();
+            let b = snapshot.make_proof::<MerkleKeccak256>(i + 1).unwrap();
 
             assert_eq!(a.hash(), b.hash(), "value stack finally hash must be equal")
         }
