@@ -1,6 +1,14 @@
 //! Module instance level snapshot.
 
-use crate::{memory::ByteBuffer, GlobalEntity, MemoryEntity, MemoryType, TableType};
+use crate::{
+    memory::ByteBuffer,
+    proof::FuncNode,
+    GlobalEntity,
+    MemoryEntity,
+    MemoryType,
+    TableType,
+};
+use accel_merkle::{HashOutput, MerkleHasher};
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use wasmi_core::{Pages, ValueType};
@@ -99,14 +107,26 @@ pub struct TableSnapshot {
 
 #[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
 pub enum TableElementSnapshot {
+    /// The table element is empty.
     Empty,
-    FuncIndex(u32, FuncType),
+    /// The func index and its type.
+    FuncIndex(u32, FuncNode),
 }
 
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+/// The function type signature.
+#[derive(Debug, Clone, Eq, PartialEq, Encode, Decode)]
 pub struct FuncType {
+    /// The params types.
     pub params: Vec<ValueType>,
+    /// The return types.
     pub results: Vec<ValueType>,
+}
+
+impl FuncType {
+    /// Creates a func type hash for merkle leaf.
+    pub fn to_hash<Hasher: MerkleHasher>(&self) -> Hasher::Output {
+        Hasher::hash_of(self)
+    }
 }
 
 impl From<crate::FuncType> for FuncType {

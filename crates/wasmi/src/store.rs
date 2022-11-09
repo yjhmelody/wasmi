@@ -71,7 +71,7 @@ pub struct Store<T> {
     /// Stored Wasm or host functions.
     funcs: Arena<FuncIdx, FuncEntity<T>>,
     /// Stored module instances.
-    instances: Arena<InstanceIdx, InstanceEntity>,
+    pub(crate) instances: Arena<InstanceIdx, InstanceEntity>,
     /// The [`Engine`] in use by the [`Store`].
     ///
     /// Amongst others the [`Engine`] stores the Wasm function definitions.
@@ -109,18 +109,18 @@ mod snapshot {
                     instance,
                 )
             });
-            entity.make_snapshot(self)
+            entity.make_snapshot(self, self.engine.clone())
         }
 
         // TODO: check error
         /// Make a engine level snapshot.
         pub fn make_engine_snapshot(&self) -> EngineSnapshot {
-            let engine = self.engine.inner.lock();
+            let engine = self.engine().inner.lock();
             engine.make_snapshot()
         }
 
         pub fn instructions(&self) -> Vec<Instruction> {
-            let engine = self.engine.inner.lock();
+            let engine = self.engine().inner.lock();
             engine.instructions_ref().to_vec()
         }
 
@@ -138,7 +138,7 @@ mod snapshot {
 
         // TODO: check error
         pub fn restore_engine(&mut self, snapshot: &EngineSnapshot, instance: Instance) {
-            let mut engine = self.engine.inner.lock();
+            let mut engine = self.engine().inner.lock();
             engine.restore_engine(snapshot, instance)
         }
     }
@@ -161,16 +161,16 @@ mod proof {
         where
             Hasher: MerkleHasher,
         {
+            let engine = self.engine().clone();
             let instance_entity = self.resolve_instance(instance);
-            let instance_snapshot = instance_entity.make_snapshot(self);
-
+            let instance_snapshot =
+                instance_entity.make_snapshot(self.as_context(), engine.clone());
             let instance_merkle = InstanceProof::create_by_snapshot(instance_snapshot);
+            let code = engine.make_inst_merkle();
+            let func = instance_entity.make_func_merkle(self.as_context(), engine.clone());
+            let static_merkle = StaticMerkle::<Hasher> { code, func };
 
-            let static_merkle = StaticMerkle::<Hasher> {
-                code: self.engine().make_inst_merkle(),
-            };
-
-            self.engine().clone().make_inst_proof(
+            engine.make_inst_proof(
                 self.as_context_mut(),
                 InstProofParams {
                     current_pc,
@@ -295,7 +295,7 @@ impl<T> Store<T> {
     /// # Panics
     ///
     /// If the stored entity does not originate from this store.
-    fn unwrap_index<Idx>(&self, stored: Stored<Idx>) -> Idx
+    pub(crate) fn unwrap_index<Idx>(&self, stored: Stored<Idx>) -> Idx
     where
         Idx: Index,
     {

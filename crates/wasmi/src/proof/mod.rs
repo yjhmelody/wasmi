@@ -3,15 +3,24 @@ mod inst;
 mod instance;
 mod utils;
 
-use crate::snapshot::InstanceSnapshot;
-use accel_merkle::{GlobalMerkle, InstructionMerkle, MemoryMerkle, MerkleHasher, TableMerkle};
-use alloc::vec::Vec;
 pub use engine::*;
+pub use inst::*;
 pub use instance::*;
+
+use crate::snapshot::{FuncType, InstanceSnapshot};
+use accel_merkle::{
+    FuncMerkle,
+    GlobalMerkle,
+    InstructionMerkle,
+    MemoryMerkle,
+    MerkleHasher,
+    TableMerkle,
+};
+use codec::{Decode, Encode};
 
 // TODO: consider functions type as merkle
 
-/// All proof data for an instance.
+/// All proof data for an instance at a checkpoint.
 #[derive(Debug)]
 pub struct InstanceProof<Hasher>
 where
@@ -41,13 +50,23 @@ where
     pub merkle: TableMerkle<Hasher>,
 }
 
-/// This contains some merkle trees whose data should never be changed during wasm execution.
+/// This contains some merkle trees whose data should
+/// never be changed during wasm execution without code update.
 #[derive(Debug)]
 pub struct StaticMerkle<Hasher>
 where
     Hasher: MerkleHasher,
 {
     pub(crate) code: InstructionMerkle<Hasher>,
+    pub(crate) func: FuncMerkle<Hasher>,
+}
+
+pub fn make_func_merkle<Hasher: MerkleHasher>(
+    func_types: impl Iterator<Item = FuncType>,
+) -> FuncMerkle<Hasher> {
+    let hashes: Vec<_> = func_types.map(|f| f.to_hash::<Hasher>()).collect();
+    assert!(hashes.len() > 0);
+    FuncMerkle::new(hashes)
 }
 
 impl<Hasher> InstanceProof<Hasher>

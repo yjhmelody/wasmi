@@ -38,7 +38,7 @@ use self::{
     func_types::FuncTypeRegistry,
     stack::{FuncFrame, Stack, ValueStack},
 };
-use super::{func::FuncEntityInternal, AsContextMut, Func};
+use super::{AsContextMut, Func};
 use crate::{
     core::{Trap, TrapCode},
     FuncType,
@@ -101,6 +101,7 @@ type Guarded<Idx> = GuardedEntity<EngineIdx, Idx>;
 ///   Most of its API has a `&self` receiver, so can be shared easily.
 #[derive(Debug, Clone)]
 pub struct Engine {
+    // TODO: remove lock for our use case?
     pub(crate) inner: Arc<Mutex<EngineInner>>,
 }
 
@@ -143,7 +144,7 @@ impl Engine {
         F: FnOnce(&FuncType) -> R,
     {
         // Note: The clone operation on FuncType is intentionally cheap.
-        f(self.inner.lock().func_types.resolve_func_type(func_type))
+        self.inner.lock().resolve_func_type::<F, R>(func_type, f)
     }
 
     /// Allocates the instructions of a Wasm function body to the [`Engine`].
@@ -224,7 +225,7 @@ pub struct EngineInner {
     /// The value and call stacks.
     stack: Stack,
     /// Stores all Wasm function bodies that the interpreter is aware of.
-    code_map: CodeMap,
+    pub(crate) code_map: CodeMap,
     /// Deduplicated function types.
     ///
     /// # Note
@@ -412,6 +413,20 @@ mod step {
     }
 
     impl EngineInner {
+        /// Resolves a deduplicated function type into a [`FuncType`] entity.
+        ///
+        /// # Panics
+        ///
+        /// - If the deduplicated function type is not owned by the engine.
+        /// - If the deduplicated function type cannot be resolved to its entity.
+        pub(crate) fn resolve_func_type<F, R>(&self, func_type: DedupFuncType, f: F) -> R
+        where
+            F: FnOnce(&FuncType) -> R,
+        {
+            // Note: The clone operation on FuncType is intentionally cheap.
+            f(self.func_types.resolve_func_type(func_type))
+        }
+
         /// Executes the given function `frame` and returns the result.
         ///
         /// # Errors
@@ -614,17 +629,20 @@ mod step {
     }
 }
 
+use crate::func::FuncEntityInternal;
 pub use proof::{InstProofParams, ProofError};
 
 mod proof {
     use super::*;
     use crate::{
         engine::bytecode::Offset,
+        func::FuncEntityInternal,
         proof::{
             instructions_merkle,
-            CallIndirectProof,
+            CallProof,
             EngineProof,
             ExtraProof,
+            FuncNode,
             GlobalProof,
             InstanceProof,
             InstructionProof,
@@ -639,7 +657,7 @@ mod proof {
         Instance,
         MemoryEntity,
     };
-    use accel_merkle::{InstructionMerkle, MerkleHasher, ProveData};
+    use accel_merkle::{FuncMerkle, InstructionMerkle, MerkleHasher, ProveData};
     use core::cmp;
 
     /// Meet some errors when generate normal extra proof for the another instruction.
@@ -647,6 +665,7 @@ mod proof {
     pub enum ProofError {
         TrapCode(TrapCode),
         MemoryNotImported,
+        HostFuncNotHaveProof,
         MemoryIllegal,
         GlobalsNotExist,
         GlobalNotFound,
@@ -661,21 +680,19 @@ mod proof {
     }
 
     impl Engine {
-        pub fn make_inst_proof<Hasher: MerkleHasher>(
+        pub(crate) fn make_inst_proof<Hasher: MerkleHasher>(
             &self,
-            store: impl AsContextMut,
+            ctx: impl AsContextMut,
             params: InstProofParams<Hasher>,
             instance: Instance,
         ) -> Result<InstructionProof<Hasher>, ProofError> {
             let engine = self.inner.lock();
-            let mut cache = InstanceCache::from(instance);
-            engine.make_inst_proof(store, params, &mut cache)
+            engine.make_inst_proof(ctx, params, instance)
         }
 
-        pub fn make_inst_merkle<Hasher: MerkleHasher>(&self) -> InstructionMerkle<Hasher> {
+        pub(crate) fn make_inst_merkle<Hasher: MerkleHasher>(&self) -> InstructionMerkle<Hasher> {
             let engine = self.inner.lock();
-            // TODO: maybe also need merkle headers
-            instructions_merkle(&engine.code_map.insts)
+            engine.make_inst_merkle()
         }
     }
 
@@ -702,6 +719,7 @@ mod proof {
                 .ok_or(ProofError::MemoryNotImported)
         }
 
+        // we need to generate proof for current instruction.
         fn get_inst_prove(&self) -> Result<ProveData<Hasher>, ProofError> {
             self.static_merkle
                 .code
@@ -711,6 +729,10 @@ mod proof {
     }
 
     impl EngineInner {
+        pub(crate) fn make_inst_merkle<Hasher: MerkleHasher>(&self) -> InstructionMerkle<Hasher> {
+            instructions_merkle(&self.code_map.insts)
+        }
+
         /// Generate a instruction level proof for current pc.
         ///
         /// # Note
@@ -720,10 +742,11 @@ mod proof {
         /// Otherwise return proof error.
         pub fn make_inst_proof<Hasher: MerkleHasher>(
             &self,
-            mut store: impl AsContextMut,
+            mut ctx: impl AsContextMut,
             params: InstProofParams<Hasher>,
-            cache: &mut InstanceCache,
+            instance: Instance,
         ) -> Result<InstructionProof<Hasher>, ProofError> {
+            let mut cache = InstanceCache::from(instance);
             let current_pc = params.current_pc;
             let inst_prove = params.get_inst_prove()?;
             let inst = self.code_map.insts[current_pc as usize];
@@ -732,7 +755,7 @@ mod proof {
                     let func_idx = func_idx.into_inner();
                     let func = cache
                         .instance()
-                        .get_func(store.as_context(), func_idx)
+                        .get_func(ctx.as_context(), func_idx)
                         .unwrap_or_else(|| {
                             panic!(
                                 "missing func at index {} for instance: {:?}",
@@ -741,7 +764,7 @@ mod proof {
                             )
                         });
 
-                    self.make_call_proof(store.as_context(), func, None)
+                    self.make_call_proof(ctx.as_context(), params, func, func_idx as usize)?
                 }
 
                 Instruction::CallIndirect(signature_index) => {
@@ -753,40 +776,31 @@ mod proof {
                             .copied()
                             .ok_or(ProofError::EmtpyValueStack)?,
                     ) as usize;
-                    let table = cache.default_table(store.as_context());
+                    let table = cache.default_table(ctx.as_context());
                     let func = table
-                        .get(store.as_context(), func_index)
+                        .get(ctx.as_context(), func_index)
                         .map_err(|_| TrapCode::TableAccessOutOfBounds)?
                         .ok_or(TrapCode::ElemUninitialized)?;
-                    // let actual_signature = func.signature(self.ctx.as_context());
-                    // let expected_signature = cache.instance().get_signature(store, signature_index.into_inner())
-                    //     .unwrap_or_else(|| {
-                    //     panic!(
-                    //         "missing signature for call_indirect at index: {:?}",
-                    //         signature_index,
-                    //     )
-                    // });
+                    let actual_signature = func.signature(ctx.as_context());
+                    let expected_signature = cache
+                        .instance()
+                        .get_signature(ctx.as_context(), signature_index.into_inner())
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing signature for call_indirect at index: {:?}",
+                                signature_index,
+                            )
+                        });
+                    if actual_signature != expected_signature {
+                        return Err(TrapCode::UnexpectedSignature).map_err(Into::into);
+                    }
 
-                    let func_type = func.func_type(store.as_context());
-                    // TODO: we need to design errors and panics.
-                    let table_merkle = &params
-                        .default_table()
-                        .expect("Default table must exist; qed")
-                        .merkle;
-                    let prove_data = table_merkle
-                        .prove(func_index)
-                        .expect("CallIndirect prove data must exist; qed");
-
-                    let proof = CallIndirectProof {
-                        func_type: func_type.into(),
-                        prove_data,
-                    };
-                    self.make_call_proof(store.as_context(), func, Some(proof))
+                    self.make_call_indirect_proof(ctx.as_context(), params, func, func_index)?
                 }
                 Instruction::GlobalSet(idx) | Instruction::GlobalGet(idx) => {
                     let idx = idx.into_inner();
                     // TODO: this should be as_context
-                    let value = cache.get_global(store.as_context_mut(), idx).clone();
+                    let value = cache.get_global(ctx.as_context_mut(), idx).clone();
 
                     let prove_data = params
                         .instance_merkle
@@ -841,8 +855,8 @@ mod proof {
                     let mut idx = self.get_memory_index(offset, is_store);
 
                     idx /= MEMORY_LEAF_SIZE;
-                    let memory = cache.default_memory(store.as_context());
-                    let memory = store.as_context().store.resolve_memory(memory);
+                    let memory = cache.default_memory(ctx.as_context());
+                    let memory = ctx.as_context().store.resolve_memory(memory);
                     let leaf = Self::get_memory_leaf(memory, idx);
                     let next_leaf_idx = idx.saturating_add(1);
                     let next_leaf = Self::get_memory_leaf(memory, next_leaf_idx);
@@ -897,30 +911,50 @@ mod proof {
         fn make_call_proof<Hasher: MerkleHasher>(
             &self,
             store: impl AsContext,
+            params: InstProofParams<Hasher>,
             func: Func,
-            proof: Option<CallIndirectProof<Hasher>>,
-        ) -> ExtraProof<Hasher> {
+            func_index: usize,
+        ) -> Result<ExtraProof<Hasher>, ProofError> {
+            let func_type = func.func_type(store.as_context());
+            let prove_data = params
+                .static_merkle
+                .func
+                .prove(func_index)
+                .expect("func index in Call instruction must be legal; qed");
+
             match func.as_internal(store.as_context()) {
                 FuncEntityInternal::Wasm(entity) => {
-                    let body = entity.func_body();
-                    let header = self.code_map.header(body);
-                    let next_pc = header.start();
-                    // TODO: maybe still need some other data
-                    match proof {
-                        Some(proof) => ExtraProof::CallWasmIndirect(next_pc as u32, proof),
-                        None => ExtraProof::CallWasm(next_pc as u32),
-                    }
+                    let func = FuncNode::from_wasm_func(entity, &self.code_map, func_type.into());
+                    Ok(ExtraProof::CallWasm(CallProof { func, prove_data }))
                 }
-                FuncEntityInternal::Host(..) => {
-                    // TODO: If we want to support host function here:
-                    // We only could support no side effect functions/pure function.
-                    // And we must actually run it to get the result for proof.
-                    // But for some utility function we do not know the global/memory/table they are using.
-                    match proof {
-                        Some(proof) => ExtraProof::CallHostIndirect(proof),
-                        None => ExtraProof::CallHost,
-                    }
+                // now we could not generate proof for host call since we never use host call.
+                FuncEntityInternal::Host(..) => Err(ProofError::HostFuncNotHaveProof),
+            }
+        }
+
+        fn make_call_indirect_proof<Hasher: MerkleHasher>(
+            &self,
+            store: impl AsContext,
+            params: InstProofParams<Hasher>,
+            func: Func,
+            func_index: usize,
+        ) -> Result<ExtraProof<Hasher>, ProofError> {
+            let func_type = func.func_type(store.as_context());
+            let table_merkle = &params
+                .default_table()
+                .expect("Default table must exist; qed")
+                .merkle;
+            let prove_data = table_merkle
+                .prove(func_index)
+                .expect("CallIndirect prove data must exist; qed");
+
+            match func.as_internal(store.as_context()) {
+                FuncEntityInternal::Wasm(entity) => {
+                    let func = FuncNode::from_wasm_func(entity, &self.code_map, func_type.into());
+                    Ok(ExtraProof::CallIndirectWasm(CallProof { func, prove_data }))
                 }
+                // now we could not generate proof for host call since we never use host call.
+                FuncEntityInternal::Host(..) => Err(ProofError::HostFuncNotHaveProof),
             }
         }
 

@@ -15,7 +15,6 @@ use alloc::{
     boxed::Box,
     collections::{btree_map, BTreeMap},
     sync::Arc,
-    vec::Vec,
 };
 use core::iter::FusedIterator;
 use wasmi_arena::Index;
@@ -43,32 +42,63 @@ pub struct InstanceEntity {
     initialized: bool,
     func_types: Arc<[DedupFuncType]>,
     tables: Box<[Table]>,
-    funcs: Box<[Func]>,
+    pub(crate) funcs: Box<[Func]>,
     memories: Box<[Memory]>,
     globals: Box<[Global]>,
     exports: BTreeMap<Box<str>, Extern>,
 }
 
+mod proof {
+    use super::*;
+    use crate::{engine::code_map::CodeMap, func::FuncEntityInternal, proof::FuncNode, Engine};
+    use accel_merkle::{FuncMerkle, MerkleHasher};
+
+    pub fn make_func_merkle<Hasher: MerkleHasher>(
+        funcs: &[Func],
+        ctx: impl AsContext,
+        engine: Engine,
+    ) -> FuncMerkle<Hasher> {
+        let hashes = funcs
+            .iter()
+            .map(|f| FuncNode::from_func(ctx.as_context(), f.clone(), engine.clone()))
+            .map(|header| header.to_hash::<Hasher>())
+            .collect();
+
+        FuncMerkle::new(hashes)
+    }
+
+    impl InstanceEntity {
+        pub(crate) fn make_func_merkle<Hasher: MerkleHasher>(
+            &self,
+            ctx: impl AsContext,
+            engine: Engine,
+        ) -> FuncMerkle<Hasher> {
+            make_func_merkle(&self.funcs, ctx, engine)
+        }
+    }
+}
+
 mod snapshot {
     use super::*;
     use crate::{
-        func::FuncEntityInternal,
+        engine::code_map::CodeMap,
+        proof::FuncNode,
         snapshot::{InstanceSnapshot, TableElementSnapshot, TableSnapshot},
+        Engine,
     };
-    use alloc::vec::Vec;
 
     impl Instance {
         /// Make a module level snapshot for the instance.
-        pub fn make_snapshot(&self, store: &impl AsContext) -> InstanceSnapshot {
+        pub fn make_snapshot(&self, store: &impl AsContext, engine: Engine) -> InstanceSnapshot {
             let ctx = store.as_context();
             let instance = ctx.store.resolve_instance(*self);
-            instance.make_snapshot(store)
+            instance.make_snapshot(store, engine)
         }
     }
 
     impl InstanceEntity {
         /// Make a module level snapshot for the instance.
-        pub fn make_snapshot(&self, ctx: &impl AsContext) -> InstanceSnapshot {
+        pub fn make_snapshot(&self, ctx: impl AsContext, engine: Engine) -> InstanceSnapshot {
             let store = ctx.as_context().store;
             let tables = self
                 .tables
@@ -82,13 +112,17 @@ mod snapshot {
                         .map(|elem| match elem {
                             None => TableElementSnapshot::Empty,
                             Some(func) => {
-                                let func_type = func.func_type(store.as_context()).into();
+                                let func_node = FuncNode::from_func(
+                                    ctx.as_context(),
+                                    func.clone(),
+                                    engine.clone(),
+                                );
                                 let func_index = self
                                     .funcs
                                     .binary_search(func)
                                     .expect("function ref in table must exist in funcs");
                                 // TODO: also need to get func type info.
-                                TableElementSnapshot::FuncIndex(func_index as u32, func_type)
+                                TableElementSnapshot::FuncIndex(func_index as u32, func_node)
                             }
                         })
                         .collect();
@@ -123,20 +157,6 @@ mod snapshot {
                 memories,
                 globals,
             }
-        }
-
-        // TODO:
-        pub fn extract_funcs(&self, ctx: &impl AsContext, instance: Instance) {
-            let funcs = self
-                .funcs
-                .iter()
-                .copied()
-                .filter(|func| match func.as_internal(ctx) {
-                    FuncEntityInternal::Wasm(func) if func.instance() == instance => true,
-                    FuncEntityInternal::Host(_func) => true,
-                    _ => false,
-                })
-                .collect::<Vec<_>>();
         }
     }
 }

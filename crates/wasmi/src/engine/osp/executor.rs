@@ -4,20 +4,16 @@ use super::super::{
 };
 use crate::{
     core::{TrapCode, F32, F64},
-    proof::{
-        table_element_hash,
-        value_hash,
-        CallIndirectProof,
-        CallStackProof,
-        ExtraProof,
-        ValueStackProof,
-    },
+    proof::{table_element_hash, value_hash, CallStackProof, ExtraProof, ValueStackProof},
     snapshot::{FuncFrameSnapshot, TableElementSnapshot},
 };
 
 use core::{cmp, result};
 
-use crate::engine::osp::OspStatus;
+use crate::{
+    engine::osp::OspStatus,
+    proof::{CallProof, FuncNode},
+};
 use accel_merkle::{MerkleHasher, ProveData};
 use codec::{Decode, Encode};
 use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
@@ -30,6 +26,7 @@ pub type Result<T> = result::Result<T, ExecError>;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecError {
     GlobalsRootNotExist,
+    FuncRootNotMatch,
     GlobalsRootNotMatch,
     TableRootsNotMatch,
     MemoryRootsNotExist,
@@ -54,6 +51,7 @@ where
     value_stack: &'a mut ValueStackProof<Hasher>,
 
     inst_root: &'a Hasher::Output,
+    func_root: &'a Hasher::Output,
     globals_root: &'a mut Option<Hasher::Output>,
     table_roots: &'a [Hasher::Output],
     memory_roots: &'a mut [Hasher::Output],
@@ -397,42 +395,71 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
 
     // TODO: still need to design.
     // TODO: Need to prove this index is valid
-    fn visit_call(&mut self, _func_index: FuncIdx) -> Result<()> {
-        // update current frame pc
+    fn visit_call(&mut self, func_index: FuncIdx) -> Result<()> {
+        let func_index = func_index.into_inner();
         let pc = self.pc();
+        // push current frame pc
         self.call_stack
             .push(FuncFrameSnapshot::from(pc + 1))
             .ok_or(ExecError::CallStackOverflow)?;
+
         match &self.extra {
-            ExtraProof::CallWasm(pc) => {
-                self.set_pc(*pc);
-                Ok(())
-            }
-            ExtraProof::CallHost => {
-                self.next_pc();
-                // nop
+            ExtraProof::CallWasm(proof) => {
+                let new_pc = Self::get_pc_from_call_proof(proof)?;
+                self.ensure_call_proof(func_index, proof)?;
+                // update the current frame pc
+                self.set_pc(new_pc);
                 Ok(())
             }
             _ => Err(ExecError::IllegalExtraProof),
         }
     }
 
-    // TODO: still need to design.
-    fn _visit_call_indirect_proof(
-        &self,
-        func_index: u32,
-        proof: &CallIndirectProof<Hasher>,
-        _signature_index: SignatureIdx,
-    ) -> Result<()> {
+    fn visit_call_indirect(&mut self, _signature_index: SignatureIdx) -> Result<()> {
+        let func_index = self.pop_value_stack_as::<u32>()?;
+        let pc = self.pc();
+        // push current frame pc
+        self.call_stack
+            .push(FuncFrameSnapshot::from(pc + 1))
+            .ok_or(ExecError::CallStackOverflow)?;
+
+        match &self.extra {
+            ExtraProof::CallIndirectWasm(proof) => {
+                let new_pc = Self::get_pc_from_call_proof(proof)?;
+                self.ensure_call_indirect_proof(func_index, proof)?;
+                // update the current frame pc
+                self.set_pc(new_pc);
+                Ok(())
+            }
+            _ => Err(ExecError::IllegalExtraProof),
+        }
+    }
+
+    fn ensure_call_proof(&self, func_index: u32, proof: &CallProof<Hasher>) -> Result<()> {
+        let leaf_hash = proof.func.to_hash::<Hasher>();
+        let root = proof
+            .prove_data
+            .compute_root(func_index as usize, leaf_hash);
+
+        if root != *self.func_root {
+            Err(ExecError::FuncRootNotMatch)
+        } else {
+            Ok(())
+        }
+    }
+
+    // We do not allow indirect instruction meet trap here, since it's useless.
+    fn ensure_call_indirect_proof(&self, func_index: u32, proof: &CallProof<Hasher>) -> Result<()> {
         let table_root = self
             .table_roots
             .first()
             .ok_or(ExecError::DefaultTableNotFound)?;
+
         let leaf_hash = table_element_hash::<Hasher>(&TableElementSnapshot::FuncIndex(
             func_index,
-            proof.func_type.clone(),
+            proof.func.clone(),
         ));
-        // prove it before using it.
+        // TODO(opt): Should we really need to prove it before using it?
         let root = proof
             .prove_data
             .compute_root(func_index as usize, leaf_hash);
@@ -444,23 +471,10 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         }
     }
 
-    // TODO: still need to design.
-    fn visit_call_indirect(&mut self, signature_index: SignatureIdx) -> Result<()> {
-        let func_index = self.pop_value_stack_as::<u32>()?;
-        match &self.extra {
-            ExtraProof::CallWasmIndirect(pc, proof) => {
-                self._visit_call_indirect_proof(func_index, proof, signature_index)?;
-
-                self.set_pc(*pc);
-                Ok(())
-            }
-            ExtraProof::CallHostIndirect(proof) => {
-                self._visit_call_indirect_proof(func_index, proof, signature_index)?;
-
-                self.next_pc();
-                Ok(())
-            }
-            _ => Err(ExecError::IllegalExtraProof),
+    fn get_pc_from_call_proof(proof: &CallProof<Hasher>) -> Result<u32> {
+        match &proof.func {
+            FuncNode::Host(..) => return Err(ExecError::IllegalExtraProof),
+            FuncNode::Wasm(header) => Ok(header.pc),
         }
     }
 

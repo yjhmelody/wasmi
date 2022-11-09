@@ -7,7 +7,8 @@ use wasmi_core::{TrapCode, UntypedValue};
 use codec::{Codec, Decode, Encode};
 
 use crate::{
-    engine::{bytecode::Instruction, DropKeep},
+    engine::{bytecode::Instruction, code_map::CodeMap, DropKeep},
+    func::{FuncEntityInternal, WasmFuncEntity},
     proof::{utils::TwoMemoryChunks, value_hash, MEMORY_LEAF_SIZE},
     snapshot::{
         CallStackSnapshot,
@@ -17,6 +18,9 @@ use crate::{
         FuncType,
         ValueStackSnapshot,
     },
+    AsContext,
+    Engine,
+    Func,
 };
 
 impl EngineSnapshot {
@@ -73,38 +77,16 @@ pub enum ExtraProof<Hasher: MerkleHasher> {
     Empty,
     /// Proof data for global instructions.
     GlobalGetSet(GlobalProof<Hasher>),
+    /// Proof data for `call`.
+    CallWasm(CallProof<Hasher>),
+    /// Proof data for `call_indirect`.
+    CallIndirectWasm(CallProof<Hasher>),
     /// Proof data for memory.page.
     MemoryPage(MemoryPage),
     /// Proof data for some memory instructions.
     MemoryChunkNeighbor(MemoryChunkNeighbor<Hasher>),
     /// Proof data for some memory instructions.
     MemoryChunkSibling(MemoryChunkSibling<Hasher>),
-    // TODO: Still need to design these call proof.
-    /// The pc that call jump to.
-    CallWasm(u32),
-    /// Now we do not support extra proof for host function.
-    CallHost,
-    /// Maybe need to prove this function is in the table.
-    CallWasmIndirect(u32, CallIndirectProof<Hasher>),
-    CallHostIndirect(CallIndirectProof<Hasher>),
-}
-
-/// A linear memory page state.
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct MemoryPage {
-    pub initial_pages: u32,
-    pub maximum_pages: Option<u32>,
-    pub current_pages: u32,
-}
-
-// TODO: still need func signature proof.
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct CallIndirectProof<Hasher>
-where
-    Hasher: MerkleHasher,
-{
-    pub func_type: FuncType,
-    pub prove_data: ProveData<Hasher>,
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
@@ -116,6 +98,93 @@ where
     pub value: UntypedValue,
     /// The global value proof.
     pub prove_data: ProveData<Hasher>,
+}
+
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub enum FuncNode {
+    /// Contains a host function header.
+    Host(HostFuncHeader),
+    /// Contains a wasm function header.
+    Wasm(WasmFuncHeader),
+}
+
+impl FuncNode {
+    /// Cast a func ref to a proof representation.
+    pub(crate) fn from_func(ctx: impl AsContext, f: Func, engine: Engine) -> Self {
+        let sig = f.signature(ctx.as_context());
+        // Note: lock/unlock
+        let func_type = engine.resolve_func_type(sig, Clone::clone).into();
+        // Note: lock again.
+        let code_map = &engine.inner.lock().code_map;
+        match f.as_internal(ctx.as_context()) {
+            FuncEntityInternal::Wasm(wasm_func) => {
+                Self::from_wasm_func(wasm_func, code_map, func_type)
+            }
+            FuncEntityInternal::Host(_) => Self::Host(HostFuncHeader { func_type }),
+        }
+    }
+
+    pub(crate) fn from_wasm_func(
+        wasm_func: &WasmFuncEntity,
+        code_map: &CodeMap,
+        func_type: FuncType,
+    ) -> Self {
+        let header = code_map.header(wasm_func.func_body());
+        let pc = header.start() as u32;
+
+        Self::Wasm(WasmFuncHeader { pc, func_type })
+    }
+}
+
+impl FuncNode {
+    /// Creates a func hash for merkle node.
+    pub fn to_hash<Hasher: MerkleHasher>(&self) -> Hasher::Output {
+        Hasher::hash_of(self)
+    }
+}
+
+impl From<WasmFuncHeader> for FuncNode {
+    fn from(f: WasmFuncHeader) -> Self {
+        FuncNode::Wasm(f)
+    }
+}
+
+impl From<HostFuncHeader> for FuncNode {
+    fn from(f: HostFuncHeader) -> Self {
+        FuncNode::Host(f)
+    }
+}
+
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct HostFuncHeader {
+    /// The function's signature
+    pub func_type: FuncType,
+}
+
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct WasmFuncHeader {
+    /// The pc that call jump to.
+    pub pc: u32,
+    /// The function's signature
+    pub func_type: FuncType,
+}
+
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct CallProof<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    pub func: FuncNode,
+    /// The func proof.
+    pub prove_data: ProveData<Hasher>,
+}
+
+/// A linear memory page state.
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct MemoryPage {
+    pub initial_pages: u32,
+    pub maximum_pages: Option<u32>,
+    pub current_pages: u32,
 }
 
 /// The contains a proof that a memory store instruction touch two neighbor leaves which have `not` same parent.
@@ -666,18 +735,4 @@ mod tests {
             assert_eq!(a.hash(), b.hash(), "call stack finally hash must be equal")
         }
     }
-}
-
-// Note: For static state(such as instructions), we just need to generate merkle once and keep it in memory.
-
-/// Generate a merkle for instructions.
-pub fn instructions_merkle<Hasher: MerkleHasher>(
-    insts: &[Instruction],
-) -> InstructionMerkle<Hasher> {
-    InstructionMerkle::new(
-        insts
-            .iter()
-            .map(|i| i.to_hash::<Hasher::Output>())
-            .collect(),
-    )
 }

@@ -111,6 +111,11 @@ pub struct InstructionType;
 pub type InstructionMerkle<Hasher> = Merkle<InstructionType, Hasher>;
 impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for InstructionType {}
 
+#[derive(Debug)]
+pub struct FuncType;
+pub type FuncMerkle<Hasher> = Merkle<FuncType, Hasher>;
+impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for FuncType {}
+
 // TODO: it's altered from arb. Should be generalized to be a good crate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Merkle<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> {
@@ -169,6 +174,11 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
         Self::new_advanced(hashes, Hasher::Output::default(), 0)
     }
 
+    pub fn with_iter(hashes: impl Iterator<Item = Hasher::Output>) -> Self {
+        let hashes: Vec<Hasher::Output> = hashes.into_iter().collect();
+        Self::new(hashes)
+    }
+
     /// Creates a merkle tree according to hashes.
     ///
     /// # Note
@@ -218,6 +228,11 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
         }
     }
 
+    /// Generate proof path for current leaf.
+    ///
+    /// # Notes
+    ///
+    /// Returns None if index is invalid.
     pub fn prove(&self, mut idx: usize) -> Option<ProveData<Hasher>> {
         if idx >= self.leaves().len() {
             return None;
@@ -244,28 +259,5 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
             proof.0.remove(0);
             proof
         })
-    }
-
-    pub fn set(&mut self, mut idx: usize, hash: Hasher::Output) {
-        if self.layers[0][idx] == hash {
-            return;
-        }
-        let mut next_hash = hash;
-        let empty_layers = &self.empty_layers;
-        let layers_len = self.layers.len();
-        for (layer_i, layer) in self.layers.iter_mut().enumerate() {
-            layer[idx] = next_hash.clone();
-            if layer_i == layers_len - 1 {
-                // next_hash isn't needed
-                break;
-            }
-            let counterpart = layer.get(idx ^ 1).unwrap_or_else(|| &empty_layers[layer_i]);
-            if idx % 2 == 0 {
-                next_hash = Hasher::hash_node(&next_hash, counterpart);
-            } else {
-                next_hash = Hasher::hash_node(counterpart, &next_hash);
-            }
-            idx >>= 1;
-        }
     }
 }

@@ -63,7 +63,7 @@ impl FuncHeader {
 }
 
 /// Datastructure to efficiently store Wasm function bodies.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CodeMap {
     /// The headers of all compiled functions.
     pub(crate) headers: Vec<FuncHeader>,

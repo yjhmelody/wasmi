@@ -2,9 +2,23 @@ use crate::engine::{
     bytecode::{BranchParams, Instruction, LocalDepth},
     DropKeep,
 };
-use accel_merkle::HashOutput;
+use accel_merkle::{HashOutput, InstructionMerkle, MerkleHasher};
 use codec::{Decode, Encode, Error, Input, Output};
 use wasmi_core::UntypedValue;
+
+// Note: For static state(such as instructions), we just need to generate merkle once and keep it in memory.
+
+/// Generate a merkle for instructions.
+pub fn instructions_merkle<Hasher: MerkleHasher>(
+    insts: &[Instruction],
+) -> InstructionMerkle<Hasher> {
+    InstructionMerkle::new(
+        insts
+            .iter()
+            .map(|i| i.to_hash::<Hasher::Output>())
+            .collect(),
+    )
+}
 
 impl Decode for Instruction {
     fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
