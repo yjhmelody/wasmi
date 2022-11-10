@@ -80,66 +80,94 @@ pub struct Store<T> {
     user_state: T,
 }
 
+pub struct SnapshotBuilder<'a, T> {
+    pub(crate) store: &'a mut Store<T>,
+}
+
+pub struct ProofBuilder<'a, T> {
+    pub(crate) store: &'a mut Store<T>,
+}
+
 mod snapshot {
     use super::*;
     use crate::{
-        engine::bytecode::Instruction,
-        snapshot::{EngineSnapshot, InstanceSnapshot, SnapshotV0},
+        snapshot::{EngineSnapshot, InstanceSnapshot},
         Error,
         Linker,
         Module,
     };
-    use alloc::vec::Vec;
 
-    impl<T> Store<T> {
-        pub fn make_snapshot(&self, instance: Instance, pc: u32) -> SnapshotV0 {
-            SnapshotV0 {
-                instance: self.make_instance_snapshot(instance),
-                engine: self.make_engine_snapshot(),
-                pc,
+    impl<'a, T> AsContext for SnapshotBuilder<'a, T> {
+        type UserState = T;
+
+        #[inline]
+        fn as_context(&self) -> StoreContext<'_, Self::UserState> {
+            StoreContext {
+                store: &*self.store,
             }
         }
+    }
 
+    impl<'a, T> AsContextMut for SnapshotBuilder<'a, T> {
+        #[inline]
+        fn as_context_mut(&mut self) -> StoreContextMut<'_, Self::UserState> {
+            StoreContextMut { store: self.store }
+        }
+    }
+
+    impl<'a, T> SnapshotBuilder<'a, T> {
         /// Make a module level instance snapshot.
-        pub fn make_instance_snapshot(&self, instance: Instance) -> InstanceSnapshot {
-            let entity_index = self.unwrap_index(instance.into_inner());
-            let entity = self.instances.get(entity_index).unwrap_or_else(|| {
+        pub fn make_instance(&self, instance: Instance) -> InstanceSnapshot {
+            let entity_index = self.store.unwrap_index(instance.into_inner());
+            let entity = self.store.instances.get(entity_index).unwrap_or_else(|| {
                 panic!(
                     "the store has no reference to the given instance: {:?}",
                     instance,
                 )
             });
-            entity.make_snapshot(self, self.engine.clone())
+            entity.make_snapshot(self, self.engine().clone())
         }
 
         // TODO: check error
         /// Make a engine level snapshot.
-        pub fn make_engine_snapshot(&self) -> EngineSnapshot {
-            let engine = self.engine().inner.lock();
-            engine.make_snapshot()
+        pub fn make_engine(&self) -> EngineSnapshot {
+            self.engine().lock().make_snapshot()
         }
 
-        pub fn instructions(&self) -> Vec<Instruction> {
-            let engine = self.engine().inner.lock();
-            engine.instructions_ref().to_vec()
-        }
-
-        pub fn restore_instance(
+        /// Restores `store` from some snapshots according to linker and module.
+        ///
+        /// # Notes
+        ///
+        /// The module and linker must be consistent with the snapshots.
+        pub fn restore(
             &mut self,
-            linker: &mut Linker<T>,
+            linker: &Linker<T>,
             module: &Module,
-            snapshot: SnapshotV0,
+            instance: InstanceSnapshot,
+            engine: &EngineSnapshot,
         ) -> Result<Instance, Error> {
-            let pre = linker.restore_instance(self.as_context_mut(), module, snapshot.instance)?;
+            let pre = linker.restore_instance(self.as_context_mut(), module, instance)?;
             let instance = pre.no_start(self.as_context_mut())?;
-            self.restore_engine(&snapshot.engine, instance);
+            self.restore_engine(engine, instance)?;
             Ok(instance)
         }
 
-        // TODO: check error
-        pub fn restore_engine(&mut self, snapshot: &EngineSnapshot, instance: Instance) {
-            let mut engine = self.engine().inner.lock();
-            engine.restore_engine(snapshot, instance)
+        /// Restores engine from snapshot from instance.
+        ///
+        /// # Notes
+        ///
+        /// The instance must be consistent with the snapshot.
+        pub fn restore_engine(
+            &mut self,
+            snapshot: &EngineSnapshot,
+            instance: Instance,
+        ) -> Result<(), Error> {
+            self.engine().lock().restore_engine(snapshot, instance)?;
+            Ok(())
+        }
+
+        fn engine(&self) -> &Engine {
+            self.store.engine()
         }
     }
 }
@@ -152,7 +180,25 @@ mod proof {
     };
     use accel_merkle::MerkleHasher;
 
-    impl<T> Store<T> {
+    impl<'a, T> AsContext for ProofBuilder<'a, T> {
+        type UserState = T;
+
+        #[inline]
+        fn as_context(&self) -> StoreContext<'_, Self::UserState> {
+            StoreContext {
+                store: &*self.store,
+            }
+        }
+    }
+
+    impl<'a, T> AsContextMut for ProofBuilder<'a, T> {
+        #[inline]
+        fn as_context_mut(&mut self) -> StoreContextMut<'_, Self::UserState> {
+            StoreContextMut { store: self.store }
+        }
+    }
+
+    impl<'a, T> ProofBuilder<'a, T> {
         pub fn make_inst_proof<Hasher>(
             &mut self,
             current_pc: u32,
@@ -162,23 +208,31 @@ mod proof {
             Hasher: MerkleHasher,
         {
             let engine = self.engine().clone();
-            let instance_entity = self.resolve_instance(instance);
+            let instance_entity = self.store.resolve_instance(instance);
+            // TODO: create proof by instance entity directly
             let instance_snapshot =
                 instance_entity.make_snapshot(self.as_context(), engine.clone());
-            let instance_merkle = InstanceProof::create_by_snapshot(instance_snapshot);
-            let code = engine.make_inst_merkle();
-            let func = instance_entity.make_func_merkle(self.as_context(), engine.clone());
-            let static_merkle = StaticMerkle::<Hasher> { code, func };
+            let instance_merkle = &InstanceProof::create_by_snapshot(instance_snapshot);
+
+            let static_merkle = &StaticMerkle::<Hasher>::create(
+                self.as_context(),
+                instance_entity.funcs(),
+                engine.clone(),
+            );
 
             engine.make_inst_proof(
-                self.as_context_mut(),
+                self.as_context(),
                 InstProofParams {
                     current_pc,
-                    instance_merkle: &instance_merkle,
-                    static_merkle: &static_merkle,
+                    instance_merkle,
+                    static_merkle,
                 },
                 instance,
             )
+        }
+
+        fn engine(&self) -> &Engine {
+            self.store.engine()
         }
     }
 }
@@ -196,6 +250,16 @@ impl<T> Store<T> {
             engine: engine.clone(),
             user_state,
         }
+    }
+
+    /// Returns a snapshot builder for wasm store.
+    pub fn snapshot(&mut self) -> SnapshotBuilder<'_, T> {
+        SnapshotBuilder { store: self }
+    }
+
+    /// Returns a proof builder for wasm store.
+    pub fn proof(&mut self) -> ProofBuilder<'_, T> {
+        ProofBuilder { store: self }
     }
 
     /// Returns the [`Engine`] that this store is associated with.

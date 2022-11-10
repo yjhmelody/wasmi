@@ -46,7 +46,7 @@ use crate::{
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU32, Ordering};
 pub use func_types::DedupFuncType;
-use spin::mutex::Mutex;
+use spin::{mutex::Mutex, MutexGuard};
 use wasmi_arena::{GuardedEntity, Index};
 
 /// The outcome of a `wasmi` function execution.
@@ -112,6 +112,17 @@ impl Default for Engine {
 }
 
 impl Engine {
+    pub(crate) fn lock(&self) -> MutexGuard<EngineInner> {
+        self.inner.lock()
+    }
+
+    pub(crate) fn lock_with<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(MutexGuard<EngineInner>) -> R,
+    {
+        f(self.inner.lock())
+    }
+
     /// Creates a new [`Engine`] with default configuration.
     ///
     /// # Note
@@ -225,7 +236,7 @@ pub struct EngineInner {
     /// The value and call stacks.
     stack: Stack,
     /// Stores all Wasm function bodies that the interpreter is aware of.
-    pub(crate) code_map: CodeMap,
+    code_map: CodeMap,
     /// Deduplicated function types.
     ///
     /// # Note
@@ -250,7 +261,7 @@ mod snapshot {
     };
 
     impl EngineInner {
-        pub fn make_snapshot(&self) -> EngineSnapshot {
+        pub(crate) fn make_snapshot(&self) -> EngineSnapshot {
             let config = &self.config;
             let stack = &self.stack;
 
@@ -276,16 +287,16 @@ mod snapshot {
             }
         }
 
-        pub fn instructions_ref(&self) -> &[Instruction] {
-            &self.code_map.insts
-        }
-
         /// Restore engine state from snapshot.
         ///
         /// # Note
         ///
         /// This function assume the same wasm code are being used.
-        pub fn restore_engine(&mut self, snapshot: &EngineSnapshot, instance: Instance) {
+        pub(crate) fn restore_engine(
+            &mut self,
+            snapshot: &EngineSnapshot,
+            instance: Instance,
+        ) -> Result<(), Trap> {
             // TODO: do hash for static data and compare them first
 
             // restore config first
@@ -304,18 +315,16 @@ mod snapshot {
             });
             self.stack.values = values;
 
-            // TODO: duplicated config source
             let mut frames = CallStack::new(limits.maximum_recursion_depth);
 
-            snapshot.frames.frames.iter().for_each(|frame_snapshot| {
+            for frame_snapshot in snapshot.frames.frames.iter() {
                 let ip = self.code_map.get_inst(frame_snapshot.pc as usize);
                 let frame = FuncFrame::new(ip, instance);
-                // TODO: return error
-                frames
-                    .push_frame(frame)
-                    .expect("recursion_limit in snapshot must be legal")
-            });
+                frames.push_frame(frame)?
+            }
             self.stack.frames = frames;
+
+            Ok(())
         }
     }
 }
@@ -399,16 +408,17 @@ mod step {
         where
             Results: CallResults,
         {
-            let mut engine = self.inner.lock();
-            let mut cache = InstanceCache::from(instance);
+            self.lock_with(|mut engine| {
+                let mut cache = InstanceCache::from(instance);
 
-            let info = engine.execute_step_at_pc(ctx, pc, &mut cache, step)?;
-            match info {
-                StepResult::Results(()) => Ok(StepResult::Results({
-                    results.call_results(engine.stack.values.drain())
-                })),
-                StepResult::RunOutOfStep(pc) => Ok(StepResult::RunOutOfStep(pc)),
-            }
+                let info = engine.execute_step_at_pc(ctx, pc, &mut cache, step)?;
+                match info {
+                    StepResult::Results(()) => Ok(StepResult::Results({
+                        results.call_results(engine.stack.values.drain())
+                    })),
+                    StepResult::RunOutOfStep(pc) => Ok(StepResult::RunOutOfStep(pc)),
+                }
+            })
         }
     }
 
@@ -553,6 +563,7 @@ mod step {
         /// - If the given arguments `args` do not match the expected parameters of `func`.
         /// - If the given `results` do not match the the length of the expected results of `func`.
         /// - When encountering a Wasm trap during the execution of `func`.
+        #[allow(unused)]
         pub fn execute_func_step_without_outputs<Params>(
             &mut self,
             mut ctx: impl AsContextMut,
@@ -638,7 +649,7 @@ mod proof {
         engine::bytecode::Offset,
         func::FuncEntityInternal,
         proof::{
-            instructions_merkle,
+            code_merkle,
             CallProof,
             EngineProof,
             ExtraProof,
@@ -657,7 +668,7 @@ mod proof {
         Instance,
         MemoryEntity,
     };
-    use accel_merkle::{FuncMerkle, InstructionMerkle, MerkleHasher, ProveData};
+    use accel_merkle::{InstructionMerkle, MerkleHasher, ProveData};
     use core::cmp;
 
     /// Meet some errors when generate normal extra proof for the another instruction.
@@ -682,7 +693,7 @@ mod proof {
     impl Engine {
         pub(crate) fn make_inst_proof<Hasher: MerkleHasher>(
             &self,
-            ctx: impl AsContextMut,
+            ctx: impl AsContext,
             params: InstProofParams<Hasher>,
             instance: Instance,
         ) -> Result<InstructionProof<Hasher>, ProofError> {
@@ -690,9 +701,9 @@ mod proof {
             engine.make_inst_proof(ctx, params, instance)
         }
 
-        pub(crate) fn make_inst_merkle<Hasher: MerkleHasher>(&self) -> InstructionMerkle<Hasher> {
-            let engine = self.inner.lock();
-            engine.make_inst_merkle()
+        /// Make an merkle for the total wasm code.
+        pub(crate) fn make_code_merkle<Hasher: MerkleHasher>(&self) -> InstructionMerkle<Hasher> {
+            self.inner.lock().make_code_merkle()
         }
     }
 
@@ -722,15 +733,15 @@ mod proof {
         // we need to generate proof for current instruction.
         fn get_inst_prove(&self) -> Result<ProveData<Hasher>, ProofError> {
             self.static_merkle
-                .code
+                .code()
                 .prove(self.current_pc as usize)
                 .ok_or(ProofError::IllegalPc)
         }
     }
 
     impl EngineInner {
-        pub(crate) fn make_inst_merkle<Hasher: MerkleHasher>(&self) -> InstructionMerkle<Hasher> {
-            instructions_merkle(&self.code_map.insts)
+        pub(crate) fn make_code_merkle<Hasher: MerkleHasher>(&self) -> InstructionMerkle<Hasher> {
+            code_merkle(&self.code_map.insts)
         }
 
         /// Generate a instruction level proof for current pc.
@@ -742,7 +753,7 @@ mod proof {
         /// Otherwise return proof error.
         pub fn make_inst_proof<Hasher: MerkleHasher>(
             &self,
-            mut ctx: impl AsContextMut,
+            ctx: impl AsContext,
             params: InstProofParams<Hasher>,
             instance: Instance,
         ) -> Result<InstructionProof<Hasher>, ProofError> {
@@ -800,7 +811,7 @@ mod proof {
                 Instruction::GlobalSet(idx) | Instruction::GlobalGet(idx) => {
                     let idx = idx.into_inner();
                     // TODO: this should be as_context
-                    let value = cache.get_global(ctx.as_context_mut(), idx).clone();
+                    let value = cache.get_global_value(ctx.as_context(), idx).clone();
 
                     let prove_data = params
                         .instance_merkle
@@ -918,7 +929,7 @@ mod proof {
             let func_type = func.func_type(store.as_context());
             let prove_data = params
                 .static_merkle
-                .func
+                .func()
                 .prove(func_index)
                 .expect("func index in Call instruction must be legal; qed");
 
@@ -1002,6 +1013,10 @@ impl EngineInner {
     /// Returns a shared reference to the [`Config`] of the [`Engine`].
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub(crate) fn code_map(&self) -> &CodeMap {
+        &self.code_map
     }
 
     /// Allocates the instructions of a Wasm function body to the [`Engine`].

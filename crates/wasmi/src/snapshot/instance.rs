@@ -8,7 +8,7 @@ use crate::{
     MemoryType,
     TableType,
 };
-use accel_merkle::{HashOutput, MerkleHasher};
+use accel_merkle::MerkleHasher;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use wasmi_core::{Pages, ValueType};

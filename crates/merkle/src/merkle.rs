@@ -71,7 +71,7 @@ impl HashOutput for Bytes32 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct MerkleKeccak256;
 
 impl MerkleHasher for MerkleKeccak256 {

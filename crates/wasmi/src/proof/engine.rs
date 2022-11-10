@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use accel_merkle::{InstructionMerkle, MerkleHasher, ProveData};
+use accel_merkle::{MerkleHasher, ProveData};
 use wasmi_core::{TrapCode, UntypedValue};
 
 use codec::{Codec, Decode, Encode};
@@ -115,7 +115,8 @@ impl FuncNode {
         // Note: lock/unlock
         let func_type = engine.resolve_func_type(sig, Clone::clone).into();
         // Note: lock again.
-        let code_map = &engine.inner.lock().code_map;
+        let engine = engine.lock();
+        let code_map = engine.code_map();
         match f.as_internal(ctx.as_context()) {
             FuncEntityInternal::Wasm(wasm_func) => {
                 Self::from_wasm_func(wasm_func, code_map, func_type)
@@ -358,7 +359,7 @@ impl ValueStackSnapshot {
     }
 }
 
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+#[derive(Encode, Decode, Debug)]
 pub struct StackProof<T, Hasher: MerkleHasher> {
     /// The hash of entries excepting the top N.
     bottom_hash: Hasher::Output,
@@ -369,6 +370,24 @@ pub struct StackProof<T, Hasher: MerkleHasher> {
     /// The hasher.
     _hasher: core::marker::PhantomData<Hasher>,
 }
+
+impl<T: Clone, Hasher: MerkleHasher> Clone for StackProof<T, Hasher> {
+    fn clone(&self) -> Self {
+        Self {
+            bottom_hash: self.bottom_hash.clone(),
+            entries: self.entries.clone(),
+            _hasher: Default::default(),
+        }
+    }
+}
+
+impl<T: PartialEq, Hasher: MerkleHasher> PartialEq for StackProof<T, Hasher> {
+    fn eq(&self, other: &Self) -> bool {
+        self.bottom_hash.eq(&other.bottom_hash) && self.entries.eq(&other.entries)
+    }
+}
+
+impl<T: PartialEq, Hasher: MerkleHasher> Eq for StackProof<T, Hasher> {}
 
 impl<T, Hasher> StackProof<T, Hasher>
 where

@@ -42,63 +42,27 @@ pub struct InstanceEntity {
     initialized: bool,
     func_types: Arc<[DedupFuncType]>,
     tables: Box<[Table]>,
-    pub(crate) funcs: Box<[Func]>,
+    funcs: Box<[Func]>,
     memories: Box<[Memory]>,
     globals: Box<[Global]>,
     exports: BTreeMap<Box<str>, Extern>,
 }
 
-mod proof {
-    use super::*;
-    use crate::{engine::code_map::CodeMap, func::FuncEntityInternal, proof::FuncNode, Engine};
-    use accel_merkle::{FuncMerkle, MerkleHasher};
-
-    pub fn make_func_merkle<Hasher: MerkleHasher>(
-        funcs: &[Func],
-        ctx: impl AsContext,
-        engine: Engine,
-    ) -> FuncMerkle<Hasher> {
-        let hashes = funcs
-            .iter()
-            .map(|f| FuncNode::from_func(ctx.as_context(), f.clone(), engine.clone()))
-            .map(|header| header.to_hash::<Hasher>())
-            .collect();
-
-        FuncMerkle::new(hashes)
-    }
-
-    impl InstanceEntity {
-        pub(crate) fn make_func_merkle<Hasher: MerkleHasher>(
-            &self,
-            ctx: impl AsContext,
-            engine: Engine,
-        ) -> FuncMerkle<Hasher> {
-            make_func_merkle(&self.funcs, ctx, engine)
-        }
-    }
-}
-
 mod snapshot {
     use super::*;
     use crate::{
-        engine::code_map::CodeMap,
         proof::FuncNode,
         snapshot::{InstanceSnapshot, TableElementSnapshot, TableSnapshot},
         Engine,
     };
 
-    impl Instance {
-        /// Make a module level snapshot for the instance.
-        pub fn make_snapshot(&self, store: &impl AsContext, engine: Engine) -> InstanceSnapshot {
-            let ctx = store.as_context();
-            let instance = ctx.store.resolve_instance(*self);
-            instance.make_snapshot(store, engine)
-        }
-    }
-
     impl InstanceEntity {
         /// Make a module level snapshot for the instance.
-        pub fn make_snapshot(&self, ctx: impl AsContext, engine: Engine) -> InstanceSnapshot {
+        pub(crate) fn make_snapshot(
+            &self,
+            ctx: impl AsContext,
+            engine: Engine,
+        ) -> InstanceSnapshot {
             let store = ctx.as_context().store;
             let tables = self
                 .tables
@@ -203,6 +167,11 @@ impl InstanceEntity {
     /// Returns the function at the `index` if any.
     pub(crate) fn get_func(&self, index: u32) -> Option<Func> {
         self.funcs.get(index as usize).copied()
+    }
+
+    /// Returns all functions.
+    pub(crate) fn funcs(&self) -> &[Func] {
+        &*self.funcs
     }
 
     /// Returns the signature at the `index` if any.

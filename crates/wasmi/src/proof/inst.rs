@@ -9,9 +9,7 @@ use wasmi_core::UntypedValue;
 // Note: For static state(such as instructions), we just need to generate merkle once and keep it in memory.
 
 /// Generate a merkle for instructions.
-pub fn instructions_merkle<Hasher: MerkleHasher>(
-    insts: &[Instruction],
-) -> InstructionMerkle<Hasher> {
+pub fn code_merkle<Hasher: MerkleHasher>(insts: &[Instruction]) -> InstructionMerkle<Hasher> {
     InstructionMerkle::new(
         insts
             .iter()

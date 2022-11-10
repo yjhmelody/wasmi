@@ -15,7 +15,6 @@ use crate::{
     proof::{CallProof, FuncNode},
 };
 use accel_merkle::{MerkleHasher, ProveData};
-use codec::{Decode, Encode};
 use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
 
 pub const MAX_PAGE_SIZE: usize = 65536;

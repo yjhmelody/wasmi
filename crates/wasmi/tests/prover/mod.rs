@@ -26,17 +26,6 @@ fn instantiate<T>(store: &mut Store<T>, module: &Module) -> Result<Instance, Err
     Ok(instance)
 }
 
-fn restore_instantiate<T>(
-    store: &mut Store<T>,
-    module: &Module,
-    snapshot: InstanceSnapshot,
-) -> Result<Instance, Error> {
-    let mut linker = <Linker<T>>::new();
-    let pre = linker.restore_instance(store.as_context_mut(), module, snapshot)?;
-    let instance = pre.ensure_no_start(store.as_context_mut())?;
-    Ok(instance)
-}
-
 fn call_step<T>(
     store: &mut Store<T>,
     instance: Instance,
@@ -123,32 +112,39 @@ fn test_snapshot() {
         };
 
         // 2. make snapshot for instance.
-        let snapshot_instance = store.make_instance_snapshot(instance).encode();
+        let snapshot_instance = store.snapshot().make_instance(instance).encode();
         // 3. make snapshot for engine.
-        let snapshot_engine = store.make_engine_snapshot().encode();
+        let snapshot_engine = store.snapshot().make_engine().encode();
 
         // 4. decode snapshots
         let snapshot_instance = InstanceSnapshot::decode(&mut &snapshot_instance[..]).unwrap();
         let snapshot_engine = EngineSnapshot::decode(&mut &snapshot_engine[..]).unwrap();
 
+        let proof2 = store
+            .proof()
+            .make_inst_proof::<MerkleKeccak256>(pc, instance)
+            .unwrap();
         // creates new engine/store
         let engine = Engine::default();
         let mut store = Store::new(&engine, ());
         let module = setup_module(&mut store, wat).unwrap();
-        // 5. restore instance from snapshot
-        let instance = restore_instantiate(&mut store, &module, snapshot_instance).unwrap();
-        // 6. restore engine from snapshot by instance.
-        store.restore_engine(&snapshot_engine, instance);
+        // 5. restore instance and engine from snapshot by instance.
+        let linker = <Linker<()>>::new();
+        let instance = store
+            .snapshot()
+            .restore(&linker, &module, snapshot_instance, &snapshot_engine)
+            .unwrap();
 
         let mut result = vec![Value::I32(0)];
 
         let proof = store
+            .proof()
             .make_inst_proof::<MerkleKeccak256>(pc, instance)
             .unwrap();
+        assert_eq!(proof, proof2);
         println!("{:?}", proof);
 
-        // TODO: improve this api
-        // 7. run engine using previous pc.
+        // 6. run engine using previous pc.
         // we should use the restored instance.
         engine
             .execute_step_at_pc_with_result(

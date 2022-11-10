@@ -243,12 +243,16 @@ mod step {
     use crate::engine::StepResult;
 
     impl Func {
+        /// An variant method of [`Func::call`].
+        ///
+        /// This method will return early if run out of `step`.
+        /// The output will be default value if return early.
         pub fn step_call<T>(
             &self,
             mut ctx: impl AsContextMut<UserState = T>,
             inputs: &[Value],
             outputs: &mut [Value],
-            n: Option<u64>,
+            step: Option<u64>,
         ) -> Result<StepResult<()>, Error> {
             // Since [`Func`] is a dynamically typed function instance there is
             // a need to verify that the given input parameters match the required
@@ -261,19 +265,21 @@ mod step {
             if expected_inputs.iter().copied().ne(actual_inputs) {
                 return Err(FuncError::MismatchingParameters { func: *self }).map_err(Into::into);
             }
-            // TODO: step call do not support outputs
             if expected_outputs.len() != outputs.len() {
                 return Err(FuncError::MismatchingResults { func: *self }).map_err(Into::into);
             }
+            outputs
+                .iter_mut()
+                .zip(expected_outputs.iter().copied().map(Value::default))
+                .for_each(|(output, expected_output)| *output = expected_output);
             // Note: Cloning an [`Engine`] is intentionally a cheap operation.
             let res = ctx
                 .as_context()
                 .store
                 .engine()
                 .clone()
-                .inner
                 .lock()
-                .execute_func_step(ctx.as_context_mut(), *self, inputs, outputs, n)?;
+                .execute_func_step(ctx.as_context_mut(), *self, inputs, outputs, step)?;
             Ok(match res {
                 StepResult::Results(_r) => StepResult::Results(()),
                 StepResult::RunOutOfStep(pc) => StepResult::RunOutOfStep(pc),

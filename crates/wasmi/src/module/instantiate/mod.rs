@@ -395,7 +395,6 @@ mod snapshot {
             self.restore_globals(&mut context, &mut builder, snapshot.globals.into_iter());
 
             self.extract_exports(&mut builder);
-            // TODO: check `initialized`
             Ok(InstancePre::new(handle, builder))
         }
 

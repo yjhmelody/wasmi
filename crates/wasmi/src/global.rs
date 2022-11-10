@@ -314,4 +314,9 @@ impl Global {
             .resolve_global_mut(*self)
             .get_untyped_ptr()
     }
+
+    /// Returns the untyped value of the global variable.
+    pub(crate) fn get_untyped_value(&self, ctx: impl AsContext) -> UntypedValue {
+        ctx.as_context().store.resolve_global(*self).value
+    }
 }

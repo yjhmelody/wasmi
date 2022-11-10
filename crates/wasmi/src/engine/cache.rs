@@ -137,7 +137,7 @@ impl InstanceCache {
     /// # Note
     ///
     /// - This is important when operations such as `memory.grow` have
-    ///   occured that might have invalidated the cached memory.
+    ///   occurred that might have invalidated the cached memory.
     /// - Conservatively it is also recommended to reset default memory bytes
     ///   when calling a host function since that might invalidate linear memory
     ///   without the Wasm engine knowing.
@@ -211,6 +211,22 @@ impl InstanceCache {
         global
     }
 
+    /// Loads the value of the global variable at `index`
+    /// of the currently used [`Instance`].
+    fn load_global_value_at(&mut self, ctx: impl AsContext, index: u32) -> UntypedValue {
+        self.instance()
+            .get_global(ctx.as_context(), index)
+            .map_or_else(
+                || {
+                    panic!(
+                        "missing global variable at index {index} for instance: {:?}",
+                        self.instance
+                    )
+                },
+                |g| g.get_untyped_value(ctx),
+            )
+    }
+
     /// Returns a pointer to the value of the global variable at `index`
     /// of the currently used [`Instance`].
     ///
@@ -226,6 +242,15 @@ impl InstanceCache {
         //         as long as we are sure that nothing else can manipulate
         //         the global in a way that would invalidate the pointer.
         unsafe { ptr.as_mut() }
+    }
+
+    /// Returns the value of the global variable at `index`
+    /// of the currently used [`Instance`].
+    pub fn get_global_value(&mut self, ctx: impl AsContext, global_idx: u32) -> UntypedValue {
+        match self.last_global {
+            Some((index, global)) if index == global_idx => *unsafe { global.as_ref() },
+            _ => self.load_global_value_at(ctx, global_idx),
+        }
     }
 }
 

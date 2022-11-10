@@ -262,24 +262,6 @@ impl<T> Default for Linker<T> {
     }
 }
 
-mod snapshot {
-    use super::*;
-    use crate::snapshot::InstanceSnapshot;
-
-    impl<T> Linker<T> {
-        /// Restore a wasm instance by snapshot.
-        pub fn restore_instance(
-            &mut self,
-            mut context: impl AsContextMut,
-            module: &Module,
-            snapshot: InstanceSnapshot,
-        ) -> Result<InstancePre, Error> {
-            let externals = self.extract_externals(context.as_context_mut(), module)?;
-            module.restore_instance(context, externals, snapshot)
-        }
-    }
-}
-
 impl<T> Linker<T> {
     /// Creates a new linker.
     pub fn new() -> Self {
@@ -288,6 +270,21 @@ impl<T> Linker<T> {
             definitions: BTreeMap::default(),
             marker: PhantomData,
         }
+    }
+
+    /// Restore a wasm instance by snapshot.
+    ///
+    /// # Notes
+    ///
+    /// User should keep the wasm consistency.
+    pub(crate) fn restore_instance(
+        &self,
+        mut context: impl AsContextMut,
+        module: &Module,
+        snapshot: crate::snapshot::InstanceSnapshot,
+    ) -> Result<InstancePre, Error> {
+        let externals = self.extract_externals(context.as_context_mut(), module)?;
+        module.restore_instance(context, externals, snapshot)
     }
 
     /// Define a new item in this [`Linker`].

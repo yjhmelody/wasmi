@@ -7,7 +7,7 @@ pub use engine::*;
 pub use inst::*;
 pub use instance::*;
 
-use crate::snapshot::{FuncType, InstanceSnapshot};
+use crate::{snapshot::InstanceSnapshot, AsContext, Engine, Func};
 use accel_merkle::{
     FuncMerkle,
     GlobalMerkle,
@@ -16,7 +16,6 @@ use accel_merkle::{
     MerkleHasher,
     TableMerkle,
 };
-use codec::{Decode, Encode};
 
 // TODO: consider functions type as merkle
 
@@ -57,15 +56,41 @@ pub struct StaticMerkle<Hasher>
 where
     Hasher: MerkleHasher,
 {
-    pub(crate) code: InstructionMerkle<Hasher>,
-    pub(crate) func: FuncMerkle<Hasher>,
+    code: InstructionMerkle<Hasher>,
+    func: FuncMerkle<Hasher>,
 }
 
-pub fn make_func_merkle<Hasher: MerkleHasher>(
-    func_types: impl Iterator<Item = FuncType>,
+impl<Hasher> StaticMerkle<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    pub(crate) fn code(&self) -> &InstructionMerkle<Hasher> {
+        &self.code
+    }
+    pub(crate) fn func(&self) -> &FuncMerkle<Hasher> {
+        &self.func
+    }
+
+    /// Creates static merkle components.
+    pub(crate) fn create(ctx: impl AsContext, funcs: &[Func], engine: Engine) -> Self {
+        let code = engine.make_code_merkle();
+        let func = make_func_merkle(ctx, funcs, engine.clone());
+
+        Self { code, func }
+    }
+}
+
+pub(crate) fn make_func_merkle<Hasher: MerkleHasher>(
+    ctx: impl AsContext,
+    funcs: &[Func],
+    engine: Engine,
 ) -> FuncMerkle<Hasher> {
-    let hashes: Vec<_> = func_types.map(|f| f.to_hash::<Hasher>()).collect();
-    assert!(hashes.len() > 0);
+    let hashes = funcs
+        .iter()
+        .map(|f| FuncNode::from_func(ctx.as_context(), f.clone(), engine.clone()))
+        .map(|header| header.to_hash::<Hasher>())
+        .collect();
+
     FuncMerkle::new(hashes)
 }
 
