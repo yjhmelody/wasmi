@@ -277,7 +277,7 @@ mod snapshot {
                 })
                 .collect();
 
-            let entries = stack.values.entries().into_iter().copied().collect();
+            let entries = stack.values.entries().to_vec();
             EngineSnapshot {
                 config: EngineConfig {
                     maximum_recursion_depth,
@@ -311,7 +311,7 @@ mod snapshot {
             );
 
             snapshot.values.entries.iter().for_each(|val| {
-                values.push(val.clone());
+                values.push(*val);
             });
             self.stack.values = values;
 
@@ -346,7 +346,6 @@ mod step {
     pub enum StepResult<Results> {
         /// The results of step call.
         Results(Results),
-        // TODO: pass result by params
         /// engine stopped at current pc.
         RunOutOfStep(u32),
     }
@@ -363,12 +362,7 @@ mod step {
         ///
         /// # Errors
         ///
-        /// - If the given `func` is not a Wasm function, e.g. if it is a host function.
-        /// - If the given arguments `params` do not match the expected parameters of `func`.
-        /// - If the given `results` do not match the the length of the expected results of `func`.
-        /// - When encountering a Wasm trap during the execution of `func`.
-        ///
-        /// [`TypedFunc`]: [`crate::TypedFunc`]
+        /// Same with [`Engine::execute_func_step`].
         pub fn execute_func_step<Params, Results>(
             &self,
             ctx: impl AsContextMut,
@@ -387,6 +381,15 @@ mod step {
         }
 
         /// Executes the code start from a pc.
+        ///
+        /// # Note
+        ///
+        /// User must know the wasm state is stopped at current pc before.
+        /// Otherwise it will run a bad program instruction.
+        ///
+        /// # Errors
+        ///
+        /// Same with [`Engine::execute_func_step`].
         pub fn execute_step_at_pc(
             &self,
             ctx: impl AsContextMut,
@@ -397,6 +400,17 @@ mod step {
             self.execute_step_at_pc_with_result(ctx, pc, instance, (), step)
         }
 
+        /// Executes the code start from a pc.
+        /// But do not care about the result.
+        ///
+        /// # Note
+        ///
+        /// User must know the wasm state is stopped at current pc before.
+        /// Otherwise it will run a bad program instruction.
+        ///
+        /// # Errors
+        ///
+        /// Same with [`Engine::execute_func_step`].
         pub fn execute_step_at_pc_with_result<Results>(
             &self,
             ctx: impl AsContextMut,
@@ -585,12 +599,14 @@ mod step {
                         &mut cache,
                         step,
                     )?;
-                    return Ok(info);
+
+                    Ok(info)
                 }
                 FuncEntityInternal::Host(host_func) => {
                     let host_func = host_func.clone();
                     self.stack
                         .call_host_root(ctx.as_context_mut(), host_func, &self.func_types)?;
+
                     Ok(StepResult::Results(()))
                 }
             }
@@ -810,8 +826,7 @@ mod proof {
                 }
                 Instruction::GlobalSet(idx) | Instruction::GlobalGet(idx) => {
                     let idx = idx.into_inner();
-                    // TODO: this should be as_context
-                    let value = cache.get_global_value(ctx.as_context(), idx).clone();
+                    let value = cache.get_global_value(ctx.as_context(), idx);
 
                     let prove_data = params
                         .instance_merkle
@@ -971,7 +986,7 @@ mod proof {
 
         /// Get memory offset from stack.
         fn get_memory_index(&self, offset: Offset, is_store: bool) -> usize {
-            let offset = offset.into_inner() as u64;
+            let offset = u64::from(offset.into_inner());
             let entries = self.stack.values.entries();
             let len = self.stack.values.len();
             let base = if is_store {

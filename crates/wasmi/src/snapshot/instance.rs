@@ -1,6 +1,7 @@
 //! Module instance level snapshot.
 
 use crate::{
+    errors::MemoryError,
     memory::ByteBuffer,
     proof::FuncNode,
     GlobalEntity,
@@ -8,47 +9,20 @@ use crate::{
     MemoryType,
     TableType,
 };
-use accel_merkle::MerkleHasher;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use wasmi_core::{Pages, ValueType};
 
-/// The state has two purpose:
-/// 1. Generate merkle proof.
-/// 2. Generate instruction level state.
+/// The wasm state snapshot of instance component.
 #[derive(Clone, Encode, Decode)]
 pub struct InstanceSnapshot {
+    /// All global values.
     pub globals: Vec<GlobalEntity>,
+    /// All memory states.
     pub memories: Vec<MemorySnapshot>,
+    /// All table states.
     pub tables: Vec<TableSnapshot>,
 }
-
-// /// A global variable entity.
-// #[derive(Clone, Eq, PartialEq, Encode, Decode)]
-// pub struct GlobalSnapshot {
-//     /// The current untyped value of the global variable.
-//     pub value: u64,
-//     /// The value type of the global variable.
-//     pub value_type: ValueType,
-//     /// The mutability of the global variable.
-//     pub is_mutable: bool,
-// }
-//
-// impl From<GlobalEntity> for GlobalSnapshot {
-//     fn from(global: GlobalEntity) -> Self {
-//         Self::from(&global)
-//     }
-// }
-//
-// impl From<&GlobalEntity> for GlobalSnapshot {
-//     fn from(global: &GlobalEntity) -> Self {
-//         Self {
-//             value: global.get_untyped().to_bits(),
-//             value_type: global.value_type(),
-//             is_mutable: global.is_mutable(),
-//         }
-//     }
-// }
 
 /// A linear memory entity.
 #[derive(Clone, Eq, PartialEq, Encode, Decode)]
@@ -65,20 +39,26 @@ pub struct MemoryTypeSnapshot {
     pub maximum_pages: Option<u32>,
 }
 
-// TODO: use TryFrom and define error type.
-impl From<MemoryTypeSnapshot> for MemoryType {
-    fn from(t: MemoryTypeSnapshot) -> Self {
-        Self::new(t.initial_pages, t.maximum_pages).expect("Always be valid; qed")
+impl TryFrom<MemoryTypeSnapshot> for MemoryType {
+    type Error = MemoryError;
+
+    fn try_from(t: MemoryTypeSnapshot) -> Result<Self, Self::Error> {
+        Self::new(t.initial_pages, t.maximum_pages)
     }
 }
 
-impl From<MemorySnapshot> for MemoryEntity {
-    fn from(t: MemorySnapshot) -> Self {
-        Self {
-            bytes: ByteBuffer { bytes: t.bytes },
-            memory_type: t.memory_type.into(),
-            current_pages: Pages(t.current_pages),
-        }
+impl TryFrom<MemorySnapshot> for MemoryEntity {
+    type Error = MemoryError;
+
+    fn try_from(mem: MemorySnapshot) -> Result<Self, Self::Error> {
+        Ok(Self {
+            bytes: ByteBuffer { bytes: mem.bytes },
+            memory_type: MemoryType::new(
+                mem.memory_type.initial_pages,
+                mem.memory_type.maximum_pages,
+            )?,
+            current_pages: Pages(mem.current_pages),
+        })
     }
 }
 
@@ -87,7 +67,7 @@ impl From<MemoryEntity> for MemorySnapshot {
         Self {
             memory_type: MemoryTypeSnapshot {
                 initial_pages: mem.memory_type().initial_pages().into_inner(),
-                maximum_pages: mem.memory_type().maximum_pages().map(|x| x.into_inner()),
+                maximum_pages: mem.memory_type().maximum_pages().map(Pages::into_inner),
             },
             current_pages: mem.current_pages.into_inner(),
             bytes: mem.bytes.bytes,
@@ -95,7 +75,6 @@ impl From<MemoryEntity> for MemorySnapshot {
     }
 }
 
-// TODO: need to store type info for elements
 /// A table snapshot.
 #[derive(Debug, Eq, PartialEq, Clone, Encode, Decode)]
 pub struct TableSnapshot {
@@ -120,13 +99,6 @@ pub struct FuncType {
     pub params: Vec<ValueType>,
     /// The return types.
     pub results: Vec<ValueType>,
-}
-
-impl FuncType {
-    /// Creates a func type hash for merkle leaf.
-    pub fn to_hash<Hasher: MerkleHasher>(&self) -> Hasher::Output {
-        Hasher::hash_of(self)
-    }
 }
 
 impl From<crate::FuncType> for FuncType {

@@ -247,6 +247,10 @@ mod step {
         ///
         /// This method will return early if run out of `step`.
         /// The output will be default value if return early.
+        ///
+        /// # Errors
+        ///
+        /// Same with [`Func::call`].
         pub fn step_call<T>(
             &self,
             mut ctx: impl AsContextMut<UserState = T>,

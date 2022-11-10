@@ -147,7 +147,7 @@ mod snapshot {
             engine: &EngineSnapshot,
         ) -> Result<Instance, Error> {
             let pre = linker.restore_instance(self.as_context_mut(), module, instance)?;
-            let instance = pre.no_start(self.as_context_mut())?;
+            let instance = pre.no_start(self.as_context_mut());
             self.restore_engine(engine, instance)?;
             Ok(instance)
         }

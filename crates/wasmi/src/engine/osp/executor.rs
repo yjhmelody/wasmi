@@ -299,7 +299,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     }
 
     fn prove_inst(&mut self) -> Result<()> {
-        let inst_hash = self.inst.to_hash::<Hasher::Output>();
+        let inst_hash = self.inst.hash::<Hasher::Output>();
         let inst_root = self.inst_prove.compute_root(self.pc() as usize, inst_hash);
         if inst_root != *self.inst_root {
             Err(ExecError::IllegalInstruction)
@@ -357,11 +357,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     }
 
     fn visit_local_tee(&mut self, local_depth: LocalDepth) -> Result<()> {
-        let new_value = self
-            .value_stack
-            .last()
-            .ok_or(ExecError::EmptyValueStack)?
-            .clone();
+        let new_value = *self.value_stack.last().ok_or(ExecError::EmptyValueStack)?;
         let local = self
             .value_stack
             .peek_mut(local_depth.into_inner())
@@ -392,8 +388,6 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         Ok(())
     }
 
-    // TODO: still need to design.
-    // TODO: Need to prove this index is valid
     fn visit_call(&mut self, func_index: FuncIdx) -> Result<()> {
         let func_index = func_index.into_inner();
         let pc = self.pc();
@@ -435,7 +429,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     }
 
     fn ensure_call_proof(&self, func_index: u32, proof: &CallProof<Hasher>) -> Result<()> {
-        let leaf_hash = proof.func.to_hash::<Hasher>();
+        let leaf_hash = proof.func.hash::<Hasher>();
         let root = proof
             .prove_data
             .compute_root(func_index as usize, leaf_hash);
@@ -472,7 +466,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
 
     fn get_pc_from_call_proof(proof: &CallProof<Hasher>) -> Result<u32> {
         match &proof.func {
-            FuncNode::Host(..) => return Err(ExecError::IllegalExtraProof),
+            FuncNode::Host(..) => Err(ExecError::IllegalExtraProof),
             FuncNode::Wasm(header) => Ok(header.pc),
         }
     }
@@ -493,7 +487,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         match &self.extra {
             ExtraProof::GlobalGetSet(proof) => {
                 let idx = global_index.into_inner() as usize;
-                let global = proof.value.clone();
+                let global = proof.value;
                 let leaf_hash = value_hash::<Hasher>(global);
 
                 // prove old globals root before using global value.
@@ -673,7 +667,6 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         self.memory_roots[0] = memory_root;
     }
 
-    // TODO: reduce this code.
     /// Loads a value of type `T` from the default memory at the given address offset.
     ///
     /// # Note
@@ -730,9 +723,8 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
 
                 let mut bytes = <<T as LittleEndianConvert>::Bytes as Default>::default();
                 proof.read(address, bytes.as_mut());
-                let value = <T as LittleEndianConvert>::from_le_bytes(bytes).extend_into();
 
-                value
+                <T as LittleEndianConvert>::from_le_bytes(bytes).extend_into()
             }
 
             ExtraProof::MemoryChunkSibling(proof) => {
@@ -742,9 +734,8 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
 
                 let mut bytes = <<T as LittleEndianConvert>::Bytes as Default>::default();
                 proof.read(address, bytes.as_mut());
-                let value = <T as LittleEndianConvert>::from_le_bytes(bytes).extend_into();
 
-                value
+                <T as LittleEndianConvert>::from_le_bytes(bytes).extend_into()
             }
             _ => return Err(ExecError::IllegalExtraProof),
         };

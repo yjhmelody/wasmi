@@ -17,8 +17,6 @@ use accel_merkle::{
     TableMerkle,
 };
 
-// TODO: consider functions type as merkle
-
 /// All proof data for an instance at a checkpoint.
 #[derive(Debug)]
 pub struct InstanceProof<Hasher>
@@ -64,31 +62,32 @@ impl<Hasher> StaticMerkle<Hasher>
 where
     Hasher: MerkleHasher,
 {
-    pub(crate) fn code(&self) -> &InstructionMerkle<Hasher> {
-        &self.code
-    }
-    pub(crate) fn func(&self) -> &FuncMerkle<Hasher> {
-        &self.func
-    }
-
     /// Creates static merkle components.
     pub(crate) fn create(ctx: impl AsContext, funcs: &[Func], engine: Engine) -> Self {
         let code = engine.make_code_merkle();
-        let func = make_func_merkle(ctx, funcs, engine.clone());
+        let func = make_func_merkle(ctx, funcs, engine);
 
         Self { code, func }
     }
+
+    pub(crate) fn code(&self) -> &InstructionMerkle<Hasher> {
+        &self.code
+    }
+
+    pub(crate) fn func(&self) -> &FuncMerkle<Hasher> {
+        &self.func
+    }
 }
 
-pub(crate) fn make_func_merkle<Hasher: MerkleHasher>(
+fn make_func_merkle<Hasher: MerkleHasher>(
     ctx: impl AsContext,
     funcs: &[Func],
     engine: Engine,
 ) -> FuncMerkle<Hasher> {
     let hashes = funcs
         .iter()
-        .map(|f| FuncNode::from_func(ctx.as_context(), f.clone(), engine.clone()))
-        .map(|header| header.to_hash::<Hasher>())
+        .map(|f| FuncNode::from_func(ctx.as_context(), *f, engine.clone()))
+        .map(|header| header.hash::<Hasher>())
         .collect();
 
     FuncMerkle::new(hashes)
@@ -98,6 +97,7 @@ impl<Hasher> InstanceProof<Hasher>
 where
     Hasher: MerkleHasher,
 {
+    /// Creates an instance proof by snapshot.
     pub fn create_by_snapshot(instance: InstanceSnapshot) -> Self {
         Self {
             globals: instance.global_merkle(),

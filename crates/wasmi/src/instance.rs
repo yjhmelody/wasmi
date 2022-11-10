@@ -68,24 +68,19 @@ mod snapshot {
                 .tables
                 .iter()
                 .map(|table| {
-                    let table = store.resolve_table(table.clone());
-                    // TODO: maybe it's better to downgrade it to O(n)
+                    let table = store.resolve_table(*table);
                     let elements = table
                         .elements()
                         .iter()
                         .map(|elem| match elem {
                             None => TableElementSnapshot::Empty,
                             Some(func) => {
-                                let func_node = FuncNode::from_func(
-                                    ctx.as_context(),
-                                    func.clone(),
-                                    engine.clone(),
-                                );
+                                let func_node =
+                                    FuncNode::from_func(ctx.as_context(), *func, engine.clone());
                                 let func_index = self
                                     .funcs
                                     .binary_search(func)
                                     .expect("function ref in table must exist in funcs");
-                                // TODO: also need to get func type info.
                                 TableElementSnapshot::FuncIndex(func_index as u32, func_node)
                             }
                         })
@@ -102,7 +97,7 @@ mod snapshot {
                 .memories
                 .iter()
                 .map(|mem| {
-                    let mem = store.resolve_memory(mem.clone()).clone();
+                    let mem = store.resolve_memory(*mem).clone();
                     mem.into()
                 })
                 .collect();
@@ -111,15 +106,15 @@ mod snapshot {
                 .globals
                 .iter()
                 .map(|global| {
-                    let global = store.resolve_global(global.clone());
+                    let global = store.resolve_global(*global);
                     global.clone()
                 })
                 .collect();
 
             InstanceSnapshot {
-                tables,
-                memories,
                 globals,
+                memories,
+                tables,
             }
         }
     }
@@ -171,7 +166,7 @@ impl InstanceEntity {
 
     /// Returns all functions.
     pub(crate) fn funcs(&self) -> &[Func] {
-        &*self.funcs
+        &self.funcs
     }
 
     /// Returns the signature at the `index` if any.

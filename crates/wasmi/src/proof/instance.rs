@@ -13,7 +13,6 @@ pub const MEMORY_LEAF_SIZE: usize = 32;
 /// 1 + log2(2^32 / LEAF_SIZE) = 1 + log2(2^(32 - log2(LEAF_SIZE))) = 1 + 32 - 5
 const MEMORY_LAYERS: usize = 1 + 32 - 5;
 
-// TODO: maybe need to redesign
 /// hash the memory bytes.
 pub fn hash_memory_leaf<Hasher: MerkleHasher>(bytes: [u8; MEMORY_LEAF_SIZE]) -> Hasher::Output {
     Hasher::hash(&bytes)
@@ -97,7 +96,6 @@ impl MemorySnapshot {
     where
         Hasher: MerkleHasher,
     {
-        // TODO: maybe we do not need to hash byte32 leaf twice.
         // Round the size up to 32 bytes size leaves, then round up to the next power of two number of leaves
         let leaves = round_up_to_power_of_two(div_round_up(self.bytes.len(), MEMORY_LEAF_SIZE));
         let mut leaf_hashes: Vec<Hasher::Output> = self
@@ -115,7 +113,6 @@ impl MemorySnapshot {
         }
         MemoryMerkle::new_advanced(
             leaf_hashes,
-            // TODO: should we relly use this as empty hash?
             hash_memory_leaf::<Hasher>([0u8; MEMORY_LEAF_SIZE]),
             MEMORY_LAYERS,
         )

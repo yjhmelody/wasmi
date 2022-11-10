@@ -390,7 +390,10 @@ mod snapshot {
             self.restore_memories(
                 &mut context,
                 &mut builder,
-                snapshot.memories.into_iter().map(Into::into),
+                snapshot
+                    .memories
+                    .into_iter()
+                    .map(|mem| mem.try_into().expect("The memory type must be legal; qed")),
             );
             self.restore_globals(&mut context, &mut builder, snapshot.globals.into_iter());
 
@@ -447,7 +450,7 @@ mod snapshot {
                         TableElementSnapshot::Empty => None,
                         TableElementSnapshot::FuncIndex(func_index, _func_type) => {
                             // TODO: maybe do check for func_type.
-                            let func = builder.get_func(func_index.clone());
+                            let func = builder.get_func(*func_index);
                             // assert_eq!(func.func_type(context).into(), *func_type);
                             Some(func)
                         }

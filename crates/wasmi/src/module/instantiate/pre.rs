@@ -78,15 +78,15 @@ impl InstancePre {
         if let Some(index) = self.start_fn() {
             return Err(InstantiationError::FoundStartFn { index });
         }
-        self.no_start(context)
+        Ok(self.no_start(context))
     }
 
     /// Finishes instantiation but not check and run `start` function.
-    pub fn no_start(self, mut context: impl AsContextMut) -> Result<Instance, InstantiationError> {
+    pub fn no_start(self, mut context: impl AsContextMut) -> Instance {
         context
             .as_context_mut()
             .store
             .initialize_instance(self.handle, self.builder.finish());
-        Ok(self.handle)
+        self.handle
     }
 }

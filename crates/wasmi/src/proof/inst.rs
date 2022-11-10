@@ -10,12 +10,7 @@ use wasmi_core::UntypedValue;
 
 /// Generate a merkle for instructions.
 pub fn code_merkle<Hasher: MerkleHasher>(insts: &[Instruction]) -> InstructionMerkle<Hasher> {
-    InstructionMerkle::new(
-        insts
-            .iter()
-            .map(|i| i.to_hash::<Hasher::Output>())
-            .collect(),
-    )
+    InstructionMerkle::new(insts.iter().map(Instruction::hash).collect())
 }
 
 impl Decode for Instruction {
@@ -449,7 +444,7 @@ impl Instruction {
     /// # Panic
     ///
     /// If the Hash length is less than the length of encoded instruction.
-    pub fn to_hash<T: HashOutput>(&self) -> T {
+    pub fn hash<T: HashOutput>(&self) -> T {
         // Variable length encoding according to the concrete instruction.
         let bytes = self.encode();
         let mut b = vec![0u8; T::LENGTH];

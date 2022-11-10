@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
+use std::marker::PhantomData;
 
 use accel_merkle::{MerkleHasher, ProveData};
 use wasmi_core::{TrapCode, UntypedValue};
@@ -29,7 +30,6 @@ impl EngineSnapshot {
         &self,
         cur_inst: Instruction,
     ) -> Option<EngineProof<Hasher>> {
-        // TODO(optimization): arb always use 3 for most instructions.
         let remain_size = match cur_inst {
             Instruction::LocalTee { local_depth }
             | Instruction::LocalSet { local_depth }
@@ -139,7 +139,7 @@ impl FuncNode {
 
 impl FuncNode {
     /// Creates a func hash for merkle node.
-    pub fn to_hash<Hasher: MerkleHasher>(&self) -> Hasher::Output {
+    pub fn hash<Hasher: MerkleHasher>(&self) -> Hasher::Output {
         Hasher::hash_of(self)
     }
 }
@@ -243,7 +243,7 @@ where
         let second_root = self.prove_data.compute_root(next_index, parent_hash);
 
         if first_root != second_root {
-            return None;
+            None
         } else {
             Some(first_root)
         }
@@ -350,7 +350,7 @@ impl ValueStackSnapshot {
         let len = self.entries.len() - keep_len;
         let (bottoms, tops) = self.entries.split_at(len);
         let bottom_hash = hash_value_stack::<Hasher>(bottoms, Default::default());
-        let entries = tops.iter().copied().collect();
+        let entries = tops.to_vec();
 
         Some(ValueStackProof(StackProof::<_, Hasher>::new(
             entries,
@@ -376,7 +376,7 @@ impl<T: Clone, Hasher: MerkleHasher> Clone for StackProof<T, Hasher> {
         Self {
             bottom_hash: self.bottom_hash.clone(),
             entries: self.entries.clone(),
-            _hasher: Default::default(),
+            _hasher: PhantomData,
         }
     }
 }
@@ -398,7 +398,7 @@ where
         Self {
             entries,
             bottom_hash,
-            _hasher: Default::default(),
+            _hasher: PhantomData,
         }
     }
 
@@ -533,7 +533,7 @@ impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
         if keep == 0 {
             // Bail out early when there are no values to keep.
         } else if keep == 1 {
-            let last = self.0.last()?.clone();
+            let last = *self.0.last()?;
             let len = self.0.entries.len();
             if len < 1 + drop {
                 // Illegal
@@ -669,7 +669,7 @@ impl CallStackSnapshot {
         let len = self.frames.len().saturating_sub(keep_len);
         let (bottoms, tops) = self.frames.split_at(len);
         let bottom_hash = hash_call_stack::<Hasher>(bottoms, Default::default());
-        let entries = tops.iter().map(|f| f.clone()).collect();
+        let entries = tops.to_vec();
 
         CallStackProof {
             remaining_depth: len as u32,

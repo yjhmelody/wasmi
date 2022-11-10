@@ -116,7 +116,6 @@ pub struct FuncType;
 pub type FuncMerkle<Hasher> = Merkle<FuncType, Hasher>;
 impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for FuncType {}
 
-// TODO: it's altered from arb. Should be generalized to be a good crate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Merkle<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> {
     _type: core::marker::PhantomData<T>,
@@ -189,7 +188,8 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
         empty_hash: Hasher::Output,
         min_depth: usize,
     ) -> Self {
-        assert!(hashes.len() > 0);
+        assert!(!hashes.is_empty());
+
         let mut layers = vec![hashes];
         let mut empty_layers = vec![empty_hash];
         while layers.last().unwrap().len() > 1 || layers.len() < min_depth {
