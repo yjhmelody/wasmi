@@ -993,9 +993,8 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
             .try_eval_top(f)
             .ok_or(ExecError::InsufficientValueStack)?;
 
-        match res {
-            Ok(()) => {}
-            Err(_trap) => return self.set_trapped(),
+        if let Err(_trap) = res {
+            return self.set_trapped();
         }
 
         self.next_pc();
@@ -1017,11 +1016,9 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
             .value_stack
             .try_eval_top2(f)
             .ok_or(ExecError::InsufficientValueStack)?;
-        match res {
-            Ok(()) => {}
-            Err(_trap) => {
-                return Ok(());
-            }
+
+        if let Err(_trap) = res {
+            return self.set_trapped();
         }
 
         self.next_pc();
