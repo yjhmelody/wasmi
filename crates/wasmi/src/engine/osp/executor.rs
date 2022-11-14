@@ -278,10 +278,6 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
             Instr::F64ConvertI64S => self.visit_f64_convert_i64(),
             Instr::F64ConvertI64U => self.visit_f64_convert_u64(),
             Instr::F64PromoteF32 => self.visit_f64_promote_f32(),
-            Instr::I32ReinterpretF32 => self.visit_i32_reinterpret_f32(),
-            Instr::I64ReinterpretF64 => self.visit_i64_reinterpret_f64(),
-            Instr::F32ReinterpretI32 => self.visit_f32_reinterpret_i32(),
-            Instr::F64ReinterpretI64 => self.visit_f64_reinterpret_i64(),
             Instr::I32TruncSatF32S => self.visit_i32_trunc_sat_f32(),
             Instr::I32TruncSatF32U => self.visit_u32_trunc_sat_f32(),
             Instr::I32TruncSatF64S => self.visit_i32_trunc_sat_f64(),
@@ -965,16 +961,6 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         Ok(())
     }
 
-    fn execute_reinterpret<T, U>(&mut self) -> Result<()>
-    where
-        UntypedValue: From<U>,
-        T: From<UntypedValue>,
-    {
-        // Nothing to do for `wasmi` bytecode.
-        self.next_pc();
-        Ok(())
-    }
-
     fn execute_unary(&mut self, f: fn(UntypedValue) -> UntypedValue) -> Result<()> {
         self.value_stack
             .eval_top(f)
@@ -1499,22 +1485,6 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
 
     fn visit_f64_promote_f32(&mut self) -> Result<()> {
         self.execute_unary(UntypedValue::f64_promote_f32)
-    }
-
-    fn visit_i32_reinterpret_f32(&mut self) -> Result<()> {
-        self.execute_reinterpret::<F32, i32>()
-    }
-
-    fn visit_i64_reinterpret_f64(&mut self) -> Result<()> {
-        self.execute_reinterpret::<F64, i64>()
-    }
-
-    fn visit_f32_reinterpret_i32(&mut self) -> Result<()> {
-        self.execute_reinterpret::<i32, F32>()
-    }
-
-    fn visit_f64_reinterpret_i64(&mut self) -> Result<()> {
-        self.execute_reinterpret::<i64, F64>()
     }
 
     fn visit_i32_sign_extend8(&mut self) -> Result<()> {

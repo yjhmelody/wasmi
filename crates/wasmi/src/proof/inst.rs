@@ -151,10 +151,6 @@ impl Decode for Instruction {
             0xB9 => Instruction::F64ConvertI64S,
             0xBA => Instruction::F64ConvertI64U,
             0xBB => Instruction::F64PromoteF32,
-            0xBC => Instruction::I32ReinterpretF32,
-            0xBD => Instruction::I64ReinterpretF64,
-            0xBE => Instruction::F32ReinterpretI32,
-            0xBF => Instruction::F64ReinterpretI64,
 
             0xC0 => Instruction::I32Extend8S,
             0xC1 => Instruction::I32Extend16S,
@@ -362,10 +358,6 @@ impl Encode for Instruction {
             | Instruction::F64ConvertI64S
             | Instruction::F64ConvertI64U
             | Instruction::F64PromoteF32
-            | Instruction::I32ReinterpretF32
-            | Instruction::I64ReinterpretF64
-            | Instruction::F32ReinterpretI32
-            | Instruction::F64ReinterpretI64
             | Instruction::I32Extend8S
             | Instruction::I32Extend16S
             | Instruction::I64Extend8S
@@ -626,10 +618,6 @@ impl Instruction {
             Instruction::F64ConvertI64S => 0xB9,
             Instruction::F64ConvertI64U => 0xBA,
             Instruction::F64PromoteF32 => 0xBB,
-            Instruction::I32ReinterpretF32 => 0xBC,
-            Instruction::I64ReinterpretF64 => 0xBD,
-            Instruction::F32ReinterpretI32 => 0xBE,
-            Instruction::F64ReinterpretI64 => 0xBF,
 
             Instruction::I32Extend8S => 0xC0,
             Instruction::I32Extend16S => 0xC1,

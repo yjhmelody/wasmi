@@ -376,17 +376,6 @@ impl<T> Linker<T> {
         module.instantiate(context, externals)
     }
 
-    fn extract_externals(
-        &self,
-        mut context: impl AsContextMut,
-        module: &Module,
-    ) -> Result<Vec<Extern>, Error> {
-        module
-            .imports()
-            .map(|import| self.process_import(&mut context, import))
-            .collect::<Result<Vec<Extern>, Error>>()
-    }
-
     /// Processes a single [`Module`] import.
     ///
     /// # Errors
@@ -446,5 +435,16 @@ impl<T> Linker<T> {
                 Ok(Extern::Global(global))
             }
         }
+    }
+
+    fn extract_externals(
+        &self,
+        mut context: impl AsContextMut,
+        module: &Module,
+    ) -> Result<Vec<Extern>, Error> {
+        module
+            .imports()
+            .map(|import| self.process_import(&mut context, import))
+            .collect::<Result<Vec<Extern>, Error>>()
     }
 }
