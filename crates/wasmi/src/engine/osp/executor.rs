@@ -336,6 +336,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
             .peek(local_depth.into_inner())
             .ok_or(ExecError::InsufficientValueStack)?;
         self.value_stack.push(value);
+
         self.next_pc();
         Ok(())
     }
@@ -380,6 +381,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
             .checked_add(normalized_index)
             .and_then(|pc| pc.checked_add(1))
             .ok_or(ExecError::BranchToIllegalPc)?;
+
         self.set_pc(new_pc);
         Ok(())
     }
@@ -416,6 +418,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
             ExtraProof::CallIndirectWasm(proof) => {
                 let new_pc = Self::get_pc_from_call_proof(proof)?;
                 self.ensure_call_indirect_proof(func_index, proof)?;
+
                 // update the current frame pc
                 self.set_pc(new_pc);
                 Ok(())
@@ -468,11 +471,17 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     }
 
     fn visit_global_get(&mut self, global_index: GlobalIdx) -> Result<()> {
-        self.visit_global_set_get(global_index, false)
+        self.visit_global_set_get(global_index, false)?;
+
+        self.next_pc();
+        Ok(())
     }
 
     fn visit_global_set(&mut self, global_index: GlobalIdx) -> Result<()> {
-        self.visit_global_set_get(global_index, true)
+        self.visit_global_set_get(global_index, true)?;
+
+        self.next_pc();
+        Ok(())
     }
 
     fn visit_global_set_get(&mut self, global_index: GlobalIdx, is_set: bool) -> Result<()> {
