@@ -121,8 +121,8 @@ fn test_snapshot() {
         let snapshot_engine = EngineSnapshot::decode(&mut &snapshot_engine[..]).unwrap();
 
         let proof2 = store
-            .proof()
-            .make_inst_proof::<MerkleKeccak256>(pc, instance)
+            .proof::<MerkleKeccak256>(instance)
+            .make_osp_proof_v0(pc)
             .unwrap();
         // creates new engine/store
         let engine = Engine::default();
@@ -138,11 +138,11 @@ fn test_snapshot() {
         let mut result = vec![Value::I32(0)];
 
         let proof = store
-            .proof()
-            .make_inst_proof::<MerkleKeccak256>(pc, instance)
+            .proof::<MerkleKeccak256>(instance)
+            .make_osp_proof_v0(pc)
             .unwrap();
-        assert_eq!(proof, proof2);
         println!("{:?}", proof);
+        assert_eq!(proof, proof2);
 
         // 6. run engine using previous pc.
         // we should use the restored instance.

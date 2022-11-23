@@ -7,44 +7,30 @@ pub use engine::*;
 pub use inst::*;
 pub use instance::*;
 
-use crate::{snapshot::InstanceSnapshot, AsContext, Engine, Func};
-use accel_merkle::{
-    FuncMerkle,
-    GlobalMerkle,
-    InstructionMerkle,
-    MemoryMerkle,
-    MerkleHasher,
-    TableMerkle,
-};
+use codec::{Decode, Encode};
 
-/// All proof data for an instance at a checkpoint.
-#[derive(Debug)]
-pub struct InstanceProof<Hasher>
-where
-    Hasher: MerkleHasher,
-{
-    pub globals: Option<GlobalMerkle<Hasher>>,
-    pub memories: Vec<MemoryProof<Hasher>>,
-    pub tables: Vec<TableProof<Hasher>>,
+use crate::{AsContext, Engine, Func};
+use accel_merkle::{FuncMerkle, InstructionMerkle, MerkleHasher};
+
+/// Prefix versioned proof for osp.
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub enum VersionedOspProof<Hasher: MerkleHasher> {
+    V0(OspProof<Hasher>),
 }
 
-#[derive(Debug)]
-pub struct MemoryProof<Hasher>
-where
-    Hasher: MerkleHasher,
-{
-    pub page: MemoryPage,
-    pub merkle: MemoryMerkle<Hasher>,
-}
+/// The complete osp proof data.
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct OspProof<Hasher: MerkleHasher> {
+    // instruction root and function root should always be same if wasm code not updated.
+    pub(crate) inst_root: Hasher::Output,
+    pub(crate) func_root: Hasher::Output,
+    // wasm blob maybe not contain global value.
+    pub(crate) globals_root: Option<Hasher::Output>,
+    pub(crate) table_roots: Vec<Hasher::Output>,
+    pub(crate) memory_roots: Vec<Hasher::Output>,
 
-#[derive(Debug)]
-pub struct TableProof<Hasher>
-where
-    Hasher: MerkleHasher,
-{
-    pub initial: u32,
-    pub maximum: Option<u32>,
-    pub merkle: TableMerkle<Hasher>,
+    pub(crate) inst_proof: InstructionProof<Hasher>,
+    pub(crate) engine_proof: EngineProof<Hasher>,
 }
 
 /// This contains some merkle trees whose data should
@@ -91,18 +77,4 @@ fn make_func_merkle<Hasher: MerkleHasher>(
         .collect();
 
     FuncMerkle::new(hashes)
-}
-
-impl<Hasher> InstanceProof<Hasher>
-where
-    Hasher: MerkleHasher,
-{
-    /// Creates an instance proof by snapshot.
-    pub fn create_by_snapshot(instance: InstanceSnapshot) -> Self {
-        Self {
-            globals: instance.global_merkle(),
-            memories: instance.memory_proofs(),
-            tables: instance.table_proofs(),
-        }
-    }
 }

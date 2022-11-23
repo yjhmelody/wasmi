@@ -671,7 +671,7 @@ mod proof {
             ExtraProof,
             FuncNode,
             GlobalProof,
-            InstanceProof,
+            InstanceMerkle,
             InstructionProof,
             MemoryChunkNeighbor,
             MemoryChunkSibling,
@@ -717,6 +717,14 @@ mod proof {
             engine.make_inst_proof(ctx, params, instance)
         }
 
+        pub(crate) fn make_engine_proof<Hasher: MerkleHasher>(
+            &self,
+            inst: Instruction,
+        ) -> Result<EngineProof<Hasher>, ProofError> {
+            let engine = self.inner.lock();
+            engine.make_engine_proof(inst)
+        }
+
         /// Make an merkle for the total wasm code.
         pub(crate) fn make_code_merkle<Hasher: MerkleHasher>(&self) -> InstructionMerkle<Hasher> {
             self.inner.lock().make_code_merkle()
@@ -725,7 +733,7 @@ mod proof {
 
     pub struct InstProofParams<'a, Hasher: MerkleHasher> {
         pub current_pc: u32,
-        pub instance_merkle: &'a InstanceProof<Hasher>,
+        pub instance_merkle: &'a InstanceMerkle<Hasher>,
         pub static_merkle: &'a StaticMerkle<Hasher>,
     }
 
@@ -916,9 +924,7 @@ mod proof {
                 _ => ExtraProof::Empty,
             };
 
-            let engine_proof = self.make_engine_proof(inst).ok_or(ProofError::IllegalPc)?;
             Ok(InstructionProof {
-                engine_proof,
                 current_pc,
                 inst,
                 inst_prove,
@@ -929,9 +935,10 @@ mod proof {
         fn make_engine_proof<Hasher: MerkleHasher>(
             &self,
             cur_inst: Instruction,
-        ) -> Option<EngineProof<Hasher>> {
+        ) -> Result<EngineProof<Hasher>, ProofError> {
             // TODO(opt): directly make proof and skip snapshot
-            self.make_snapshot().make_proof(cur_inst)
+            let snapshot = &self.make_snapshot();
+            EngineProof::make(snapshot, cur_inst).ok_or(ProofError::IllegalPc)
         }
 
         fn make_call_proof<Hasher: MerkleHasher>(

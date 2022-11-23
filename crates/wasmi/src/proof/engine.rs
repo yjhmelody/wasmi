@@ -1,6 +1,5 @@
 use alloc::vec::Vec;
-use core::fmt::Debug;
-use std::marker::PhantomData;
+use core::{fmt::Debug, marker::PhantomData};
 
 use accel_merkle::{MerkleHasher, ProveData};
 use wasmi_core::{TrapCode, UntypedValue};
@@ -24,49 +23,44 @@ use crate::{
     Func,
 };
 
-impl EngineSnapshot {
-    /// Generate stack proofs for specific instruction.
-    pub fn make_proof<Hasher: MerkleHasher>(
-        &self,
-        cur_inst: Instruction,
-    ) -> Option<EngineProof<Hasher>> {
+/// The contains engine level proof data used for instruction proof.
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct EngineProof<Hasher: MerkleHasher> {
+    pub config: EngineConfig,
+    pub value_stack: ValueStackProof<Hasher>,
+    pub call_stack: CallStackProof<Hasher>,
+}
+
+impl<Hasher: MerkleHasher> EngineProof<Hasher> {
+    /// Generate engine proof for specific instruction by snapshot.
+    pub fn make(snapshot: &EngineSnapshot, cur_inst: Instruction) -> Option<Self> {
         let remain_size = match cur_inst {
             Instruction::LocalTee { local_depth }
             | Instruction::LocalSet { local_depth }
             | Instruction::LocalGet { local_depth } => local_depth.into_inner(),
             _ => 3,
         };
-        let value_proof = self.values.make_proof(remain_size)?;
-        let call_proof = self
-            .frames
-            .make_proof(1, self.config.maximum_recursion_depth);
-
-        Some(EngineProof {
-            config: self.config.clone(),
-            value_proof,
-            call_proof,
+        let value_stack = ValueStackProof::make(&snapshot.values, remain_size)?;
+        let call_stack =
+            CallStackProof::make(&snapshot.frames, 1, snapshot.config.maximum_recursion_depth);
+        Some(Self {
+            config: snapshot.config.clone(),
+            value_stack,
+            call_stack,
         })
     }
 }
 
-/// The contains engine level proof data used for instruction proof.
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct EngineProof<Hasher: MerkleHasher> {
-    pub config: EngineConfig,
-    pub value_proof: ValueStackProof<Hasher>,
-    pub call_proof: CallStackProof<Hasher>,
-}
-
 /// Instruction level proof.
-///
-/// It includes engine relate data proof.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct InstructionProof<Hasher: MerkleHasher> {
-    pub(crate) engine_proof: EngineProof<Hasher>,
+    /// The current pc.
     pub(crate) current_pc: u32,
+    /// The current instruction.
     pub(crate) inst: Instruction,
     /// The prove current instruction is legal.
     pub(crate) inst_prove: ProveData<Hasher>,
+    /// Extra proof data for some instructions.
     pub(crate) extra: ExtraProof<Hasher>,
 }
 
@@ -189,7 +183,7 @@ pub struct MemoryPage {
 }
 
 /// The contains a proof that a memory store instruction touch two neighbor leaves which have `not` same parent.
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+#[derive(Encode, Decode, Debug, Eq, PartialEq)]
 pub struct MemoryChunkNeighbor<Hasher>
 where
     Hasher: MerkleHasher,
@@ -198,6 +192,20 @@ where
     chunks: TwoMemoryChunks,
     leaf_sibling: Hasher::Output,
     next_leaf_sibling: Hasher::Output,
+}
+
+impl<Hasher> Clone for MemoryChunkNeighbor<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    fn clone(&self) -> Self {
+        Self {
+            prove_data: self.prove_data.clone(),
+            chunks: self.chunks.clone(),
+            leaf_sibling: self.leaf_sibling.clone(),
+            next_leaf_sibling: self.next_leaf_sibling.clone(),
+        }
+    }
 }
 
 impl<Hasher> MemoryChunkNeighbor<Hasher>
@@ -259,13 +267,25 @@ where
 }
 
 /// The contains a proof that a memory store instruction touch two sibling leaves which have same parent.
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+#[derive(Encode, Decode, Debug, Eq, PartialEq)]
 pub struct MemoryChunkSibling<Hasher>
 where
     Hasher: MerkleHasher,
 {
-    chunks: TwoMemoryChunks,
     prove_data: ProveData<Hasher>,
+    chunks: TwoMemoryChunks,
+}
+
+impl<Hasher> Clone for MemoryChunkSibling<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    fn clone(&self) -> Self {
+        Self {
+            chunks: self.chunks.clone(),
+            prove_data: self.prove_data.clone(),
+        }
+    }
 }
 
 impl<Hasher> MemoryChunkSibling<Hasher>
@@ -336,29 +356,6 @@ fn hash_call_stack<Hasher: MerkleHasher>(
     hash_stack::<Hasher, _>(iter, init_hash)
 }
 
-impl ValueStackSnapshot {
-    /// Make a value stack proof.
-    ///
-    /// Keep the top N stack value original and not be part of hash.
-    pub fn make_proof<Hasher: MerkleHasher>(
-        &self,
-        keep_len: usize,
-    ) -> Option<ValueStackProof<Hasher>> {
-        if keep_len > self.entries.len() {
-            return None;
-        }
-        let len = self.entries.len() - keep_len;
-        let (bottoms, tops) = self.entries.split_at(len);
-        let bottom_hash = hash_value_stack::<Hasher>(bottoms, Default::default());
-        let entries = tops.to_vec();
-
-        Some(ValueStackProof(StackProof::<_, Hasher>::new(
-            entries,
-            bottom_hash,
-        )))
-    }
-}
-
 #[derive(Encode, Decode, Debug)]
 pub struct StackProof<T, Hasher: MerkleHasher> {
     /// The hash of entries excepting the top N.
@@ -368,7 +365,7 @@ pub struct StackProof<T, Hasher: MerkleHasher> {
     /// These entries will be used when execute osp.
     entries: Vec<T>,
     /// The hasher.
-    _hasher: core::marker::PhantomData<Hasher>,
+    _hasher: PhantomData<Hasher>,
 }
 
 impl<T: Clone, Hasher: MerkleHasher> Clone for StackProof<T, Hasher> {
@@ -455,6 +452,21 @@ where
 pub struct ValueStackProof<Hasher: MerkleHasher>(pub(crate) StackProof<UntypedValue, Hasher>);
 
 impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
+    /// Make a value stack proof by snapshot.
+    ///
+    /// Keep the top N stack value original and not be part of hash.
+    pub fn make(snapshot: &ValueStackSnapshot, keep_len: usize) -> Option<Self> {
+        if keep_len > snapshot.entries.len() {
+            return None;
+        }
+        let len = snapshot.entries.len() - keep_len;
+        let (bottoms, tops) = snapshot.entries.split_at(len);
+        let bottom_hash = hash_value_stack::<Hasher>(bottoms, Default::default());
+        let entries = tops.to_vec();
+
+        Some(Self(StackProof::<_, Hasher>::new(entries, bottom_hash)))
+    }
+
     pub fn hash(&self) -> Hasher::Output {
         hash_value_stack::<Hasher>(&self.0.entries, self.0.bottom_hash.clone())
     }
@@ -658,27 +670,6 @@ impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
     }
 }
 
-impl CallStackSnapshot {
-    // TODO: should consider current pc as part of proof ?
-    pub fn make_proof<Hasher: MerkleHasher>(
-        &self,
-        keep_len: usize,
-        recursion_depth: u32,
-    ) -> CallStackProof<Hasher> {
-        debug_assert!(keep_len > 0);
-        let len = self.frames.len().saturating_sub(keep_len);
-        let (bottoms, tops) = self.frames.split_at(len);
-        let bottom_hash = hash_call_stack::<Hasher>(bottoms, Default::default());
-        let entries = tops.to_vec();
-
-        CallStackProof {
-            remaining_depth: len as u32,
-            stack: StackProof::<_, Hasher>::new(entries, bottom_hash),
-            recursion_depth,
-        }
-    }
-}
-
 // TODO: need to consider more, maybe contain the current pc in it.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct CallStackProof<Hasher: MerkleHasher> {
@@ -691,6 +682,27 @@ pub struct CallStackProof<Hasher: MerkleHasher> {
 }
 
 impl<Hasher: MerkleHasher> CallStackProof<Hasher> {
+    /// Make a call stack proof by snapshot.
+    ///
+    /// Keep the top N stack value original and not be part of hash.
+    ///
+    /// # Note
+    ///
+    /// In our case, we only need the top 1 value to be kept.
+    pub fn make(snapshot: &CallStackSnapshot, keep_len: usize, recursion_depth: u32) -> Self {
+        debug_assert!(keep_len > 0);
+        let len = snapshot.frames.len().saturating_sub(keep_len);
+        let (bottoms, tops) = snapshot.frames.split_at(len);
+        let bottom_hash = hash_call_stack::<Hasher>(bottoms, Default::default());
+        let entries = tops.to_vec();
+
+        Self {
+            recursion_depth,
+            remaining_depth: len as u32,
+            stack: StackProof::<_, Hasher>::new(entries, bottom_hash),
+        }
+    }
+
     pub fn hash(&self) -> Hasher::Output {
         hash_call_stack::<Hasher>(&self.stack.entries, self.stack.bottom_hash.clone())
     }
@@ -729,8 +741,8 @@ mod tests {
         };
 
         for i in 1..snapshot.entries.len() - 1 {
-            let a = snapshot.make_proof::<MerkleKeccak256>(i).unwrap();
-            let b = snapshot.make_proof::<MerkleKeccak256>(i + 1).unwrap();
+            let a = ValueStackProof::<MerkleKeccak256>::make(&snapshot, i).unwrap();
+            let b = ValueStackProof::<MerkleKeccak256>::make(&snapshot, i + 1).unwrap();
 
             assert_eq!(a.hash(), b.hash(), "value stack finally hash must be equal")
         }
@@ -748,8 +760,8 @@ mod tests {
         };
 
         for i in 1..snapshot.frames.len() - 1 {
-            let a = snapshot.make_proof::<MerkleKeccak256>(i, recursion_depth);
-            let b = snapshot.make_proof::<MerkleKeccak256>(i + 1, recursion_depth);
+            let a = CallStackProof::<MerkleKeccak256>::make(&snapshot, i, recursion_depth);
+            let b = CallStackProof::<MerkleKeccak256>::make(&snapshot, i + 1, recursion_depth);
 
             assert_eq!(a.hash(), b.hash(), "call stack finally hash must be equal")
         }

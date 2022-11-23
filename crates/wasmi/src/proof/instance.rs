@@ -1,5 +1,5 @@
 use crate::{
-    proof::{MemoryPage, MemoryProof, TableProof},
+    proof::MemoryPage,
     snapshot::{InstanceSnapshot, MemorySnapshot, TableElementSnapshot, TableSnapshot},
     GlobalEntity,
 };
@@ -12,6 +12,50 @@ pub const MEMORY_LEAF_SIZE: usize = 32;
 /// The number of layers in the memory merkle tree
 /// 1 + log2(2^32 / LEAF_SIZE) = 1 + log2(2^(32 - log2(LEAF_SIZE))) = 1 + 32 - 5
 const MEMORY_LAYERS: usize = 1 + 32 - 5;
+
+/// All proof data for an instance at a checkpoint.
+#[derive(Debug)]
+pub struct InstanceMerkle<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    pub globals: Option<GlobalMerkle<Hasher>>,
+    pub memories: Vec<MemoryProof<Hasher>>,
+    pub tables: Vec<TableProof<Hasher>>,
+}
+
+#[derive(Debug)]
+pub struct MemoryProof<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    pub page: MemoryPage,
+    pub merkle: MemoryMerkle<Hasher>,
+}
+
+#[derive(Debug)]
+pub struct TableProof<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    pub initial: u32,
+    pub maximum: Option<u32>,
+    pub merkle: TableMerkle<Hasher>,
+}
+
+impl<Hasher> InstanceMerkle<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    /// Creates an instance proof by snapshot.
+    pub fn create_by_snapshot(instance: InstanceSnapshot) -> Self {
+        Self {
+            globals: instance.global_merkle(),
+            memories: instance.memory_proofs(),
+            tables: instance.table_proofs(),
+        }
+    }
+}
 
 /// hash the memory bytes.
 pub fn hash_memory_leaf<Hasher: MerkleHasher>(bytes: [u8; MEMORY_LEAF_SIZE]) -> Hasher::Output {
@@ -92,6 +136,7 @@ impl InstanceSnapshot {
 }
 
 impl MemorySnapshot {
+    // TODO: redesign this part.
     pub fn merkle<Hasher>(&self) -> MemoryMerkle<Hasher>
     where
         Hasher: MerkleHasher,

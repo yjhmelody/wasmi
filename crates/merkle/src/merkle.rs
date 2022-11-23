@@ -91,6 +91,7 @@ impl MerkleHasher for MerkleKeccak256 {
     }
 }
 
+// TODO: move to other place
 #[derive(Debug)]
 pub struct MemoryType;
 pub type MemoryMerkle<Hasher> = Merkle<MemoryType, Hasher>;
@@ -126,8 +127,14 @@ pub struct Merkle<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> {
 }
 
 /// The struct contains a merkle proof for a leaf.
-#[derive(Debug, Clone, Eq, PartialEq, Encode, Decode)]
+#[derive(Debug, Eq, PartialEq, Encode, Decode)]
 pub struct ProveData<T: MerkleHasher>(Vec<T::Output>);
+
+impl<T: MerkleHasher> Clone for ProveData<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 impl<T: MerkleHasher> ProveData<T> {
     pub fn inner(&self) -> &[T::Output] {

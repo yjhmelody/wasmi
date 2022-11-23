@@ -73,7 +73,7 @@ impl TryFrom<wasmparser::Import<'_>> for Import {
             TypeRef::Global(global_type) => global_type.try_into().map(ImportKind::Global),
             TypeRef::Tag(_) => Err(ModuleError::unsupported(import)),
         }?;
-        Ok(Self::new(import.module, Some(import.name), kind)) // TODO: remove Some
+        Ok(Self::new(import.module, Some(import.name), kind))
     }
 }
 
