@@ -1,7 +1,5 @@
 
 /target/
-out/
-cache/
 **/*.rs.bk
 Cargo.lock
 spec/target
