@@ -32,7 +32,7 @@ fn call_step<T>(
     name: &str,
     inputs: &[Value],
     outputs: &mut [Value],
-    n: Option<u64>,
+    n: Option<&mut u64>,
 ) -> Result<StepResult<()>, Error> {
     let f = instance
         .get_export(store.as_context_mut(), name)
@@ -43,7 +43,7 @@ fn call_step<T>(
 }
 
 #[test]
-fn test_snapshot() {
+fn test_snapshot_and_proof() {
     let wat = r#"
 (module
   (global $g1 (mut i32) (i32.const 1))
@@ -83,18 +83,32 @@ fn test_snapshot() {
     let module = setup_module(&mut store, wat).unwrap();
     let instance = instantiate(&mut store, &module).unwrap();
 
-    let one_step = Some(1);
     let funcs = module
         .exports()
         .map(|exp| exp.name())
         .collect::<Vec<&str>>();
 
+    const MAX_STEP: u64 = 1000_0000;
     for f in funcs {
         // 0. get expected result
         let mut expected_result = vec![Value::I32(0)];
 
         let inputs = vec![Value::I32(1), Value::I32(2)];
-        let res = call_step(&mut store, instance, f, &inputs, &mut expected_result, None).unwrap();
+        let mut max_step = Some(MAX_STEP);
+        let res = call_step(
+            &mut store,
+            instance,
+            f,
+            &inputs,
+            &mut expected_result,
+            max_step.as_mut(),
+        )
+        .unwrap();
+        println!(
+            "function {:?} run {:?} steps",
+            f,
+            max_step.map(|s| MAX_STEP - s)
+        );
 
         match res {
             StepResult::Results(()) => {}
@@ -103,7 +117,16 @@ fn test_snapshot() {
 
         let mut result = vec![Value::I32(0)];
         // 1. only run one instruction
-        let res = call_step(&mut store, instance, f, &inputs, &mut result, one_step).unwrap();
+        let mut one_step = Some(1);
+        let res = call_step(
+            &mut store,
+            instance,
+            f,
+            &inputs,
+            &mut result,
+            one_step.as_mut(),
+        )
+        .unwrap();
         drop(result);
 
         let pc = match res {
@@ -141,8 +164,8 @@ fn test_snapshot() {
             .proof::<MerkleKeccak256>(instance)
             .make_osp_proof_v0(pc)
             .unwrap();
-        println!("{:?}", proof);
         assert_eq!(proof, proof2);
+        println!("{:?}", proof);
 
         // 6. run engine using previous pc.
         // we should use the restored instance.

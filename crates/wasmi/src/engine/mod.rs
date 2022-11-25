@@ -369,7 +369,7 @@ mod step {
             func: Func,
             params: Params,
             results: Results,
-            step: Option<u64>,
+            step: Option<&mut u64>,
         ) -> Result<StepResult<<Results as CallResults>::Results>, Trap>
         where
             Params: CallParams,
@@ -395,7 +395,7 @@ mod step {
             ctx: impl AsContextMut,
             pc: usize,
             instance: Instance,
-            step: Option<u64>,
+            step: Option<&mut u64>,
         ) -> Result<StepResult<()>, Trap> {
             self.execute_step_at_pc_with_result(ctx, pc, instance, (), step)
         }
@@ -417,7 +417,7 @@ mod step {
             pc: usize,
             instance: Instance,
             results: Results,
-            step: Option<u64>,
+            step: Option<&mut u64>,
         ) -> Result<StepResult<<Results as CallResults>::Results>, Trap>
         where
             Results: CallResults,
@@ -478,9 +478,9 @@ mod step {
             mut ctx: impl AsContextMut,
             frame: &mut FuncFrame,
             cache: &mut InstanceCache,
-            n: Option<u64>,
+            n: Option<&mut u64>,
         ) -> Result<StepResult<()>, Trap> {
-            let mut n = match n {
+            let n = match n {
                 None => {
                     self.execute_wasm_func(ctx, frame, cache)?;
                     return Ok(StepResult::Results(()));
@@ -490,7 +490,7 @@ mod step {
 
             // TODO: we need to consider the last instruction return value as parts of proof.
             'outer: loop {
-                match self.execute_frame_step(ctx.as_context_mut(), frame, cache, &mut n) {
+                match self.execute_frame_step(ctx.as_context_mut(), frame, cache, n) {
                     Ok(StepCallOutcome::CallOutcome(CallOutcome::Return)) => {
                         match self.stack.return_wasm() {
                             Some(caller) => {
@@ -541,7 +541,7 @@ mod step {
             ctx: impl AsContextMut,
             inst_ptr: InstructionPtr,
             cache: &mut InstanceCache,
-            n: Option<u64>,
+            n: Option<&mut u64>,
         ) -> Result<StepResult<()>, Trap> {
             let instance = cache.instance();
             let mut frame = FuncFrame::new(inst_ptr, instance);
@@ -564,7 +564,7 @@ mod step {
             ctx: impl AsContextMut,
             pc: usize,
             cache: &mut InstanceCache,
-            n: Option<u64>,
+            n: Option<&mut u64>,
         ) -> Result<StepResult<()>, Trap> {
             let ip = self.code_map.get_inst(pc);
             self.execute_instruction_step(ctx, ip, cache, n)
@@ -583,7 +583,7 @@ mod step {
             mut ctx: impl AsContextMut,
             func: Func,
             params: Params,
-            step: Option<u64>,
+            step: Option<&mut u64>,
         ) -> Result<StepResult<()>, Trap>
         where
             Params: CallParams,
@@ -618,7 +618,7 @@ mod step {
             func: Func,
             params: Params,
             results: Results,
-            step: Option<u64>,
+            step: Option<&mut u64>,
         ) -> Result<StepResult<<Results as CallResults>::Results>, Trap>
         where
             Params: CallParams,

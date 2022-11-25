@@ -242,6 +242,20 @@ mod step {
     use super::*;
     use crate::engine::StepResult;
 
+    // /// The param for step version wasm call.
+    // #[derive(Debug, Clone, Eq, PartialEq)]
+    // pub struct StepCallParam<'a> {
+    //     pub step: Option<&'a mut u64>,
+    // }
+    //
+    // impl<'a> Default for StepCallParam<'a> {
+    //     fn default() -> Self {
+    //         Self {
+    //             step: None,
+    //         }
+    //     }
+    // }
+
     impl Func {
         /// An variant method of [`Func::call`].
         ///
@@ -256,7 +270,7 @@ mod step {
             mut ctx: impl AsContextMut<UserState = T>,
             inputs: &[Value],
             outputs: &mut [Value],
-            step: Option<u64>,
+            step: Option<&mut u64>,
         ) -> Result<StepResult<()>, Error> {
             // Since [`Func`] is a dynamically typed function instance there is
             // a need to verify that the given input parameters match the required
