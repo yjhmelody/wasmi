@@ -23,9 +23,9 @@
 //!     let engine = Engine::default();
 //!     let wat = r#"
 //!         (module
-//!             (import "host" "hello" (func $host_hello (param i32)))
+//!             (import "host" "hello" (func $host_hello (param i32) (param i32)))
 //!             (func (export "hello")
-//!                 (call $host_hello (i32.const 3))
+//!
 //!             )
 //!         )
 //!     "#;
@@ -40,8 +40,7 @@
 //!     type HostState = u32;
 //!     let mut store = Store::new(&engine, 42);
 //!     let host_hello = Func::wrap(&mut store, |caller: Caller<'_, HostState>, param: i32| {
-//!         println!("Got {param} from WebAssembly");
-//!         println!("My host state is: {}", caller.host_data());
+//!         todo!("stub");
 //!     });
 //!
 //!     // In order to create Wasm module instances and link their imports
@@ -52,7 +51,7 @@
 //!     // type signature of the function with `get_typed_func`.
 //!     //
 //!     // Also before using an instance created this way we need to start it.
-//!     linker.define("host", "hello", host_hello)?;
+//!     linker.define_stub_func("host", "hello", host_hello)?;
 //!     let instance = linker
 //!         .instantiate(&mut store, &module)?
 //!         .start(&mut store)?;
@@ -63,7 +62,7 @@
 //!         .typed::<(), ()>(&mut store)?;
 //!
 //!     // And finally we can call the wasm!
-//!     hello.call(&mut store, ())?;
+//!     // hello.call(&mut store, ())?;
 //!
 //!     Ok(())
 //! }

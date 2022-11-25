@@ -8,6 +8,7 @@ use super::{
 };
 use crate::{
     module::{ImportName, ModuleImport, ModuleImportType},
+    Func,
     FuncType,
     GlobalType,
 };
@@ -230,10 +231,12 @@ struct ImportKey {
 
 /// A linker used to define module imports and instantiate module instances.
 pub struct Linker<T> {
-    /// Allows to efficiently store strings and deduplicate them..
+    /// Allows to efficiently store strings and deduplicate them.
     strings: StringInterner,
     /// Stores the definitions given their names.
     definitions: BTreeMap<ImportKey, Extern>,
+    /// Stores the stubs given their names.
+    stub_funcs: BTreeMap<ImportKey, Func>,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -251,6 +254,7 @@ impl<T> Clone for Linker<T> {
         Self {
             strings: self.strings.clone(),
             definitions: self.definitions.clone(),
+            stub_funcs: self.stub_funcs.clone(),
             marker: self.marker,
         }
     }
@@ -262,12 +266,19 @@ impl<T> Default for Linker<T> {
     }
 }
 
+#[derive(Debug, Clone)]
+enum ResolvedDefine {
+    StubFunc(Func),
+    Extern(Extern),
+}
+
 impl<T> Linker<T> {
     /// Creates a new linker.
     pub fn new() -> Self {
         Self {
             strings: StringInterner::default(),
             definitions: BTreeMap::default(),
+            stub_funcs: BTreeMap::default(),
             marker: PhantomData,
         }
     }
@@ -285,6 +296,23 @@ impl<T> Linker<T> {
     ) -> Result<&mut Self, LinkerError> {
         let key = self.import_key(module, name);
         self.insert(key, item.into())?;
+        Ok(self)
+    }
+
+    /// Define a new stub func in this [`Linker`].
+    /// It will shadow the extern func if already exist.
+    ///
+    /// # Errors
+    ///
+    /// If there already is a definition under the same name for this [`Linker`].
+    pub fn define_stub_func(
+        &mut self,
+        module: &str,
+        name: &str,
+        item: impl Into<Func>,
+    ) -> Result<&mut Self, LinkerError> {
+        let key = self.import_key(module, name);
+        self.insert_stub_func(key, item.into())?;
         Ok(self)
     }
 
@@ -327,6 +355,30 @@ impl<T> Linker<T> {
         Ok(())
     }
 
+    /// Inserts the extern stub func under the import key.
+    ///
+    /// # Errors
+    ///
+    /// If there already is a definition for the import key for this [`Linker`].
+    fn insert_stub_func(&mut self, key: ImportKey, item: Func) -> Result<(), LinkerError> {
+        match self.stub_funcs.entry(key) {
+            Entry::Occupied(_) => {
+                let (module_name, field_name) = self
+                    .resolve_import_key(key)
+                    .unwrap_or_else(|| panic!("encountered missing import names for key {key:?}"));
+                let import_name = ImportName::new(module_name, field_name);
+                return Err(LinkerError::DuplicateDefinition {
+                    import_name,
+                    import_item: Extern::Func(item),
+                });
+            }
+            Entry::Vacant(v) => {
+                v.insert(item);
+            }
+        }
+        Ok(())
+    }
+
     /// Looks up a previously defined extern value in this [`Linker`].
     ///
     /// Returns `None` if this name was not previously defined in this
@@ -337,6 +389,18 @@ impl<T> Linker<T> {
             name: self.strings.get(name)?,
         };
         self.definitions.get(&key).copied()
+    }
+
+    fn resolve_with_stub(&self, module: &str, name: &str) -> Option<ResolvedDefine> {
+        let key = ImportKey {
+            module: self.strings.get(module)?,
+            name: self.strings.get(name)?,
+        };
+        if let Some(f) = self.stub_funcs.get(&key) {
+            Some(ResolvedDefine::StubFunc(*f))
+        } else {
+            self.definitions.get(&key).copied().map(ResolvedDefine::Extern)
+        }
     }
 
     /// Instantiates the given [`Module`] using the definitions in the [`Linker`].
@@ -370,11 +434,22 @@ impl<T> Linker<T> {
         let make_err = || LinkerError::cannot_find_definition_of_import(&import);
         let module_name = import.module();
         let field_name = import.field();
-        let resolved = self.resolve(module_name, field_name);
+        let resolved = self.resolve_with_stub(module_name, field_name).ok_or_else(make_err)?;
+        let ext = match resolved {
+            ResolvedDefine::Extern(ext) => ext,
+            ResolvedDefine::StubFunc(func) => return match import.item_type() {
+                // stub function not need be same func type
+                ModuleImportType::Func(expected_func_type) => {
+                    expected_func_type.
+                    Ok(Extern::Func(func))
+                },
+                _ => Err(make_err().into()),
+            },
+        };
         let context = context.as_context();
         match import.item_type() {
             ModuleImportType::Func(expected_func_type) => {
-                let func = resolved.and_then(Extern::into_func).ok_or_else(make_err)?;
+                let func = ext.into_func().ok_or_else(make_err)?;
                 let actual_func_type = func.signature(&context);
                 if &actual_func_type != expected_func_type {
                     return Err(LinkerError::FuncTypeMismatch {
@@ -387,22 +462,20 @@ impl<T> Linker<T> {
                 Ok(Extern::Func(func))
             }
             ModuleImportType::Table(expected_table_type) => {
-                let table = resolved.and_then(Extern::into_table).ok_or_else(make_err)?;
+                let table = ext.into_table().ok_or_else(make_err)?;
                 let actual_table_type = table.table_type(context);
                 actual_table_type.satisfies(expected_table_type)?;
                 Ok(Extern::Table(table))
             }
             ModuleImportType::Memory(expected_memory_type) => {
-                let memory = resolved
-                    .and_then(Extern::into_memory)
+                let memory = ext.into_memory()
                     .ok_or_else(make_err)?;
                 let actual_memory_type = memory.memory_type(context);
                 actual_memory_type.satisfies(expected_memory_type)?;
                 Ok(Extern::Memory(memory))
             }
             ModuleImportType::Global(expected_global_type) => {
-                let global = resolved
-                    .and_then(Extern::into_global)
+                let global = ext.into_global()
                     .ok_or_else(make_err)?;
                 let actual_global_type = global.global_type(context);
                 if &actual_global_type != expected_global_type {

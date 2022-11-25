@@ -56,6 +56,13 @@ fn setup_add3() -> (Store<()>, Func) {
     (store, add3)
 }
 
+fn setup_add3_by_linker() -> (Store<()>, Func) {
+    let mut store = test_setup();
+    // This host function performance a three-way addition.
+    let add3 = Func::wrap(&mut store, |v0: i32, v1: i32, v2: i32| v0 + v1 + v2);
+    (store, add3)
+}
+
 #[test]
 fn dynamic_add3_works() {
     let (mut store, add3) = setup_add3();
