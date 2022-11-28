@@ -440,7 +440,6 @@ impl<T> Linker<T> {
             ResolvedDefine::StubFunc(func) => return match import.item_type() {
                 // stub function not need be same func type
                 ModuleImportType::Func(expected_func_type) => {
-                    expected_func_type.
                     Ok(Extern::Func(func))
                 },
                 _ => Err(make_err().into()),
