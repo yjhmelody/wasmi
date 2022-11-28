@@ -814,8 +814,8 @@ mod proof {
                     let table = cache.default_table(ctx.as_context());
                     let func = table
                         .get(ctx.as_context(), func_index)
-                        .map_err(|_| TrapCode::TableAccessOutOfBounds)?
-                        .ok_or(TrapCode::ElemUninitialized)?;
+                        .map_err(|_| TrapCode::TableOutOfBounds)?
+                        .ok_or(TrapCode::IndirectCallToNull)?;
                     let actual_signature = func.signature(ctx.as_context());
                     let expected_signature = cache
                         .instance()
@@ -827,7 +827,7 @@ mod proof {
                             )
                         });
                     if actual_signature != expected_signature {
-                        return Err(TrapCode::UnexpectedSignature).map_err(Into::into);
+                        return Err(TrapCode::BadSignature).map_err(Into::into);
                     }
 
                     self.make_call_indirect_proof(ctx.as_context(), params, func, func_index)?

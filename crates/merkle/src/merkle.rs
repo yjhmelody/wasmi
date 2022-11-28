@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use codec::{Decode, Encode};
+use codec::{Codec, Decode, Encode};
 use digest::Digest;
 use sha3::Keccak256;
 
@@ -32,8 +32,7 @@ pub trait MerkleHasher: Send + Sync {
 /// The output type of a hash algorithm.
 pub trait HashOutput:
     core::hash::Hash
-    + Encode
-    + Decode
+    + Codec
     + Debug
     + Default
     + Clone

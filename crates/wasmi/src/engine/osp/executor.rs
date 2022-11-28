@@ -621,7 +621,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
             .into_inner()
             .checked_add(address)
             .map(|address| address as usize)
-            .ok_or(TrapCode::MemoryAccessOutOfBounds)
+            .ok_or(TrapCode::MemoryOutOfBounds)
     }
 
     #[inline]

@@ -292,6 +292,16 @@ mod proof {
     }
 }
 
+#[test]
+fn test_store_is_send_sync() {
+    const _: () = {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+        let _ = assert_send::<Store<()>>;
+        let _ = assert_sync::<Store<()>>;
+    };
+}
+
 impl<T> Store<T> {
     /// Creates a new store.
     pub fn new(engine: &Engine, user_state: T) -> Self {
@@ -439,7 +449,7 @@ impl<T> Store<T> {
     ///
     /// - If the deduplicated function type does not originate from this store.
     /// - If the deduplicated function type cannot be resolved to its entity.
-    pub(super) fn resolve_func_type(&self, func_type: DedupFuncType) -> FuncType {
+    pub(crate) fn resolve_func_type(&self, func_type: DedupFuncType) -> FuncType {
         self.engine.resolve_func_type(func_type, Clone::clone)
     }
 
@@ -601,7 +611,7 @@ pub trait AsContextMut: AsContext {
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
 pub struct StoreContext<'a, T> {
-    pub(super) store: &'a Store<T>,
+    pub store: &'a Store<T>,
 }
 
 impl<'a, T: AsContext> From<&'a T> for StoreContext<'a, T::UserState> {

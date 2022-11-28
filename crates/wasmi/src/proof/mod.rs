@@ -7,6 +7,7 @@ pub use engine::*;
 pub use inst::*;
 pub use instance::*;
 
+use alloc::vec::Vec;
 use codec::{Decode, Encode};
 
 use crate::{AsContext, Engine, Func};
