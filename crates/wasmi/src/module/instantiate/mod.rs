@@ -41,6 +41,7 @@ impl Module {
         &self,
         mut context: impl AsContextMut,
         externals: I,
+        allow_signature_mismatch: bool,
     ) -> Result<InstancePre, Error>
     where
         I: IntoIterator<Item = Extern>,
@@ -49,7 +50,12 @@ impl Module {
         let mut builder = InstanceEntity::build(self);
 
         self.extract_func_types(&mut context, &mut builder);
-        self.extract_imports(&mut context, &mut builder, externals)?;
+        self.extract_imports(
+            &mut context,
+            &mut builder,
+            externals,
+            allow_signature_mismatch,
+        )?;
         self.extract_functions(&mut context, &mut builder, handle);
         self.extract_tables(&mut context, &mut builder);
         self.extract_memories(&mut context, &mut builder);
@@ -100,6 +106,7 @@ impl Module {
         context: &mut impl AsContextMut,
         builder: &mut InstanceEntityBuilder,
         externals: I,
+        allow_signature_mismatch: bool,
     ) -> Result<(), InstantiationError>
     where
         I: IntoIterator<Item = Extern>,
@@ -124,7 +131,7 @@ impl Module {
                     // Note: We can compare function signatures without resolving them because
                     //       we deduplicate them before registering. Therefore two equal instances of
                     //       [`SignatureEntity`] will be associated to the same [`Signature`].
-                    if &actual_signature != expected_signature {
+                    if !allow_signature_mismatch && &actual_signature != expected_signature {
                         // Note: In case of error we could resolve the signatures for better error readability.
                         return Err(InstantiationError::SignatureMismatch {
                             actual: actual_signature,
@@ -370,6 +377,7 @@ mod snapshot {
             mut context: impl AsContextMut,
             externals: I,
             snapshot: InstanceSnapshot,
+            allow_signature_mismatch: bool,
         ) -> Result<InstancePre, Error>
         where
             I: IntoIterator<Item = Extern>,
@@ -378,7 +386,12 @@ mod snapshot {
             let mut builder = InstanceEntity::build(self);
 
             self.extract_func_types(&mut context, &mut builder);
-            self.extract_imports(&mut context, &mut builder, externals)?;
+            self.extract_imports(
+                &mut context,
+                &mut builder,
+                externals,
+                allow_signature_mismatch,
+            )?;
             self.extract_functions(&mut context, &mut builder, handle);
 
             // table must be restored after func

@@ -235,6 +235,7 @@ pub struct Linker<T> {
     /// Stores the definitions given their names.
     definitions: BTreeMap<ImportKey, Extern>,
     marker: PhantomData<fn() -> T>,
+    allow_signature_mismatch: bool,
 }
 
 impl<T> Debug for Linker<T> {
@@ -252,6 +253,7 @@ impl<T> Clone for Linker<T> {
             strings: self.strings.clone(),
             definitions: self.definitions.clone(),
             marker: self.marker,
+            allow_signature_mismatch: self.allow_signature_mismatch,
         }
     }
 }
@@ -269,7 +271,16 @@ impl<T> Linker<T> {
             strings: StringInterner::default(),
             definitions: BTreeMap::default(),
             marker: PhantomData,
+            allow_signature_mismatch: false,
         }
+    }
+
+    /// Skip host function signature checking when `instantiate`.
+    ///
+    /// This config default to false.
+    pub fn allow_signature_mismatch(mut self, allow_signature_mismatch: bool) -> Self {
+        self.allow_signature_mismatch = allow_signature_mismatch;
+        self
     }
 
     /// Restore a wasm instance by snapshot.
@@ -284,7 +295,7 @@ impl<T> Linker<T> {
         snapshot: crate::snapshot::InstanceSnapshot,
     ) -> Result<InstancePre, Error> {
         let externals = self.extract_externals(context.as_context_mut(), module)?;
-        module.restore_instance(context, externals, snapshot)
+        module.restore_instance(context, externals, snapshot, self.allow_signature_mismatch)
     }
 
     /// Define a new item in this [`Linker`].
@@ -366,7 +377,7 @@ impl<T> Linker<T> {
         module: &Module,
     ) -> Result<InstancePre, Error> {
         let externals = self.extract_externals(&mut context, module)?;
-        module.instantiate(context, externals)
+        module.instantiate(context, externals, self.allow_signature_mismatch)
     }
 
     /// Processes a single [`Module`] import.
@@ -388,7 +399,7 @@ impl<T> Linker<T> {
             ModuleImportType::Func(expected_func_type) => {
                 let func = resolved.and_then(Extern::into_func).ok_or_else(make_err)?;
                 let actual_func_type = func.signature(&context);
-                if &actual_func_type != expected_func_type {
+                if !self.allow_signature_mismatch && &actual_func_type != expected_func_type {
                     return Err(LinkerError::FuncTypeMismatch {
                         name: import.name().clone(),
                         expected: context.store.resolve_func_type(*expected_func_type),
@@ -439,5 +450,50 @@ impl<T> Linker<T> {
             .imports()
             .map(|import| self.process_import(&mut context, import))
             .collect::<Result<Vec<Extern>, Error>>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Caller, Engine, Func, Store};
+    use anyhow::Result;
+
+    type HostState = u32;
+
+    #[test]
+    fn test_allow_signature_mismatch() -> Result<()> {
+        let engine = Engine::default();
+        let wat = r#"
+        (module
+            (import "host" "hello" (func $host_hello (param i32) (param i32)))
+            (func (export "hello")
+                (call $host_hello (i32.const 3) (i32.const 3))
+            )
+        )
+    "#;
+        let wasm = wat::parse_str(wat)?;
+        let module = Module::new(&engine, &mut &wasm[..])?;
+
+        let mut store = Store::new(&engine, 42);
+        // different from the signature in wasm blob.
+        let host_hello = Func::wrap(&mut store, |caller: Caller<'_, HostState>, param: i32| {
+            println!("Got {param} from WebAssembly");
+            println!("My host state is: {}", caller.host_data());
+        });
+
+        let mut linker = <Linker<HostState>>::new();
+        linker.define("host", "hello", host_hello)?;
+        linker
+            .instantiate(&mut store, &module)
+            .expect_err("signature mismatch");
+
+        let mut linker = <Linker<HostState>>::new().allow_signature_mismatch(true);
+        linker.define("host", "hello", host_hello)?;
+        let _instance = linker
+            .instantiate(&mut store, &module)?
+            .ensure_no_start(&mut store)?;
+
+        Ok(())
     }
 }
