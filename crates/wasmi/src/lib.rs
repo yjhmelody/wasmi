@@ -101,7 +101,6 @@ mod instance;
 mod linker;
 mod memory;
 mod module;
-mod proof;
 mod store;
 mod table;
 
@@ -157,5 +156,6 @@ use self::{
     table::{TableEntity, TableIdx},
 };
 
+pub mod proof;
 pub mod snapshot;
-pub use engine::StepResult;
+pub use engine::{ProofError, StepResult};
