@@ -488,7 +488,6 @@ mod step {
                 Some(n) => n,
             };
 
-            // TODO: we need to consider the last instruction return value as parts of proof.
             'outer: loop {
                 match self.execute_frame_step(ctx.as_context_mut(), frame, cache, n) {
                     Ok(StepCallOutcome::CallOutcome(CallOutcome::Return)) => {
@@ -503,7 +502,7 @@ mod step {
                     Ok(StepCallOutcome::CallOutcome(CallOutcome::NestedCall(called_func))) => {
                         match called_func.as_internal(ctx.as_context()) {
                             FuncEntityInternal::Wasm(wasm_func) => {
-                                self.stack.call_wasm(frame, wasm_func, &self.code_map)?;
+                                *frame = self.stack.call_wasm(frame, wasm_func, &self.code_map)?;
                             }
                             FuncEntityInternal::Host(host_func) => {
                                 cache.reset_default_memory_bytes();
