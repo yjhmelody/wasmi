@@ -72,7 +72,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(
     clippy::cast_lossless,
-    clippy::missing_errors_doc,
     clippy::used_underscore_binding,
     clippy::redundant_closure_for_method_calls,
     clippy::type_repetition_in_bounds,
@@ -158,4 +157,4 @@ use self::{
 
 pub mod proof;
 pub mod snapshot;
-pub use engine::{ProofError, StepResult};
+pub use engine::{bytecode, osp, ProofError, StepResult};

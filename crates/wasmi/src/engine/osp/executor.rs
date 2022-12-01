@@ -67,6 +67,10 @@ where
     /// Run one step according to its proof state.
     ///
     /// This will transform proof state to a new state.
+    ///
+    /// # Error
+    ///
+    /// unexpected proof data or state.
     pub fn run(&mut self) -> Result<()> {
         self.executor().execute()
     }

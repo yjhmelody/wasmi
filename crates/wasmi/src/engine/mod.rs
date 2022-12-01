@@ -8,7 +8,7 @@ pub mod executor;
 mod func_args;
 mod func_builder;
 mod func_types;
-mod osp;
+pub mod osp;
 pub mod stack;
 mod traits;
 
@@ -685,7 +685,8 @@ mod proof {
         MemoryEntity,
     };
     use accel_merkle::{InstructionMerkle, MerkleHasher, ProveData};
-    use core::cmp;
+    use alloc::vec::Vec;
+    use core::{cmp, ops::Range};
 
     /// Meet some errors when generate normal extra proof for the another instruction.
     #[derive(Debug, Clone)]
@@ -707,6 +708,12 @@ mod proof {
     }
 
     impl Engine {
+        /// Returns instruction set.
+        pub fn insts(&self, range: Range<usize>) -> Vec<Instruction> {
+            let engine = self.inner.lock();
+            engine.insts()[range].to_vec()
+        }
+
         pub(crate) fn make_inst_proof<Hasher: MerkleHasher>(
             &self,
             ctx: impl AsContext,
@@ -1039,6 +1046,11 @@ impl EngineInner {
 
     pub(crate) fn code_map(&self) -> &CodeMap {
         &self.code_map
+    }
+
+    /// Returns instruction set.
+    pub(crate) fn insts(&self) -> &[Instruction] {
+        &self.code_map.insts
     }
 
     /// Allocates the instructions of a Wasm function body to the [`Engine`].
