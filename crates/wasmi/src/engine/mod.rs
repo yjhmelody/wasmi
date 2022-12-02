@@ -134,6 +134,12 @@ impl Engine {
         }
     }
 
+    /// Clear the engine stack.
+    pub fn clear(&self) {
+        let mut engine = self.inner.lock();
+        engine.stack.clear();
+    }
+
     /// Returns a shared reference to the [`Config`] of the [`Engine`].
     pub fn config(&self) -> Config {
         *self.inner.lock().config()
