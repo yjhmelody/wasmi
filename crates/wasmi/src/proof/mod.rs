@@ -19,19 +19,20 @@ pub enum VersionedOspProof<Hasher: MerkleHasher> {
     V0(OspProof<Hasher>),
 }
 
+// TODO: should encode more info/design an upgradable format.
 /// The complete osp proof data.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct OspProof<Hasher: MerkleHasher> {
     // instruction root and function root should always be same if wasm code not updated.
-    pub(crate) inst_root: Hasher::Output,
-    pub(crate) func_root: Hasher::Output,
+    pub inst_root: Hasher::Output,
+    pub func_root: Hasher::Output,
     // wasm blob maybe not contain global value.
-    pub(crate) globals_root: Option<Hasher::Output>,
-    pub(crate) table_roots: Vec<Hasher::Output>,
-    pub(crate) memory_roots: Vec<Hasher::Output>,
-
-    pub(crate) inst_proof: InstructionProof<Hasher>,
-    pub(crate) engine_proof: EngineProof<Hasher>,
+    pub globals_root: Option<Hasher::Output>,
+    pub table_roots: Vec<Hasher::Output>,
+    pub memory_roots: Vec<Hasher::Output>,
+    /// The inst special proof.
+    pub inst_proof: InstructionProof<Hasher>,
+    pub engine_proof: EngineProof<Hasher>,
 }
 
 /// This contains some merkle trees whose data should
