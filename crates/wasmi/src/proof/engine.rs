@@ -1,5 +1,8 @@
 use alloc::vec::Vec;
-use core::{fmt::Debug, marker::PhantomData};
+use core::{
+    fmt::{Debug, Formatter},
+    marker::PhantomData,
+};
 
 use accel_merkle::{MerkleHasher, ProveData};
 use wasmi_core::{TrapCode, UntypedValue};
@@ -26,9 +29,16 @@ use crate::{
 /// The contains engine level proof data used for instruction proof.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct EngineProof<Hasher: MerkleHasher> {
+    /// Note: config is not part of proof, only used to affect the execution result.
     pub config: EngineConfig,
     pub value_stack: ValueStackProof<Hasher>,
     pub call_stack: CallStackProof<Hasher>,
+}
+
+#[derive(Encode)]
+struct PostEngineProof<'a, T: MerkleHasher> {
+    value_stack: &'a T::Output,
+    call_stack: &'a T::Output,
 }
 
 impl<Hasher: MerkleHasher> EngineProof<Hasher> {
@@ -47,6 +57,15 @@ impl<Hasher: MerkleHasher> EngineProof<Hasher> {
             config: snapshot.config.clone(),
             value_stack,
             call_stack,
+        })
+    }
+
+    pub fn hash(&self) -> Hasher::Output {
+        let value_stack = self.value_stack.hash();
+        let call_stack = self.call_stack.hash();
+        Hasher::hash_of(&PostEngineProof::<'_, Hasher> {
+            value_stack: &value_stack,
+            call_stack: &call_stack,
         })
     }
 }
@@ -356,8 +375,8 @@ fn hash_call_stack<Hasher: MerkleHasher>(
     hash_stack::<Hasher, _>(iter, init_hash)
 }
 
-#[derive(Encode, Decode, Debug)]
-pub struct StackProof<T, Hasher: MerkleHasher> {
+#[derive(Encode, Decode)]
+pub(crate) struct StackProof<T, Hasher: MerkleHasher> {
     /// The hash of entries excepting the top N.
     bottom_hash: Hasher::Output,
     /// The top N entries in value stack.
@@ -421,7 +440,7 @@ where
     /// A `depth` of 0 is invalid.
     pub fn peek(&self, depth: usize) -> Option<&T> {
         let len = self.entries.len();
-        if len > depth {
+        if len >= depth {
             Some(&self.entries[len - depth])
         } else {
             None
@@ -448,8 +467,17 @@ where
     }
 }
 
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+#[derive(Encode, Decode, Clone, Eq, PartialEq)]
 pub struct ValueStackProof<Hasher: MerkleHasher>(pub(crate) StackProof<UntypedValue, Hasher>);
+
+impl<Hasher: MerkleHasher> Debug for ValueStackProof<Hasher> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ValueStackProof")
+            .field("bottom_hash", &self.0.bottom_hash)
+            .field("top_values", &self.0.entries)
+            .finish()
+    }
+}
 
 impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
     /// Make a value stack proof by snapshot.
@@ -671,7 +699,7 @@ impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
 }
 
 // TODO: need to consider more, maybe contain the current pc in it.
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+#[derive(Encode, Decode, Clone, Eq, PartialEq)]
 pub struct CallStackProof<Hasher: MerkleHasher> {
     /// The maximum number of nested calls that the Wasm stack allows.
     recursion_depth: u32,
@@ -679,6 +707,15 @@ pub struct CallStackProof<Hasher: MerkleHasher> {
     remaining_depth: u32,
     /// The underline stack.
     stack: StackProof<FuncFrameSnapshot, Hasher>,
+}
+
+impl<Hasher: MerkleHasher> Debug for CallStackProof<Hasher> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CallStackProof")
+            .field("bottom_hash", &self.stack.bottom_hash)
+            .field("top_frames", &self.stack.entries)
+            .finish()
+    }
 }
 
 impl<Hasher: MerkleHasher> CallStackProof<Hasher> {
@@ -707,6 +744,8 @@ impl<Hasher: MerkleHasher> CallStackProof<Hasher> {
         hash_call_stack::<Hasher>(&self.stack.entries, self.stack.bottom_hash.clone())
     }
 
+    /// Push a frame to call stack.
+    ///
     /// Returns None if stack overflow.
     pub fn push(&mut self, val: FuncFrameSnapshot) -> Option<()> {
         let cur_depth = (self.stack.entries.len() as u32).checked_add(self.remaining_depth)?;

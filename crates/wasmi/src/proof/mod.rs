@@ -35,6 +35,31 @@ pub struct OspProof<Hasher: MerkleHasher> {
     pub engine_proof: EngineProof<Hasher>,
 }
 
+impl<Hasher: MerkleHasher> OspProof<Hasher> {
+    /// Compute the finally proof hash.
+    pub fn hash(&self) -> Hasher::Output {
+        let engine_proof = self.engine_proof.hash();
+        Hasher::hash_of(&PostOspProof::<'_, Hasher> {
+            inst_root: &self.inst_root,
+            func_root: &self.func_root,
+            globals_root: &self.globals_root,
+            table_roots: &self.table_roots,
+            memory_roots: &self.memory_roots,
+            engine_proof: &engine_proof,
+        })
+    }
+}
+
+#[derive(Encode)]
+struct PostOspProof<'a, T: MerkleHasher> {
+    inst_root: &'a T::Output,
+    func_root: &'a T::Output,
+    globals_root: &'a Option<T::Output>,
+    table_roots: &'a Vec<T::Output>,
+    memory_roots: &'a Vec<T::Output>,
+    engine_proof: &'a T::Output,
+}
+
 /// This contains some merkle trees whose data should
 /// never be changed during wasm execution without code update.
 #[derive(Debug)]

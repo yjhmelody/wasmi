@@ -317,7 +317,6 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
             .peek(local_depth.into_inner())
             .ok_or(ExecError::InsufficientValueStack)?;
         self.value_stack.push(value);
-
         self.next_pc();
         Ok(())
     }

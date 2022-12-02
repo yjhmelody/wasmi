@@ -178,7 +178,7 @@ mod proof {
     use super::*;
     use crate::{
         engine::{InstProofParams, ProofError},
-        proof::{InstanceMerkle, InstructionProof, OspProof, StaticMerkle},
+        proof::{InstanceMerkle, InstructionProof, OspProof, StaticMerkle, VersionedOspProof},
     };
     use accel_merkle::MerkleHasher;
 
@@ -201,6 +201,12 @@ mod proof {
     }
 
     impl<'a, T, Hasher: MerkleHasher> ProofBuilder<'a, T, Hasher> {
+        pub fn make_osp_proof(
+            &self,
+            current_pc: u32,
+        ) -> Result<VersionedOspProof<Hasher>, ProofError> {
+            Ok(VersionedOspProof::V0(self.make_osp_proof_v0(current_pc)?))
+        }
         /// Creates an ops proof according to current pc.
         #[allow(clippy::redundant_closure_for_method_calls)]
         pub fn make_osp_proof_v0(&self, current_pc: u32) -> Result<OspProof<Hasher>, ProofError> {
