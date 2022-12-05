@@ -990,7 +990,11 @@ mod proof {
             func: Func,
             func_index: usize,
         ) -> Result<ExtraProof<Hasher>, ProofError> {
-            let func_type = func.func_type(store.as_context());
+            // Note: directly use engine inner for avoiding dead lock here
+            let func_type = self
+                .resolve_func_type(func.signature(store.as_context()), |func_type| {
+                    func_type.clone()
+                });
             let prove_data = params
                 .static_merkle
                 .func()
