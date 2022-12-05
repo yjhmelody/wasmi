@@ -691,7 +691,7 @@ mod proof {
     };
     use accel_merkle::{InstructionMerkle, MerkleHasher, ProveData};
     use alloc::vec::Vec;
-    use core::{cmp, ops::Range};
+    use core::{cmp, fmt, ops::Range};
 
     /// Meet some errors when generate normal extra proof for the another instruction.
     #[derive(Debug, Clone)]
@@ -702,8 +702,30 @@ mod proof {
         MemoryIllegal,
         GlobalsNotExist,
         GlobalNotFound,
-        EmtpyValueStack,
         IllegalPc,
+        InsufficientValueStack,
+    }
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for ProofError {}
+
+    impl fmt::Display for ProofError {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            match self {
+                ProofError::TrapCode(code) => code.fmt(f),
+                ProofError::MemoryNotImported => write!(f, "memory is not imported"),
+                ProofError::HostFuncNotHaveProof => write!(f, "host function could not have proof"),
+                ProofError::MemoryIllegal => write!(f, "access illegal memory"),
+                ProofError::GlobalsNotExist => write!(f, "there is no global value in wasm"),
+                ProofError::GlobalNotFound => {
+                    write!(f, "could not find global value for global instruction")
+                }
+                ProofError::IllegalPc => write!(f, "pc is out of code"),
+                ProofError::InsufficientValueStack => {
+                    write!(f, "the value stack size is not enough")
+                }
+            }
+        }
     }
 
     impl From<TrapCode> for ProofError {
@@ -821,7 +843,7 @@ mod proof {
                             .entries()
                             .last()
                             .copied()
-                            .ok_or(ProofError::EmtpyValueStack)?,
+                            .ok_or(ProofError::InsufficientValueStack)?,
                     ) as usize;
                     let table = cache.default_table(ctx.as_context());
                     let func = table
@@ -950,7 +972,7 @@ mod proof {
         ) -> Result<EngineProof<Hasher>, ProofError> {
             // TODO(opt): directly make proof and skip snapshot
             let snapshot = &self.make_snapshot();
-            EngineProof::make(snapshot, cur_inst).ok_or(ProofError::IllegalPc)
+            EngineProof::make(snapshot, cur_inst).ok_or(ProofError::InsufficientValueStack)
         }
 
         fn make_call_proof<Hasher: MerkleHasher>(

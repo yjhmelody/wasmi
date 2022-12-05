@@ -8,7 +8,7 @@ use crate::{
     snapshot::{FuncFrameSnapshot, TableElementSnapshot},
 };
 
-use core::{cmp, result};
+use core::{cmp, fmt, result};
 
 use crate::proof::{CallProof, FuncNode, OspProof};
 use accel_merkle::{MerkleHasher, ProveData};
@@ -39,6 +39,35 @@ pub enum ExecError {
     IllegalExtraProof,
     CallStackOverflow,
     DefaultTableNotFound,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ExecError {}
+
+impl fmt::Display for ExecError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ExecError::Trapped => write!(f, "meet trap"),
+            ExecError::GlobalsRootNotExist => write!(f, "globals root not exist"),
+            ExecError::FuncRootNotMatch => write!(f, "func root not match"),
+            ExecError::GlobalsRootNotMatch => write!(f, "globals root not match"),
+            ExecError::TableRootsNotMatch => write!(f, "table roots not match"),
+            ExecError::MemoryRootsNotExist => write!(f, "memory roots not match"),
+            ExecError::EmptyValueStack => write!(f, "value stack is empty"),
+            ExecError::InsufficientValueStack => write!(f, "value stack is insufficient"),
+            ExecError::InsufficientCallStack => write!(f, "call stack is insufficient"),
+            ExecError::ValueStackTooShortForDropKeep => {
+                write!(f, "value stack is insufficient for branch/return")
+            }
+            ExecError::BranchToIllegalPc => write!(f, "jump to an illegal pc"),
+            ExecError::IllegalInstruction => write!(f, "meet illegal instruction"),
+            ExecError::IllegalExtraProof => write!(f, "the extra proof is illegal"),
+            ExecError::CallStackOverflow => write!(f, "call stack overflow"),
+            ExecError::DefaultTableNotFound => {
+                write!(f, "default table not exist(for call_indirect)")
+            }
+        }
+    }
 }
 
 impl<Hasher> OspProof<Hasher>
