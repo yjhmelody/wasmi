@@ -444,7 +444,12 @@ impl Instruction {
         T::from_slice(&b)
     }
 
-    fn opcode(&self) -> u16 {
+    /// Returns the opcode of current instruction.
+    ///
+    /// # Note
+    ///
+    /// Most of opcode is same with wasm spec but others are defined by engine itself.
+    pub fn opcode(&self) -> u16 {
         match self {
             Instruction::Unreachable => 0x00,
             Instruction::Br(..) => 0x0C,
