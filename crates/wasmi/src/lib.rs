@@ -79,6 +79,7 @@
     clippy::default_trait_access,
     clippy::items_after_statements
 )]
+#![allow(clippy::uninlined_format_args)]
 #![recursion_limit = "550"]
 
 #[cfg(not(feature = "std"))]

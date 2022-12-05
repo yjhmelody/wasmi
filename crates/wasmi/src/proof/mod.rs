@@ -24,7 +24,9 @@ pub enum VersionedOspProof<Hasher: MerkleHasher> {
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct OspProof<Hasher: MerkleHasher> {
     // instruction root and function root should always be same if wasm code not updated.
+    // TODO(design): should exist before prove
     pub inst_root: Hasher::Output,
+    // TODO(design): should exist before prove
     pub func_root: Hasher::Output,
     // wasm blob maybe not contain global value.
     pub globals_root: Option<Hasher::Output>,

@@ -346,6 +346,7 @@ mod step {
         },
         Instance,
     };
+    use wasmi_core::UntypedValue;
 
     /// The result of step pattern.
     #[derive(Clone, Debug, Eq, PartialEq)]
@@ -387,6 +388,7 @@ mod step {
         }
 
         /// Executes the code start from a pc.
+        /// But do not care about the return values in stack.
         ///
         /// # Note
         ///
@@ -403,11 +405,17 @@ mod step {
             instance: Instance,
             step: Option<&mut u64>,
         ) -> Result<StepResult<()>, Trap> {
-            self.execute_step_at_pc_with_result(ctx, pc, instance, (), step)
+            struct IgnoreResult;
+            impl CallResults for IgnoreResult {
+                type Results = ();
+                // never check results
+                fn call_results(self, _results: &[UntypedValue]) -> Self::Results {}
+            }
+
+            self.execute_step_at_pc_with_result(ctx, pc, instance, IgnoreResult, step)
         }
 
         /// Executes the code start from a pc.
-        /// But do not care about the result.
         ///
         /// # Note
         ///

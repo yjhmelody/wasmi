@@ -126,7 +126,6 @@ where
 }
 
 impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
-    #[allow(unused)]
     pub fn execute(&mut self) -> Result<()> {
         use Instruction as Instr;
         // pre-checks

@@ -10,6 +10,7 @@
     clippy::map_unwrap_or,
     clippy::items_after_statements
 )]
+#![allow(clippy::uninlined_format_args)]
 
 mod host_error;
 mod nan_preserving_float;
