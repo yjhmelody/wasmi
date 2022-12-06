@@ -933,14 +933,15 @@ mod proof {
                     idx /= MEMORY_LEAF_SIZE;
                     let memory = cache.default_memory(ctx.as_context());
                     let memory = ctx.as_context().store.resolve_memory(memory);
+                    // TODO: improve the logic.
                     let leaf = Self::get_memory_leaf(memory, idx);
                     let next_leaf_idx = idx.saturating_add(1);
                     let next_leaf = Self::get_memory_leaf(memory, next_leaf_idx);
-                    let prove_data = memory_merkle
-                        .prove_without_leaf(idx)
-                        .ok_or(ProofError::MemoryIllegal)?;
                     // if the number is odd
                     if idx % 2 == 1 {
+                        let prove_data = memory_merkle
+                            .prove_without_leaf_and_parent(idx)
+                            .ok_or(ProofError::MemoryIllegal)?;
                         let leaf_sibling = memory_merkle.leaves()[idx - 1].clone();
                         let next_leaf_sibling =
                             memory_merkle.leaves()[next_leaf_idx.saturating_add(1)].clone();
@@ -953,6 +954,10 @@ mod proof {
                             next_leaf_sibling,
                         ))
                     } else {
+                        // is even
+                        let prove_data = memory_merkle
+                            .prove_without_leaf(idx)
+                            .ok_or(ProofError::MemoryIllegal)?;
                         ExtraProof::MemoryChunkSibling(MemoryChunkSibling::new(
                             prove_data, leaf, next_leaf,
                         ))
@@ -1052,6 +1057,7 @@ mod proof {
                 .expect("get_memory_index should be legal") as usize
         }
 
+        // TODO: handle access overflow
         /// Get the memory leaf from memory entity by index.
         fn get_memory_leaf(memory: &MemoryEntity, leaf_idx: usize) -> [u8; MEMORY_LEAF_SIZE] {
             let mut buf = [0u8; MEMORY_LEAF_SIZE];

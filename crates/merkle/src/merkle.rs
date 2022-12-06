@@ -66,6 +66,12 @@ pub struct Merkle<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> {
 #[derive(Debug, Eq, PartialEq, Encode, Decode)]
 pub struct ProveData<T: MerkleHasher>(Vec<T::Output>);
 
+impl<T: MerkleHasher> From<Vec<T::Output>> for ProveData<T> {
+    fn from(value: Vec<T::Output>) -> Self {
+        Self(value)
+    }
+}
+
 impl<T: MerkleHasher> Clone for ProveData<T> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
@@ -209,6 +215,16 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
     pub fn prove_without_leaf(&self, idx: usize) -> Option<ProveData<Hasher>> {
         // TODO: optimize this ops
         self.prove(idx).map(|mut proof| {
+            proof.0.remove(0);
+            proof
+        })
+    }
+
+    /// An variant prove that not contains the leaf node and its parent node.
+    pub fn prove_without_leaf_and_parent(&self, idx: usize) -> Option<ProveData<Hasher>> {
+        // TODO: optimize this ops
+        self.prove(idx).map(|mut proof| {
+            proof.0.remove(0);
             proof.0.remove(0);
             proof
         })
