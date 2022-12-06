@@ -3,6 +3,7 @@ use core::{
     borrow::Borrow,
     ops::{Deref, DerefMut},
 };
+
 type GenericBytes32 = digest::generic_array::GenericArray<u8, digest::generic_array::typenum::U32>;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]

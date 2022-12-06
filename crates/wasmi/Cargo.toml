@@ -32,7 +32,14 @@ criterion = { version = "0.4", default-features = false }
 
 [features]
 default = ["std"]
-std = ["wasmi_core/std", "wasmi_arena/std", "wasmparser/std", "spin/std"]
+std = [
+    "codec/std",
+    "accel_merkle/std",
+    "wasmi_core/std",
+    "wasmi_arena/std",
+    "wasmparser/std",
+    "spin/std"
+]
 
 [[bench]]
 name = "benches"
