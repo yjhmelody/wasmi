@@ -28,7 +28,9 @@ pub enum ExecError {
     GlobalsRootNotExist,
     FuncRootNotMatch,
     GlobalsRootNotMatch,
+    DefaultTableNotFound,
     TableRootsNotMatch,
+    MemoryRootNotMatch,
     MemoryRootsNotExist,
     EmptyValueStack,
     InsufficientValueStack,
@@ -38,7 +40,6 @@ pub enum ExecError {
     IllegalInstruction,
     IllegalExtraProof,
     CallStackOverflow,
-    DefaultTableNotFound,
 }
 
 #[cfg(feature = "std")]
@@ -52,6 +53,7 @@ impl fmt::Display for ExecError {
             ExecError::FuncRootNotMatch => write!(f, "func root not match"),
             ExecError::GlobalsRootNotMatch => write!(f, "globals root not match"),
             ExecError::TableRootsNotMatch => write!(f, "table roots not match"),
+            ExecError::MemoryRootNotMatch => write!(f, "memory root not match"),
             ExecError::MemoryRootsNotExist => write!(f, "memory roots not match"),
             ExecError::EmptyValueStack => write!(f, "value stack is empty"),
             ExecError::InsufficientValueStack => write!(f, "value stack is insufficient"),
@@ -661,6 +663,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     #[inline]
     fn ensure_same_memory(&self, memory_root: Hasher::Output) -> Result<()> {
         Self::ensure_same_root(Self::default_memory_root(self.memory_roots)?, &memory_root)
+            .map_err(|_e| ExecError::MemoryRootNotMatch)
     }
 
     #[inline]
