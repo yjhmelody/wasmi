@@ -10,7 +10,7 @@ use crate::{
 
 use core::{cmp, fmt, result};
 
-use crate::proof::{CallProof, FuncNode, OspProof};
+use crate::proof::{CallProof, FuncNode, OspProof, WasmFuncHeader};
 use accel_merkle::{MerkleHasher, ProveData};
 use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
 
@@ -404,10 +404,12 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
 
         match &self.extra {
             ExtraProof::CallWasm(proof) => {
-                let new_pc = Self::get_pc_from_call_proof(proof)?;
+                let header = Self::get_func_header_from_call_proof(proof)?;
                 self.ensure_call_proof(func_index, proof)?;
-                // update the current frame pc
-                self.set_pc(new_pc);
+                // update the current frame pc.
+                self.set_pc(header.pc);
+                // fulfill local vars.
+                self.value_stack.extend_zeros(header.len_locals as usize);
                 Ok(())
             }
             _ => Err(ExecError::IllegalExtraProof),
@@ -424,11 +426,12 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
 
         match &self.extra {
             ExtraProof::CallIndirectWasm(proof) => {
-                let new_pc = Self::get_pc_from_call_proof(proof)?;
+                let header = Self::get_func_header_from_call_proof(proof)?;
                 self.ensure_call_indirect_proof(func_index, proof)?;
-
-                // update the current frame pc
-                self.set_pc(new_pc);
+                // update the current frame pc.
+                self.set_pc(header.pc);
+                // fulfill local vars.
+                self.value_stack.extend_zeros(header.len_locals as usize);
                 Ok(())
             }
             _ => Err(ExecError::IllegalExtraProof),
@@ -471,10 +474,10 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         }
     }
 
-    fn get_pc_from_call_proof(proof: &CallProof<Hasher>) -> Result<u32> {
+    fn get_func_header_from_call_proof(proof: &CallProof<Hasher>) -> Result<&WasmFuncHeader> {
         match &proof.func {
             FuncNode::Host(..) => Err(ExecError::IllegalExtraProof),
-            FuncNode::Wasm(header) => Ok(header.pc),
+            FuncNode::Wasm(header) => Ok(header),
         }
     }
 

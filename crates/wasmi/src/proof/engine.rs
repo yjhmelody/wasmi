@@ -138,6 +138,7 @@ impl FuncNode {
         }
     }
 
+    /// Creates Func node from wasm func entity and func header.
     pub(crate) fn from_wasm_func(
         wasm_func: &WasmFuncEntity,
         code_map: &CodeMap,
@@ -145,8 +146,13 @@ impl FuncNode {
     ) -> Self {
         let header = code_map.header(wasm_func.func_body());
         let pc = header.start() as u32;
+        let len_locals = header.len_locals() as u32;
 
-        Self::Wasm(WasmFuncHeader { pc, func_type })
+        Self::Wasm(WasmFuncHeader {
+            pc,
+            func_type,
+            len_locals,
+        })
     }
 }
 
@@ -181,6 +187,8 @@ pub struct WasmFuncHeader {
     pub pc: u32,
     /// The function's signature
     pub func_type: FuncType,
+    /// The amount of local variable of the function.
+    pub len_locals: u32,
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
@@ -508,6 +516,13 @@ impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
         T: Into<UntypedValue>,
     {
         self.0.push(val.into())
+    }
+
+    /// Extends the value stack by the `additional` amount of zeros.
+    pub fn extend_zeros(&mut self, additional: usize) {
+        self.0
+            .entries
+            .extend(core::iter::repeat(UntypedValue::default()).take(additional))
     }
 
     pub fn is_emtpy(&self) -> bool {
