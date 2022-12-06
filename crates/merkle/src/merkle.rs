@@ -1,74 +1,11 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use codec::{Codec, Decode, Encode};
+use codec::{Decode, Encode};
 use digest::Digest;
 use sha3::Keccak256;
 
-use crate::bytes32::Bytes32;
-
-/// The trait for different proof of wasm state component.
-///
-/// User could choose custom hash algorithm.
-pub trait MerkleTrait<Hasher: MerkleHasher>: Debug {}
-
-/// The Hasher type used in merkle proof.
-pub trait MerkleHasher: Send + Sync {
-    /// The output hash type.
-    type Output: HashOutput;
-
-    /// Creates a hash according to bytes.
-    fn hash(bytes: &[u8]) -> Self::Output;
-
-    /// Produce the hash of some codec-encodable value.
-    fn hash_of<S: Encode + ?Sized>(s: &S) -> Self::Output {
-        Encode::using_encoded(s, Self::hash)
-    }
-
-    /// Creates parent hash by two child hash.
-    fn hash_node(a: &Self::Output, b: &Self::Output) -> Self::Output;
-}
-
-/// The output type of a hash algorithm.
-pub trait HashOutput:
-    core::hash::Hash
-    + Codec
-    + Debug
-    + Default
-    + Clone
-    + PartialEq
-    + Eq
-    + AsRef<[u8]>
-    + AsMut<[u8]>
-    + Send
-    + Sync
-    + Sized
-{
-    const LENGTH: usize;
-
-    /// Cast bytes to `Self`.
-    ///
-    /// # Note
-    ///
-    /// The bytes len must equal to `Self::LENGTH`, otherwise it should panic.
-    fn from_slice(b: &[u8]) -> Self;
-}
-
-impl HashOutput for Bytes32 {
-    const LENGTH: usize = 32;
-
-    fn from_slice(slice: &[u8]) -> Self {
-        let array = match slice.try_into() {
-            Ok(ba) => ba,
-            Err(_) => panic!(
-                "Expected a slice of length {} but it was {}",
-                Self::LENGTH,
-                slice.len()
-            ),
-        };
-        Self(array)
-    }
-}
+use crate::{bytes32::Bytes32, MerkleHasher, MerkleTrait};
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct MerkleKeccak256;
@@ -136,14 +73,17 @@ impl<T: MerkleHasher> Clone for ProveData<T> {
 }
 
 impl<T: MerkleHasher> ProveData<T> {
+    /// Returns the ref of inner proof path.
     pub fn inner(&self) -> &[T::Output] {
         &self.0
     }
 
+    /// Returns the inner proof path.
     pub fn into_inner(self) -> Vec<T::Output> {
         self.0
     }
 
+    /// Compute the merkle root according to proof.
     pub fn compute_root(&self, index: usize, leaf_hash: T::Output) -> T::Output {
         compute_root::<T>(self.inner(), index, leaf_hash)
     }
@@ -179,6 +119,11 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
         Self::new_advanced(hashes, Hasher::Output::default(), 0)
     }
 
+    /// Creates a merkle tree according to hashes iter.
+    ///
+    /// # Note
+    ///
+    /// Panic if hashes is empty.
     pub fn with_iter(hashes: impl Iterator<Item = Hasher::Output>) -> Self {
         let hashes: Vec<Hasher::Output> = hashes.into_iter().collect();
         Self::new(hashes)
@@ -217,6 +162,7 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
         }
     }
 
+    /// Returns the merkle root.
     pub fn root(&self) -> Hasher::Output {
         if let Some(layer) = self.layers.last() {
             assert_eq!(layer.len(), 1);
@@ -226,6 +172,7 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
         }
     }
 
+    /// Returns the merkle leaves.
     pub fn leaves(&self) -> &[Hasher::Output] {
         if self.layers.is_empty() {
             &[]
@@ -258,7 +205,7 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
         Some(proof)
     }
 
-    /// A variant prove that not contains the leaf node.
+    /// An variant prove that not contains the leaf node.
     pub fn prove_without_leaf(&self, idx: usize) -> Option<ProveData<Hasher>> {
         // TODO: optimize this ops
         self.prove(idx).map(|mut proof| {

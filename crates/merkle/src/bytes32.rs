@@ -1,3 +1,4 @@
+use crate::HashOutput;
 use codec::{Decode, Encode};
 use core::{
     borrow::Borrow,
@@ -8,6 +9,22 @@ type GenericBytes32 = digest::generic_array::GenericArray<u8, digest::generic_ar
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct Bytes32(pub [u8; 32]);
+
+impl HashOutput for Bytes32 {
+    const LENGTH: usize = 32;
+
+    fn from_slice(slice: &[u8]) -> Self {
+        let array = match slice.try_into() {
+            Ok(ba) => ba,
+            Err(_) => panic!(
+                "Expected a slice of length {} but it was {}",
+                Self::LENGTH,
+                slice.len()
+            ),
+        };
+        Self(array)
+    }
+}
 
 impl Deref for Bytes32 {
     type Target = [u8; 32];

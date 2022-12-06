@@ -8,9 +8,11 @@ extern crate std as alloc;
 
 mod bytes32;
 mod merkle;
+mod traits;
 
 pub use bytes32::*;
 pub use merkle::*;
+pub use traits::*;
 
 pub use digest;
 pub use sha3;
