@@ -50,6 +50,10 @@ impl<Hasher: MerkleHasher> EngineProof<Hasher> {
             }
             // local.set need pop top value first
             Instruction::LocalSet { local_depth } => local_depth.into_inner() + 1,
+
+            Instruction::Return(drop_keep) => drop_keep.keep() + drop_keep.drop(),
+            // TODO(opt): return 0 if equal to zero.
+            Instruction::ReturnIfNez(drop_keep) => drop_keep.keep() + drop_keep.drop(),
             _ => 3,
         };
         let value_stack = ValueStackProof::make(&snapshot.values, remain_size)?;
