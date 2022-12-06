@@ -45,9 +45,11 @@ impl<Hasher: MerkleHasher> EngineProof<Hasher> {
     /// Generate engine proof for specific instruction by snapshot.
     pub fn make(snapshot: &EngineSnapshot, cur_inst: Instruction) -> Option<Self> {
         let remain_size = match cur_inst {
-            Instruction::LocalTee { local_depth }
-            | Instruction::LocalSet { local_depth }
-            | Instruction::LocalGet { local_depth } => local_depth.into_inner(),
+            Instruction::LocalTee { local_depth } | Instruction::LocalGet { local_depth } => {
+                local_depth.into_inner()
+            }
+            // local.set need pop top value first
+            Instruction::LocalSet { local_depth } => local_depth.into_inner() + 1,
             _ => 3,
         };
         let value_stack = ValueStackProof::make(&snapshot.values, remain_size)?;
