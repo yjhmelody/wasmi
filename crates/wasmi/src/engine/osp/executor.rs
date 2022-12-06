@@ -812,14 +812,11 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
 
         let memory_root = match &self.extra {
             ExtraProof::MemoryChunkNeighbor(proof) => {
-                let memory_root = proof
+                let root = proof
                     .compute_root(address)
                     .ok_or(ExecError::IllegalExtraProof)?;
                 // prove memory before use it.
-                Self::ensure_same_root(
-                    Self::default_memory_root(self.memory_roots)?,
-                    &memory_root,
-                )?;
+                self.ensure_same_memory(root)?;
 
                 let bytes = <U as LittleEndianConvert>::into_le_bytes(value);
                 let mut proof = proof.clone();
@@ -828,12 +825,9 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
             }
 
             ExtraProof::MemoryChunkSibling(proof) => {
-                let memory_root = proof.compute_root(address);
+                let root = proof.compute_root(address);
                 // prove memory before use it.
-                Self::ensure_same_root(
-                    Self::default_memory_root(self.memory_roots)?,
-                    &memory_root,
-                )?;
+                self.ensure_same_memory(root)?;
 
                 let bytes = <U as LittleEndianConvert>::into_le_bytes(value);
                 let mut proof = proof.clone();
