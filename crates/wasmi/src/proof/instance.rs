@@ -81,8 +81,6 @@ fn div_round_up(num: usize, denom: usize) -> usize {
     res
 }
 
-// TODO: design cache for some merkle nodes.
-
 impl InstanceSnapshot {
     pub fn global_merkle<Hasher>(&self) -> Option<GlobalMerkle<Hasher>>
     where

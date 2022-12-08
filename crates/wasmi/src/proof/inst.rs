@@ -10,7 +10,7 @@ use wasmi_core::UntypedValue;
 
 /// Generate a merkle for instructions.
 pub fn code_merkle<Hasher: MerkleHasher>(insts: &[Instruction]) -> InstructionMerkle<Hasher> {
-    InstructionMerkle::new(insts.iter().map(Instruction::hash).collect())
+    InstructionMerkle::with_iter(insts.iter().map(Instruction::hash))
 }
 
 impl Decode for Instruction {

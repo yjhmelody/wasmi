@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use codec::{Decode, Encode};
 
 use crate::{AsContext, Engine, Func};
-use accel_merkle::{FuncMerkle, InstructionMerkle, MerkleHasher};
+use accel_merkle::{FuncMerkle, InstructionMerkle, MerkleHasher, ProveData};
 
 /// Prefix versioned proof for osp.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
@@ -105,6 +105,16 @@ where
             inst_root: self.inst.root(),
             func_root: self.func.root(),
         }
+    }
+
+    /// Generate a proof for func index.
+    pub fn prove_func_index(&self, func_index: usize) -> Option<ProveData<Hasher>> {
+        self.func().prove(func_index)
+    }
+
+    /// Generate a proof for pc.
+    pub fn prove_pc(&self, pc: usize) -> Option<ProveData<Hasher>> {
+        self.inst().prove(pc)
     }
 }
 

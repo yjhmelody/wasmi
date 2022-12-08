@@ -799,8 +799,7 @@ mod proof {
         // we need to generate proof for current instruction.
         fn get_inst_prove(&self) -> Result<ProveData<Hasher>, ProofError> {
             self.code_merkle
-                .inst()
-                .prove(self.current_pc as usize)
+                .prove_pc(self.current_pc as usize)
                 .ok_or(ProofError::IllegalPc)
         }
     }
@@ -826,6 +825,8 @@ mod proof {
             let mut cache = InstanceCache::from(instance);
             let current_pc = params.current_pc;
             let inst_prove = params.get_inst_prove()?;
+            // TODO: if we could get instruction outside.
+            // We could refactor the process by move out code_merkle.
             let inst = self.code_map.insts[current_pc as usize];
             let extra = match inst {
                 Instruction::Call(func_idx) => {
@@ -1002,8 +1003,7 @@ mod proof {
                 });
             let prove_data = params
                 .code_merkle
-                .func()
-                .prove(func_index)
+                .prove_func_index(func_index)
                 .expect("func index in Call instruction must be legal; qed");
 
             match func.as_internal(store.as_context()) {
