@@ -18,14 +18,16 @@ use super::{
     TableEntity,
     TableIdx,
 };
+use crate::{
+    proof::{CodeMerkle, CodeProofBuilder, OspProofBuilder},
+    snapshot::SnapshotBuilder,
+};
 use accel_merkle::MerkleHasher;
 use core::{
-    cell::RefCell,
+    marker::PhantomData,
     sync::atomic::{AtomicU32, Ordering},
 };
 use wasmi_arena::{Arena, GuardedEntity, Index};
-
-pub use crate::store::{proof::ProofBuilder, snapshot::SnapshotBuilder};
 
 /// A unique store index.
 ///
@@ -86,234 +88,6 @@ pub struct Store<T> {
     user_state: T,
 }
 
-mod snapshot {
-    use super::*;
-    use crate::{
-        snapshot::{EngineSnapshot, InstanceSnapshot},
-        Error,
-        Linker,
-        Module,
-    };
-
-    /// A builder for creating snapshot by store.
-    pub struct SnapshotBuilder<'a, T> {
-        pub(crate) store: &'a mut Store<T>,
-    }
-
-    impl<'a, T> AsContext for SnapshotBuilder<'a, T> {
-        type UserState = T;
-
-        #[inline]
-        fn as_context(&self) -> StoreContext<'_, Self::UserState> {
-            StoreContext {
-                store: &*self.store,
-            }
-        }
-    }
-
-    impl<'a, T> AsContextMut for SnapshotBuilder<'a, T> {
-        #[inline]
-        fn as_context_mut(&mut self) -> StoreContextMut<'_, Self::UserState> {
-            StoreContextMut { store: self.store }
-        }
-    }
-
-    impl<'a, T> SnapshotBuilder<'a, T> {
-        /// Make a module level instance snapshot.
-        pub fn make_instance(&self, instance: Instance) -> InstanceSnapshot {
-            let entity_index = self.store.unwrap_index(instance.into_inner());
-            let entity = self.store.instances.get(entity_index).unwrap_or_else(|| {
-                panic!(
-                    "the store has no reference to the given instance: {:?}",
-                    instance,
-                )
-            });
-            entity.make_snapshot(self, self.engine().clone())
-        }
-
-        /// Make a engine level snapshot.
-        pub fn make_engine(&self) -> EngineSnapshot {
-            self.engine().lock().make_snapshot()
-        }
-
-        /// Restores `store` from some snapshots according to linker and module.
-        ///
-        /// # Notes
-        ///
-        /// The module and linker must be consistent with the snapshots.
-        pub fn restore(
-            &mut self,
-            linker: &Linker<T>,
-            module: &Module,
-            instance: InstanceSnapshot,
-            engine: &EngineSnapshot,
-        ) -> Result<Instance, Error> {
-            let pre = linker.restore_instance(self.as_context_mut(), module, instance)?;
-            let instance = pre.no_start(self.as_context_mut());
-            self.restore_engine(engine, instance)?;
-            Ok(instance)
-        }
-
-        /// Restores engine from snapshot from instance.
-        ///
-        /// # Notes
-        ///
-        /// The instance must be consistent with the snapshot.
-        pub fn restore_engine(
-            &mut self,
-            snapshot: &EngineSnapshot,
-            instance: Instance,
-        ) -> Result<(), Error> {
-            self.engine().lock().restore_engine(snapshot, instance)?;
-            Ok(())
-        }
-
-        fn engine(&self) -> &Engine {
-            self.store.engine()
-        }
-    }
-}
-
-mod proof {
-    use super::*;
-    use crate::{
-        engine::{InstProofParams, ProofError},
-        proof::{InstanceMerkle, InstructionProof, OspProof, StaticMerkle, VersionedOspProof},
-    };
-    use accel_merkle::MerkleHasher;
-
-    /// A builder for creating proof by store.
-    pub struct ProofBuilder<'a, T, Hasher: MerkleHasher> {
-        pub(crate) store: &'a Store<T>,
-        pub(crate) instance: Instance,
-        pub(crate) instance_entity: &'a InstanceEntity,
-        pub(crate) static_merkle: RefCell<Option<StaticMerkle<Hasher>>>,
-    }
-
-    impl<'a, T, Hasher: MerkleHasher> AsContext for ProofBuilder<'a, T, Hasher> {
-        type UserState = T;
-
-        #[inline]
-        fn as_context(&self) -> StoreContext<'_, Self::UserState> {
-            StoreContext { store: self.store }
-        }
-    }
-
-    impl<'a, T, Hasher: MerkleHasher> ProofBuilder<'a, T, Hasher> {
-        pub fn make_osp_proof(
-            &self,
-            current_pc: u32,
-        ) -> Result<VersionedOspProof<Hasher>, ProofError> {
-            Ok(VersionedOspProof::V0(self.make_osp_proof_v0(current_pc)?))
-        }
-        /// Creates an ops proof according to current pc.
-        #[allow(clippy::redundant_closure_for_method_calls)]
-        pub fn make_osp_proof_v0(&self, current_pc: u32) -> Result<OspProof<Hasher>, ProofError> {
-            let instance_merkle = self.make_instance_merkle();
-            let inst_proof = self.make_inst_proof(&instance_merkle, current_pc)?;
-            let engine_proof = self.engine().make_engine_proof::<Hasher>(inst_proof.inst)?;
-            let static_merkle = self.static_merkle.borrow();
-            let static_merkle = static_merkle
-                .as_ref()
-                .expect("static merkle generated before; qed");
-
-            let globals_root = instance_merkle
-                .globals
-                .as_ref()
-                .map(|globals| globals.root());
-            let table_roots = instance_merkle
-                .tables
-                .iter()
-                .map(|table| table.merkle.root())
-                .collect();
-            let memory_roots = instance_merkle
-                .memories
-                .iter()
-                .map(|mem| mem.merkle.root())
-                .collect();
-            Ok(OspProof::<Hasher> {
-                inst_proof,
-                engine_proof,
-                inst_root: static_merkle.code().root(),
-                func_root: static_merkle.func().root(),
-                globals_root,
-                table_roots,
-                memory_roots,
-            })
-        }
-
-        /// Set a static merkle directly.
-        ///
-        /// # Note
-        ///
-        /// It is used to avoid duplicated computing.
-        pub fn set_static_merkle(&self, merkle: StaticMerkle<Hasher>) {
-            let mut static_merkle = self.static_merkle.borrow_mut();
-            *static_merkle = Some(merkle);
-        }
-
-        /// Take static merkle from the inner directly.
-        ///
-        /// # Note
-        ///
-        /// It is used to avoid duplicated computing.
-        pub fn take_static_merkle(&self) -> Option<StaticMerkle<Hasher>> {
-            self.static_merkle.borrow_mut().take()
-        }
-
-        /// Make a static merkle from the inner directly.
-        ///
-        /// # Note
-        ///
-        /// It is used to avoid duplicated computing.
-        pub fn make_static_merkle(&self) -> StaticMerkle<Hasher> {
-            StaticMerkle::<Hasher>::create(
-                self.as_context(),
-                self.instance_entity.funcs(),
-                self.engine().clone(),
-            )
-        }
-
-        fn make_instance_merkle(&self) -> InstanceMerkle<Hasher> {
-            // TODO: create proof by instance entity directly
-            let instance_snapshot = self
-                .instance_entity
-                .make_snapshot(self.as_context(), self.engine().clone());
-            InstanceMerkle::create_by_snapshot(instance_snapshot)
-        }
-
-        fn make_inst_proof(
-            &self,
-            instance_merkle: &InstanceMerkle<Hasher>,
-            current_pc: u32,
-        ) -> Result<InstructionProof<Hasher>, ProofError> {
-            let mut static_merkle = self.static_merkle.borrow_mut();
-            if static_merkle.is_none() {
-                *static_merkle = Some(self.make_static_merkle());
-            }
-            let static_merkle = static_merkle
-                .as_ref()
-                .expect("static_merkle generated before; qed");
-
-            let inst_proof = self.engine().make_inst_proof(
-                self.as_context(),
-                InstProofParams {
-                    current_pc,
-                    instance_merkle,
-                    static_merkle,
-                },
-                self.instance,
-            )?;
-
-            Ok(inst_proof)
-        }
-
-        fn engine(&self) -> &Engine {
-            self.store.engine()
-        }
-    }
-}
-
 #[test]
 fn test_store_is_send_sync() {
     const _: () = {
@@ -344,14 +118,31 @@ impl<T> Store<T> {
         SnapshotBuilder { store: self }
     }
 
-    /// Returns a proof builder for wasm store.
-    pub fn proof<Hasher: MerkleHasher>(&self, instance: Instance) -> ProofBuilder<'_, T, Hasher> {
+    /// Returns a code proof builder for wasm store.
+    pub fn code_proof<Hasher: MerkleHasher>(
+        &self,
+        instance: Instance,
+    ) -> CodeProofBuilder<T, Hasher> {
         let instance_entity = self.resolve_instance(instance);
-        ProofBuilder {
+        CodeProofBuilder {
+            store: self,
+            instance_entity,
+            _hasher: PhantomData,
+        }
+    }
+
+    /// Returns a osp proof builder for wasm store.
+    pub fn osp_proof<'a, Hasher: MerkleHasher>(
+        &'a self,
+        code_merkle: &'a CodeMerkle<Hasher>,
+        instance: Instance,
+    ) -> OspProofBuilder<'a, T, Hasher> {
+        let instance_entity = self.resolve_instance(instance);
+        OspProofBuilder {
             store: self,
             instance,
             instance_entity,
-            static_merkle: RefCell::new(None),
+            code_merkle,
         }
     }
 

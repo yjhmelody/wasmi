@@ -680,6 +680,7 @@ mod proof {
         proof::{
             code_merkle,
             CallProof,
+            CodeMerkle,
             EngineProof,
             ExtraProof,
             FuncNode,
@@ -689,7 +690,6 @@ mod proof {
             MemoryChunkNeighbor,
             MemoryChunkSibling,
             MemoryProof,
-            StaticMerkle,
             TableProof,
             MEMORY_LEAF_SIZE,
         },
@@ -776,7 +776,7 @@ mod proof {
     pub struct InstProofParams<'a, Hasher: MerkleHasher> {
         pub current_pc: u32,
         pub instance_merkle: &'a InstanceMerkle<Hasher>,
-        pub static_merkle: &'a StaticMerkle<Hasher>,
+        pub code_merkle: &'a CodeMerkle<Hasher>,
     }
 
     impl<'a, Hasher: MerkleHasher> InstProofParams<'a, Hasher> {
@@ -798,8 +798,8 @@ mod proof {
 
         // we need to generate proof for current instruction.
         fn get_inst_prove(&self) -> Result<ProveData<Hasher>, ProofError> {
-            self.static_merkle
-                .code()
+            self.code_merkle
+                .inst()
                 .prove(self.current_pc as usize)
                 .ok_or(ProofError::IllegalPc)
         }
@@ -1001,7 +1001,7 @@ mod proof {
                     func_type.clone()
                 });
             let prove_data = params
-                .static_merkle
+                .code_merkle
                 .func()
                 .prove(func_index)
                 .expect("func index in Call instruction must be legal; qed");

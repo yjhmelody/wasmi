@@ -10,7 +10,7 @@ use crate::{
 
 use core::{cmp, fmt, result};
 
-use crate::proof::{CallProof, FuncNode, OspProof, WasmFuncHeader};
+use crate::proof::{CallProof, CodeProof, FuncNode, OspProof, WasmFuncHeader};
 use accel_merkle::{MerkleHasher, ProveData};
 use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
 
@@ -77,13 +77,16 @@ where
     Hasher: MerkleHasher,
 {
     /// Creates an osp executor to run one step proof data.
-    pub(crate) fn executor(&mut self) -> OspExecutor<Hasher> {
+    pub(crate) fn executor<'a>(
+        &'a mut self,
+        code_proof: &'a CodeProof<Hasher>,
+    ) -> OspExecutor<'a, Hasher> {
         OspExecutor::<Hasher> {
             call_stack: &mut self.engine_proof.call_stack,
             value_stack: &mut self.engine_proof.value_stack,
 
-            inst_root: &self.inst_root,
-            func_root: &self.func_root,
+            inst_root: &code_proof.inst_root,
+            func_root: &code_proof.func_root,
             globals_root: &mut self.globals_root,
             table_roots: &self.table_roots,
             memory_roots: &mut self.memory_roots,
@@ -102,8 +105,8 @@ where
     /// # Error
     ///
     /// unexpected proof data or state.
-    pub fn run(&mut self) -> Result<()> {
-        self.executor().execute()
+    pub fn run(&mut self, code_proof: &CodeProof<Hasher>) -> Result<()> {
+        self.executor(code_proof).execute()
     }
 }
 

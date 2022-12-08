@@ -1,17 +1,33 @@
 mod engine;
 mod inst;
 mod instance;
+mod store;
 mod utils;
 
-pub use engine::*;
-pub use inst::*;
-pub use instance::*;
+pub use self::{engine::*, inst::*, instance::*, store::*};
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 
 use crate::{AsContext, Engine, Func};
 use accel_merkle::{FuncMerkle, InstructionMerkle, MerkleHasher};
+
+/// Prefix versioned proof for osp.
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub enum VersionedCodeProof<Hasher: MerkleHasher> {
+    V0(CodeProof<Hasher>),
+}
+
+/// The wasm code related proof.
+///
+/// If wasm code is not updated, this value should never be changed.
+#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
+pub struct CodeProof<Hasher: MerkleHasher> {
+    /// The root of instructions.
+    pub inst_root: Hasher::Output,
+    /// The root of functions.
+    pub func_root: Hasher::Output,
+}
 
 /// Prefix versioned proof for osp.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
@@ -23,27 +39,20 @@ pub enum VersionedOspProof<Hasher: MerkleHasher> {
 /// The complete osp proof data.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct OspProof<Hasher: MerkleHasher> {
-    // instruction root and function root should always be same if wasm code not updated.
-    // TODO(design): should exist before prove
-    pub inst_root: Hasher::Output,
-    // TODO(design): should exist before prove
-    pub func_root: Hasher::Output,
-    // wasm blob maybe not contain global value.
+    /// wasm blob maybe not contain global value.
     pub globals_root: Option<Hasher::Output>,
     pub table_roots: Vec<Hasher::Output>,
     pub memory_roots: Vec<Hasher::Output>,
+    pub engine_proof: EngineProof<Hasher>,
     /// The inst special proof.
     pub inst_proof: InstructionProof<Hasher>,
-    pub engine_proof: EngineProof<Hasher>,
 }
 
 impl<Hasher: MerkleHasher> OspProof<Hasher> {
     /// Compute the finally proof hash.
     pub fn hash(&self) -> Hasher::Output {
         let engine_proof = self.engine_proof.hash();
-        Hasher::hash_of(&PostOspProof::<'_, Hasher> {
-            inst_root: &self.inst_root,
-            func_root: &self.func_root,
+        Hasher::hash_of(&OspProofRoots::<'_, Hasher> {
             globals_root: &self.globals_root,
             table_roots: &self.table_roots,
             memory_roots: &self.memory_roots,
@@ -53,44 +62,49 @@ impl<Hasher: MerkleHasher> OspProof<Hasher> {
 }
 
 #[derive(Encode)]
-struct PostOspProof<'a, T: MerkleHasher> {
-    inst_root: &'a T::Output,
-    func_root: &'a T::Output,
+struct OspProofRoots<'a, T: MerkleHasher> {
     globals_root: &'a Option<T::Output>,
     table_roots: &'a Vec<T::Output>,
     memory_roots: &'a Vec<T::Output>,
     engine_proof: &'a T::Output,
 }
 
-/// This contains some merkle trees whose data should
-/// never be changed during wasm execution without code update.
+/// This contains some merkle trees which will never be changed if code is not updated.
 #[derive(Debug)]
-pub struct StaticMerkle<Hasher>
+pub struct CodeMerkle<Hasher>
 where
     Hasher: MerkleHasher,
 {
-    code: InstructionMerkle<Hasher>,
+    inst: InstructionMerkle<Hasher>,
     func: FuncMerkle<Hasher>,
 }
 
-impl<Hasher> StaticMerkle<Hasher>
+impl<Hasher> CodeMerkle<Hasher>
 where
     Hasher: MerkleHasher,
 {
-    /// Creates static merkle components.
-    pub(crate) fn create(ctx: impl AsContext, funcs: &[Func], engine: Engine) -> Self {
-        let code = engine.make_code_merkle();
+    /// Generate code related merkle.
+    pub(crate) fn generate(ctx: impl AsContext, funcs: &[Func], engine: Engine) -> Self {
+        let inst = engine.make_code_merkle();
         let func = make_func_merkle(ctx, funcs, engine);
 
-        Self { code, func }
+        Self { inst, func }
     }
 
-    pub(crate) fn code(&self) -> &InstructionMerkle<Hasher> {
-        &self.code
+    pub(crate) fn inst(&self) -> &InstructionMerkle<Hasher> {
+        &self.inst
     }
 
     pub(crate) fn func(&self) -> &FuncMerkle<Hasher> {
         &self.func
+    }
+
+    /// Creates code proof according to current merkle trees.
+    pub fn code_proof(&self) -> CodeProof<Hasher> {
+        CodeProof {
+            inst_root: self.inst.root(),
+            func_root: self.func.root(),
+        }
     }
 }
 

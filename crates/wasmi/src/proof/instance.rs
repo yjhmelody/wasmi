@@ -47,8 +47,8 @@ impl<Hasher> InstanceMerkle<Hasher>
 where
     Hasher: MerkleHasher,
 {
-    /// Creates an instance proof by snapshot.
-    pub fn create_by_snapshot(instance: InstanceSnapshot) -> Self {
+    /// Generate an instance proof by snapshot.
+    pub fn generate(instance: InstanceSnapshot) -> Self {
         Self {
             globals: instance.global_merkle(),
             memories: instance.memory_proofs(),
@@ -217,5 +217,6 @@ mod tests {
         assert_eq!(round_up_to_power_of_two(6), 8);
         assert_eq!(round_up_to_power_of_two(7), 8);
         assert_eq!(round_up_to_power_of_two(8), 8);
+        assert_eq!(round_up_to_power_of_two(9), 16);
     }
 }
