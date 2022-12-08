@@ -188,7 +188,6 @@ mod proof {
         pub(crate) instance: Instance,
         pub(crate) instance_entity: &'a InstanceEntity,
         pub(crate) static_merkle: RefCell<Option<StaticMerkle<Hasher>>>,
-        pub(crate) instance_merkle: RefCell<Option<InstanceMerkle<Hasher>>>,
     }
 
     impl<'a, T, Hasher: MerkleHasher> AsContext for ProofBuilder<'a, T, Hasher> {
@@ -210,14 +209,11 @@ mod proof {
         /// Creates an ops proof according to current pc.
         #[allow(clippy::redundant_closure_for_method_calls)]
         pub fn make_osp_proof_v0(&self, current_pc: u32) -> Result<OspProof<Hasher>, ProofError> {
-            let inst_proof = self.make_inst_proof(current_pc)?;
+            let instance_merkle = self.make_instance_merkle();
+            let inst_proof = self.make_inst_proof(&instance_merkle, current_pc)?;
             let engine_proof = self.engine().make_engine_proof::<Hasher>(inst_proof.inst)?;
             let static_merkle = self.static_merkle.borrow();
             let static_merkle = static_merkle
-                .as_ref()
-                .expect("static merkle generated before; qed");
-            let instance_merkle = self.instance_merkle.borrow();
-            let instance_merkle = instance_merkle
                 .as_ref()
                 .expect("static merkle generated before; qed");
 
@@ -246,7 +242,31 @@ mod proof {
             })
         }
 
-        fn make_static_merkle(&self) -> StaticMerkle<Hasher> {
+        /// Set a static merkle directly.
+        ///
+        /// # Note
+        ///
+        /// It is used to avoid duplicated computing.
+        pub fn set_static_merkle(&self, merkle: StaticMerkle<Hasher>) {
+            let mut static_merkle = self.static_merkle.borrow_mut();
+            *static_merkle = Some(merkle);
+        }
+
+        /// Take static merkle from the inner directly.
+        ///
+        /// # Note
+        ///
+        /// It is used to avoid duplicated computing.
+        pub fn take_static_merkle(&self) -> Option<StaticMerkle<Hasher>> {
+            self.static_merkle.borrow_mut().take()
+        }
+
+        /// Make a static merkle from the inner directly.
+        ///
+        /// # Note
+        ///
+        /// It is used to avoid duplicated computing.
+        pub fn make_static_merkle(&self) -> StaticMerkle<Hasher> {
             StaticMerkle::<Hasher>::create(
                 self.as_context(),
                 self.instance_entity.funcs(),
@@ -262,7 +282,11 @@ mod proof {
             InstanceMerkle::create_by_snapshot(instance_snapshot)
         }
 
-        fn make_inst_proof(&self, current_pc: u32) -> Result<InstructionProof<Hasher>, ProofError> {
+        fn make_inst_proof(
+            &self,
+            instance_merkle: &InstanceMerkle<Hasher>,
+            current_pc: u32,
+        ) -> Result<InstructionProof<Hasher>, ProofError> {
             let mut static_merkle = self.static_merkle.borrow_mut();
             if static_merkle.is_none() {
                 *static_merkle = Some(self.make_static_merkle());
@@ -270,14 +294,6 @@ mod proof {
             let static_merkle = static_merkle
                 .as_ref()
                 .expect("static_merkle generated before; qed");
-
-            let mut instance_merkle = self.instance_merkle.borrow_mut();
-            if instance_merkle.is_none() {
-                *instance_merkle = Some(self.make_instance_merkle());
-            }
-            let instance_merkle = instance_merkle
-                .as_ref()
-                .expect("instance_merkle generated before; qed");
 
             let inst_proof = self.engine().make_inst_proof(
                 self.as_context(),
@@ -336,7 +352,6 @@ impl<T> Store<T> {
             instance,
             instance_entity,
             static_merkle: RefCell::new(None),
-            instance_merkle: RefCell::new(None),
         }
     }
 

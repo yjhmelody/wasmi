@@ -12,6 +12,7 @@ categories.workspace = true
 
 [dependencies]
 codec = { package = "parity-scale-codec", version = "3.0", default-features = false, features = ["derive"] }
+hex = { version = "0.4" }
 sha3 = { version = "0.10.5", default-features = false }
 digest = { version = "0.10.5", default-features = false }
 
@@ -21,6 +22,7 @@ digest = { version = "0.10.5", default-features = false }
 default = ["std"]
 std = [
     "codec/std",
+    "hex/std",
     "sha3/std",
     "digest/std",
 ]

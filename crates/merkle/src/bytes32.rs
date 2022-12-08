@@ -2,6 +2,7 @@ use crate::HashOutput;
 use codec::{Decode, Encode};
 use core::{
     borrow::Borrow,
+    fmt::{Display, Formatter},
     ops::{Deref, DerefMut},
 };
 
@@ -23,6 +24,12 @@ impl HashOutput for Bytes32 {
             ),
         };
         Self(array)
+    }
+}
+
+impl Display for Bytes32 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", hex::encode(self.0))
     }
 }
 

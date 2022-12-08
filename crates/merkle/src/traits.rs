@@ -1,4 +1,4 @@
-use core::fmt::Debug;
+use core::fmt::{Debug, Display};
 
 use codec::{Codec, Encode};
 
@@ -38,6 +38,7 @@ pub trait HashOutput:
     + Send
     + Sync
     + Sized
+    + Display
 {
     const LENGTH: usize;
 
