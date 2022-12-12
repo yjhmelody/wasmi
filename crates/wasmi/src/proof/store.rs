@@ -64,7 +64,8 @@ impl<'a, T, Hasher: MerkleHasher> AsContext for OspProofBuilder<'a, T, Hasher> {
 impl<'a, T, Hasher: MerkleHasher> OspProofBuilder<'a, T, Hasher> {
     /// Creates the latest version osp proof data.
     pub fn make_osp_proof(&self, current_pc: u32) -> Result<VersionedOspProof<Hasher>, ProofError> {
-        Ok(VersionedOspProof::V0(self.make_osp_proof_v0(current_pc)?))
+        self.make_osp_proof_v0(current_pc)
+            .map(VersionedOspProof::V0)
     }
     /// Creates an ops proof according to current pc.
     #[allow(clippy::redundant_closure_for_method_calls)]
@@ -105,7 +106,7 @@ impl<'a, T, Hasher: MerkleHasher> OspProofBuilder<'a, T, Hasher> {
         InstanceMerkle::generate(instance_snapshot)
     }
 
-    fn make_inst_proof(
+    pub fn make_inst_proof(
         &self,
         instance_merkle: &InstanceMerkle<Hasher>,
         current_pc: u32,
