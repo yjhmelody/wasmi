@@ -1,6 +1,9 @@
 mod error;
 mod pre;
 
+#[cfg(test)]
+mod tests;
+
 pub use self::{error::InstantiationError, pre::InstancePre};
 use super::{export, InitExpr, Module, ModuleImportType};
 use crate::{
@@ -10,6 +13,7 @@ use crate::{
     Error,
     Extern,
     FuncEntity,
+    FuncType,
     Global,
     Instance,
     InstanceEntity,
@@ -128,6 +132,9 @@ impl Module {
             match (import.item_type(), external) {
                 (ModuleImportType::Func(expected_signature), Extern::Func(func)) => {
                     let actual_signature = func.signature(context.as_context());
+                    let actual_signature = self
+                        .engine
+                        .resolve_func_type(actual_signature, FuncType::clone);
                     // Note: We can compare function signatures without resolving them because
                     //       we deduplicate them before registering. Therefore two equal instances of
                     //       [`SignatureEntity`] will be associated to the same [`Signature`].
@@ -135,7 +142,7 @@ impl Module {
                         // Note: In case of error we could resolve the signatures for better error readability.
                         return Err(InstantiationError::SignatureMismatch {
                             actual: actual_signature,
-                            expected: *expected_signature,
+                            expected: expected_signature.clone(),
                         });
                     }
                     builder.push_func(func);
@@ -193,7 +200,7 @@ impl Module {
     ///
     /// [`Store`]: struct.Store.html
     fn extract_tables(&self, context: &mut impl AsContextMut, builder: &mut InstanceEntityBuilder) {
-        for table_type in self.tables.iter().copied() {
+        for table_type in self.internal_tables().copied() {
             builder.push_table(Table::new(context.as_context_mut(), table_type));
         }
     }
@@ -208,12 +215,12 @@ impl Module {
         context: &mut impl AsContextMut,
         builder: &mut InstanceEntityBuilder,
     ) {
-        for memory_type in self.memories.iter().copied() {
+        for memory_type in self.internal_memories().copied() {
             let memory =
                 Memory::new(context.as_context_mut(), memory_type).unwrap_or_else(|error| {
                     panic!(
-                        "encountered unexpected invalid memory type {:?} after Wasm validation: {}",
-                        memory_type, error,
+                        "encountered unexpected invalid memory type \
+                        {memory_type:?} after Wasm validation: {error}",
                     )
                 });
             builder.push_memory(memory);
@@ -309,9 +316,9 @@ impl Module {
                 .try_into::<u32>()
                 .unwrap_or_else(|| {
                     panic!(
-                    "expected offset value of type `i32` due to Wasm validation but found: {:?}",
-                    offset_expr,
-                )
+                        "expected offset value of type `i32` due to \
+                    Wasm validation but found: {offset_expr:?}",
+                    )
                 }) as usize;
             let table = builder.get_table(DEFAULT_TABLE_INDEX);
             // Note: This checks not only that the elements in the element segments properly
@@ -349,9 +356,9 @@ impl Module {
                 .try_into::<u32>()
                 .unwrap_or_else(|| {
                     panic!(
-                    "expected offset value of type `i32` due to Wasm validation but found: {:?}",
-                    offset_expr,
-                )
+                        "expected offset value of type `i32` due to \
+                    Wasm validation but found: {offset_expr:?}",
+                    )
                 }) as usize;
             let memory = builder.get_memory(DEFAULT_MEMORY_INDEX);
             memory.write(context.as_context_mut(), offset, data_segment.data())?;

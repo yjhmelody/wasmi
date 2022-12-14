@@ -39,6 +39,7 @@ use crate::{
     engine::{DedupFuncType, FuncBody},
     Engine,
     Error,
+    FuncType,
     GlobalType,
     MemoryType,
     TableType,
@@ -100,6 +101,14 @@ pub struct ModuleImports {
     len_funcs: usize,
     /// The amount of imported [`Global`].
     len_globals: usize,
+    /// The amount of imported [`Memory`].
+    ///
+    /// [`Memory`]: [`crate::Memory`]
+    len_memories: usize,
+    /// The amount of imported [`Table`].
+    ///
+    /// [`Table`]: [`crate::Table`]
+    len_tables: usize,
 }
 
 impl ModuleImports {
@@ -107,6 +116,8 @@ impl ModuleImports {
     fn from_builder(imports: builder::ModuleImports) -> Self {
         let len_funcs = imports.funcs.len();
         let len_globals = imports.globals.len();
+        let len_memories = imports.memories.len();
+        let len_tables = imports.tables.len();
         let funcs = imports.funcs.into_iter().map(Imported::Func);
         let tables = imports.tables.into_iter().map(Imported::Table);
         let memories = imports.memories.into_iter().map(Imported::Memory);
@@ -121,6 +132,8 @@ impl ModuleImports {
             items,
             len_funcs,
             len_globals,
+            len_memories,
+            len_tables,
         }
     }
 }
@@ -182,6 +195,7 @@ impl Module {
         let len_imported_funcs = self.imports.len_funcs;
         let len_imported_globals = self.imports.len_globals;
         ModuleImportsIter {
+            engine: &self.engine,
             names: self.imports.items.iter(),
             funcs: self.funcs[..len_imported_funcs].iter(),
             tables: self.tables.iter(),
@@ -206,6 +220,26 @@ impl Module {
         }
     }
 
+    /// Returns an iterator over the [`MemoryType`] of internal linear memories.
+    fn internal_memories(&self) -> SliceIter<MemoryType> {
+        let len_imported = self.imports.len_memories;
+        // We skip the first `len_imported` elements in `memories`
+        // since they refer to imported and not internally defined
+        // linear memories.
+        let memories = &self.memories[len_imported..];
+        memories.iter()
+    }
+
+    /// Returns an iterator over the [`TableType`] of internal tables.
+    fn internal_tables(&self) -> SliceIter<TableType> {
+        let len_imported = self.imports.len_tables;
+        // We skip the first `len_imported` elements in `memories`
+        // since they refer to imported and not internally defined
+        // linear memories.
+        let tables = &self.tables[len_imported..];
+        tables.iter()
+    }
+
     /// Returns an iterator over the internally defined [`Global`].
     fn internal_globals(&self) -> InternalGlobalsIter {
         let len_imported = self.imports.len_globals;
@@ -228,6 +262,7 @@ impl Module {
 /// An iterator over the imports of a [`Module`].
 #[derive(Debug)]
 pub struct ModuleImportsIter<'a> {
+    engine: &'a Engine,
     names: SliceIter<'a, Imported>,
     funcs: SliceIter<'a, DedupFuncType>,
     tables: SliceIter<'a, TableType>,
@@ -246,7 +281,8 @@ impl<'a> Iterator for ModuleImportsIter<'a> {
                     let func_type = self.funcs.next().unwrap_or_else(|| {
                         panic!("unexpected missing imported function for {name:?}")
                     });
-                    ModuleImport::new(name, *func_type)
+                    let func_type = self.engine.resolve_func_type(*func_type, FuncType::clone);
+                    ModuleImport::new(name, func_type)
                 }
                 Imported::Table(name) => {
                     let table_type = self.tables.next().unwrap_or_else(|| {
@@ -330,7 +366,7 @@ pub enum ModuleImportType {
     /// An imported [`Func`].
     ///
     /// [`Func`]: [`crate::Func`]
-    Func(DedupFuncType),
+    Func(FuncType),
     /// An imported [`Table`].
     ///
     /// [`Table`]: [`crate::Table`]
@@ -345,8 +381,8 @@ pub enum ModuleImportType {
     Global(GlobalType),
 }
 
-impl From<DedupFuncType> for ModuleImportType {
-    fn from(func_type: DedupFuncType) -> Self {
+impl From<FuncType> for ModuleImportType {
+    fn from(func_type: FuncType) -> Self {
         Self::Func(func_type)
     }
 }

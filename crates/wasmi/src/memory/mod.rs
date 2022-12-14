@@ -3,14 +3,14 @@ mod byte_buffer;
 pub use self::byte_buffer::ByteBuffer;
 use super::{AsContext, AsContextMut, StoreContext, StoreContextMut, Stored};
 use core::{fmt, fmt::Display};
-use wasmi_arena::Index;
+use wasmi_arena::ArenaIndex;
 use wasmi_core::Pages;
 
 /// A raw index to a linear memory entity.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MemoryIdx(u32);
 
-impl Index for MemoryIdx {
+impl ArenaIndex for MemoryIdx {
     fn into_usize(self) -> usize {
         self.0 as usize
     }
@@ -65,8 +65,8 @@ impl Display for MemoryError {
             } => {
                 write!(
                     f,
-                    "memory type {:?} does not satisfy requirements of {:?}",
-                    unsatisfying, required,
+                    "memory type {unsatisfying:?} does not \
+                    satisfy requirements of {required:?}",
                 )
             }
         }

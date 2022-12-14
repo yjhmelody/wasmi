@@ -3,13 +3,13 @@
 use super::{AsContext, AsContextMut, Func, Stored};
 use alloc::vec::Vec;
 use core::{fmt, fmt::Display};
-use wasmi_arena::Index;
+use wasmi_arena::ArenaIndex;
 
 /// A raw index to a table entity.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TableIdx(u32);
 
-impl Index for TableIdx {
+impl ArenaIndex for TableIdx {
     fn into_usize(self) -> usize {
         self.0 as usize
     }
@@ -61,15 +61,15 @@ impl Display for TableError {
             } => {
                 write!(
                     f,
-                    "tried to grow table with size of {} and maximum of {} by {} out of bounds",
-                    current, maximum, grow_by
+                    "tried to grow table with size of {current} and maximum of \
+                    {maximum} by {grow_by} out of bounds",
                 )
             }
             Self::AccessOutOfBounds { current, offset } => {
                 write!(
                     f,
-                    "out of bounds access of table element {} of table with size {}",
-                    offset, current,
+                    "out of bounds access of table element {offset} \
+                    of table with size {current}",
                 )
             }
             Self::UnsatisfyingTableType {
@@ -78,8 +78,8 @@ impl Display for TableError {
             } => {
                 write!(
                     f,
-                    "table type {:?} does not satisfy requirements of {:?}",
-                    unsatisfying, required,
+                    "table type {unsatisfying:?} does not satisfy requirements \
+                    of {required:?}",
                 )
             }
         }

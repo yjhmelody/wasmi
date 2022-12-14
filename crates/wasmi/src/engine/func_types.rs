@@ -1,13 +1,12 @@
 use super::{EngineIdx, Guarded};
-use crate::{FuncType, Store};
-use wasmi_arena::{DedupArena, GuardedEntity, Index};
-use wasmi_core::ValueType;
+use crate::FuncType;
+use wasmi_arena::{ArenaIndex, DedupArena, GuardedEntity};
 
 /// A raw index to a function signature entity.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DedupFuncTypeIdx(u32);
 
-impl Index for DedupFuncTypeIdx {
+impl ArenaIndex for DedupFuncTypeIdx {
     fn into_usize(self) -> usize {
         self.0 as _
     }
@@ -48,15 +47,6 @@ impl DedupFuncType {
     /// Returns the underlying stored representation.
     pub(super) fn into_inner(self) -> GuardedEntity<EngineIdx, DedupFuncTypeIdx> {
         self.0
-    }
-
-    /// Creates a new function signature to the store.
-    pub fn new<T, I, O>(ctx: &mut Store<T>, inputs: I, outputs: O) -> Self
-    where
-        I: IntoIterator<Item = ValueType>,
-        O: IntoIterator<Item = ValueType>,
-    {
-        ctx.alloc_func_type(FuncType::new(inputs, outputs))
     }
 }
 
@@ -103,7 +93,7 @@ impl FuncTypeRegistry {
     /// If the guarded entity is not owned by the engine.
     fn unwrap_index<Idx>(&self, func_type: Guarded<Idx>) -> Idx
     where
-        Idx: Index,
+        Idx: ArenaIndex,
     {
         func_type.entity_index(self.engine_idx).unwrap_or_else(|| {
             panic!(

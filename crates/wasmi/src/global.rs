@@ -1,14 +1,14 @@
 use super::{AsContext, AsContextMut, Stored};
 use crate::core::{Value, ValueType};
 use core::{fmt, fmt::Display, ptr::NonNull};
-use wasmi_arena::Index;
+use wasmi_arena::ArenaIndex;
 use wasmi_core::UntypedValue;
 
 /// A raw index to a global variable entity.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct GlobalIdx(u32);
 
-impl Index for GlobalIdx {
+impl ArenaIndex for GlobalIdx {
     fn into_usize(self) -> usize {
         self.0 as usize
     }
@@ -53,8 +53,8 @@ impl Display for GlobalError {
             } => {
                 write!(
                     f,
-                    "type mismatch upon writing global variable. expected {} but encountered {}.",
-                    expected, encountered,
+                    "type mismatch upon writing global variable. \
+                    expected {expected} but encountered {encountered}.",
                 )
             }
             Self::UnsatisfyingGlobalType {
@@ -63,8 +63,8 @@ impl Display for GlobalError {
             } => {
                 write!(
                     f,
-                    "global type {:?} does not satisfy requirements of {:?}",
-                    unsatisfying, required,
+                    "global type {unsatisfying:?} does not \
+                    satisfy requirements of {required:?}",
                 )
             }
         }

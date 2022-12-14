@@ -105,11 +105,7 @@ fn extract_wasm_func(
         Some(func_name) => Ok(func_name),
         None => {
             let exported_funcs = display_exported_funcs(module);
-            bail!(
-                "missing function name argument for {wasm_file}\n\n\
-                    The Wasm module exports the following functions:\n\n\
-                    {exported_funcs}"
-            )
+            bail!("missing function name argument for {wasm_file}\n\n{exported_funcs}")
         }
     }
 }
@@ -140,11 +136,7 @@ fn load_wasm_func(
         .and_then(|ext| ext.into_func())
         .ok_or_else(|| {
             let exported_funcs = display_exported_funcs(module);
-            anyhow!(
-                "could not find function \"{func_name}\" in {wasm_file}\n\n\
-                    The Wasm module exports the following functions:\n\n\
-                    {exported_funcs}"
-            )
+            anyhow!("could not find function \"{func_name}\" in {wasm_file}\n\n{exported_funcs}")
         })?;
     Ok((func, func_name.into(), store))
 }
@@ -169,12 +161,16 @@ fn exported_funcs(module: &wasmi::Module) -> Vec<(&str, FuncType)> {
 ///
 /// [`Module`]: [`wasmi::Module`]
 fn display_exported_funcs(module: &wasmi::Module) -> String {
-    let exported_funcs = exported_funcs(module)
-        .into_iter()
-        .map(|(name, func_type)| display_exported_func(name, &func_type));
-    let mut buffer = String::new();
+    let exported_funcs = exported_funcs(module);
+    if exported_funcs.is_empty() {
+        return String::from("No exported functions found for the Wasm module.");
+    }
+    let mut buffer = String::from("The Wasm module exports the following functions:\n\n");
     let f = &mut buffer;
-    for func in exported_funcs {
+    for func in exported_funcs
+        .into_iter()
+        .map(|(name, func_type)| display_exported_func(name, &func_type))
+    {
         writeln!(f, " - {func}").unwrap();
     }
     buffer
@@ -231,27 +227,31 @@ fn type_check_arguments(
         .iter()
         .zip(func_args)
         .enumerate()
-        .map(|(n, (param_type, arg))| match param_type {
-            ValueType::I32 => arg.parse::<i32>().map(Value::from).map_err(|error| {
-                anyhow!("failed to parse argument {arg} at index {n} as {param_type}: {error}")
-            }),
-            ValueType::I64 => arg.parse::<i64>().map(Value::from).map_err(|error| {
-                anyhow!("failed to parse argument {arg} at index {n} as {param_type}: {error}")
-            }),
-            ValueType::F32 => arg
-                .parse::<f32>()
-                .map(F32::from)
-                .map(Value::from)
-                .map_err(|error| {
-                    anyhow!("failed to parse argument {arg} at index {n} as {param_type}: {error}")
-                }),
-            ValueType::F64 => arg
-                .parse::<f64>()
-                .map(F64::from)
-                .map(Value::from)
-                .map_err(|error| {
-                    anyhow!("failed to parse argument {arg} at index {n} as {param_type}: {error}")
-                }),
+        .map(|(n, (param_type, arg))| {
+            macro_rules! make_err {
+                () => {
+                    |_| {
+                        anyhow!(
+                            "failed to parse function argument \
+                            {arg} at index {n} as {param_type}"
+                        )
+                    }
+                };
+            }
+            match param_type {
+                ValueType::I32 => arg.parse::<i32>().map(Value::from).map_err(make_err!()),
+                ValueType::I64 => arg.parse::<i64>().map(Value::from).map_err(make_err!()),
+                ValueType::F32 => arg
+                    .parse::<f32>()
+                    .map(F32::from)
+                    .map(Value::from)
+                    .map_err(make_err!()),
+                ValueType::F64 => arg
+                    .parse::<f64>()
+                    .map(F64::from)
+                    .map(Value::from)
+                    .map_err(make_err!()),
+            }
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(func_args)
@@ -281,10 +281,7 @@ fn print_execution_start(wasm_file: &str, func_name: &str, func_args: &[Value]) 
 
 /// Prints the results of the Wasm computation in a human readable form.
 fn print_pretty_results(results: &[Value]) {
-    let pretty_results = results
-        .iter()
-        .map(|value| value.to_string())
-        .collect::<Vec<_>>();
+    let pretty_results = results.iter().map(Value::to_string).collect::<Vec<_>>();
     match pretty_results.len() {
         1 => {
             println!("{}", pretty_results[0]);

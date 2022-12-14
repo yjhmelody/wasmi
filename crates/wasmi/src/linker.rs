@@ -105,16 +105,11 @@ impl Display for LinkerError {
             } => {
                 write!(
                     f,
-                    "encountered duplicate definition `{}` of {:?}",
-                    import_name, import_item
+                    "encountered duplicate definition `{import_name}` of {import_item:?}",
                 )
             }
             Self::CannotFindDefinitionForImport { name, item_type } => {
-                write!(
-                    f,
-                    "cannot find definition for import {}: {:?}",
-                    name, item_type
-                )
+                write!(f, "cannot find definition for import {name}: {item_type:?}",)
             }
             Self::FuncTypeMismatch {
                 name,
@@ -123,8 +118,8 @@ impl Display for LinkerError {
             } => {
                 write!(
                     f,
-                    "function type mismatch for import {}: expected {:?} but found {:?}",
-                    name, expected, actual
+                    "function type mismatch for import {name}: \
+                    expected {expected:?} but found {actual:?}",
                 )
             }
             Self::GlobalTypeMismatch {
@@ -134,8 +129,8 @@ impl Display for LinkerError {
             } => {
                 write!(
                     f,
-                    "global variable type mismatch for import {}: expected {:?} but found {:?}",
-                    name, expected, actual
+                    "global variable type mismatch for import {name}: \
+                    expected {expected:?} but found {actual:?}",
                 )
             }
             Self::Table(error) => Display::fmt(error, f),
@@ -399,11 +394,12 @@ impl<T> Linker<T> {
             ModuleImportType::Func(expected_func_type) => {
                 let func = resolved.and_then(Extern::into_func).ok_or_else(make_err)?;
                 let actual_func_type = func.signature(&context);
+                let actual_func_type = context.store.resolve_func_type(actual_func_type);
                 if !self.allow_signature_mismatch && &actual_func_type != expected_func_type {
                     return Err(LinkerError::FuncTypeMismatch {
                         name: import.name().clone(),
-                        expected: context.store.resolve_func_type(*expected_func_type),
-                        actual: context.store.resolve_func_type(actual_func_type),
+                        expected: expected_func_type.clone(),
+                        actual: actual_func_type,
                     })
                     .map_err(Into::into);
                 }
