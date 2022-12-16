@@ -385,7 +385,7 @@ impl Encode for Instruction {
             }
 
             Instruction::Return(drop_keep) | Instruction::ReturnIfNez(drop_keep) => {
-                drop_keep.encode().encode_to(dest);
+                drop_keep.encode_to(dest);
             }
 
             Instruction::BrTable { len_targets } => {
