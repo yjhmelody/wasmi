@@ -14,7 +14,7 @@ use crate::proof::{CallProof, CodeProof, FuncNode, OspProof, WasmFuncHeader};
 use accel_merkle::{MerkleHasher, ProveData};
 use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
 
-pub const MAX_PAGE_SIZE: usize = 65536;
+pub const MAX_PAGE_SIZE: u32 = 65536;
 
 pub type Result<T> = result::Result<T, ExecError>;
 
@@ -954,18 +954,26 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         /// in case of failure for the `memory.grow` instruction.
         const ERR_VALUE: u32 = u32::MAX;
 
+        // TODO: improve soundness.
         let (current, max) = match &self.extra {
-            ExtraProof::MemoryPage(page) => {
-                (page.current_pages, page.maximum_pages.unwrap_or(u32::MAX))
-            }
+            ExtraProof::MemoryPage(page) => (
+                page.current_pages,
+                page.maximum_pages.unwrap_or(MAX_PAGE_SIZE),
+            ),
             _ => return Err(ExecError::IllegalExtraProof),
         };
+
+        if max > MAX_PAGE_SIZE {
+            return Err(ExecError::IllegalExtraProof);
+        }
+
         let additional = self.pop_value_stack_as()?;
-        let result = if additional > MAX_PAGE_SIZE as u32 {
+        // return the origin page size if success
+        let result = if additional > MAX_PAGE_SIZE {
             ERR_VALUE
         } else {
             match current.checked_add(additional) {
-                Some(new) if new <= max => new,
+                Some(new) if new <= max => current,
                 _ => ERR_VALUE,
             }
         };
