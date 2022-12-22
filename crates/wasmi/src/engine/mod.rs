@@ -705,11 +705,12 @@ mod proof {
     #[derive(Debug, Clone)]
     pub enum ProofError {
         TrapCode(TrapCode),
-        MemoryNotImported,
         HostFuncNotHaveProof,
         MemoryIllegal,
         GlobalsNotExist,
         GlobalNotFound,
+        TableNotFound,
+        MemoryNotFound,
         IllegalPc,
         InsufficientValueStack,
     }
@@ -721,13 +722,16 @@ mod proof {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match self {
                 ProofError::TrapCode(code) => code.fmt(f),
-                ProofError::MemoryNotImported => write!(f, "memory is not imported"),
                 ProofError::HostFuncNotHaveProof => write!(f, "host function could not have proof"),
                 ProofError::MemoryIllegal => write!(f, "access illegal memory"),
                 ProofError::GlobalsNotExist => write!(f, "there is no global value in wasm"),
                 ProofError::GlobalNotFound => {
                     write!(f, "could not find global value for global instruction")
                 }
+                ProofError::TableNotFound => {
+                    write!(f, "could not find table for some instructions")
+                }
+                ProofError::MemoryNotFound => write!(f, "memory is not imported"),
                 ProofError::IllegalPc => write!(f, "pc is out of code"),
                 ProofError::InsufficientValueStack => {
                     write!(f, "the value stack size is not enough")
@@ -785,7 +789,7 @@ mod proof {
             self.instance_merkle
                 .memories
                 .first()
-                .ok_or(ProofError::MemoryNotImported)
+                .ok_or(ProofError::MemoryNotFound)
         }
 
         fn default_table(&self) -> Result<&TableProof<Hasher>, ProofError> {
@@ -793,7 +797,7 @@ mod proof {
             self.instance_merkle
                 .tables
                 .first()
-                .ok_or(ProofError::MemoryNotImported)
+                .ok_or(ProofError::TableNotFound)
         }
 
         // we need to generate proof for current instruction.
