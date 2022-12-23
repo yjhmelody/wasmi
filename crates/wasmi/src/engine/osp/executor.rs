@@ -4,8 +4,8 @@ use super::super::{
 };
 use crate::{
     core::{TrapCode, F32, F64},
-    proof::{table_element_hash, value_hash, CallStackProof, ExtraProof, ValueStackProof},
-    snapshot::{FuncFrameSnapshot, TableElementSnapshot},
+    proof::{value_hash, CallStackProof, ExtraProof, ValueStackProof},
+    snapshot::FuncFrameSnapshot,
 };
 
 use core::{cmp, fmt, result};
@@ -457,26 +457,16 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     }
 
     // We do not allow indirect instruction meet trap here, since it's useless.
-    fn ensure_call_indirect_proof(&self, func_index: u32, proof: &CallProof<Hasher>) -> Result<()> {
-        let table_root = self
-            .table_roots
+    fn ensure_call_indirect_proof(
+        &self,
+        _func_index: u32,
+        _proof: &CallProof<Hasher>,
+    ) -> Result<()> {
+        self.table_roots
             .first()
             .ok_or(ExecError::DefaultTableNotFound)?;
 
-        let leaf_hash = table_element_hash::<Hasher>(&TableElementSnapshot::FuncIndex(
-            func_index,
-            proof.func.clone(),
-        ));
-        // TODO(opt): Should we really need to prove it before using it?
-        let root = proof
-            .prove_data
-            .compute_root(func_index as usize, leaf_hash);
-
-        if root != *table_root {
-            Err(ExecError::TableRootsNotMatch)
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 
     fn get_func_header_from_call_proof(proof: &CallProof<Hasher>) -> Result<&WasmFuncHeader> {
