@@ -158,4 +158,4 @@ use self::{
 
 pub mod proof;
 pub mod snapshot;
-pub use engine::{bytecode, osp, ProofError, StepResult};
+pub use engine::{bytecode, osp, InstProofParams, ProofError, StepResult};

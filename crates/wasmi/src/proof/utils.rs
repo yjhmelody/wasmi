@@ -3,6 +3,7 @@ use accel_merkle::MerkleHasher;
 use codec::{Decode, Encode};
 use core::fmt::Debug;
 
+/// A util struct that contains two adjacent leaves.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub(crate) struct TwoMemoryChunks {
     leaf: [u8; MEMORY_LEAF_SIZE],
@@ -44,16 +45,18 @@ impl TwoMemoryChunks {
     pub fn write(&mut self, address: usize, buffer: &[u8]) {
         let offset = address % MEMORY_LEAF_SIZE;
         let end = offset + buffer.len();
-        self.leaves_mut()[offset..end].copy_from_slice(buffer);
+        let mut leaves = self.leaves();
+        leaves[offset..end].copy_from_slice(buffer);
+        self.leaf.copy_from_slice(&leaves[..MEMORY_LEAF_SIZE]);
+        self.next_leaf.copy_from_slice(&leaves[MEMORY_LEAF_SIZE..]);
     }
 
-    /// Two leaves are adjacent in memory
-    fn leaves(&self) -> &[u8; MEMORY_LEAF_SIZE * 2] {
-        unsafe { core::mem::transmute(&self.leaf) }
-    }
+    /// Return the adjacent two leaves in memory.
+    fn leaves(&self) -> [u8; MEMORY_LEAF_SIZE * 2] {
+        let mut res = [0; MEMORY_LEAF_SIZE * 2];
+        res[..MEMORY_LEAF_SIZE].copy_from_slice(&self.leaf);
+        res[MEMORY_LEAF_SIZE..].copy_from_slice(&self.next_leaf);
 
-    /// Two leaves are adjacent in memory
-    fn leaves_mut(&mut self) -> &mut [u8; MEMORY_LEAF_SIZE * 2] {
-        unsafe { core::mem::transmute(&mut self.leaf) }
+        res
     }
 }

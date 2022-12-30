@@ -35,14 +35,18 @@ pub enum VersionedOspProof<Hasher: MerkleHasher> {
     V0(OspProof<Hasher>),
 }
 
-// TODO: should encode more info/design an upgradable format.
 /// The complete osp proof data.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct OspProof<Hasher: MerkleHasher> {
-    /// wasm blob maybe not contain global value.
+    /// The root of all wasm globals.
+    ///
+    /// Wasm blob maybe not contain global value.
     pub globals_root: Option<Hasher::Output>,
+    /// The roots of wasm table.
     pub table_roots: Vec<Hasher::Output>,
+    /// The roots of wasm memory.
     pub memory_roots: Vec<Hasher::Output>,
+    /// The engine proof.
     pub engine_proof: EngineProof<Hasher>,
     /// The inst special proof.
     pub inst_proof: InstructionProof<Hasher>,
@@ -91,10 +95,12 @@ where
         Self { inst, func }
     }
 
+    /// Returns the instruction merkle.
     pub(crate) fn inst(&self) -> &InstructionMerkle<Hasher> {
         &self.inst
     }
 
+    /// Returns the function merkle.
     pub(crate) fn func(&self) -> &FuncMerkle<Hasher> {
         &self.func
     }
@@ -107,12 +113,12 @@ where
         }
     }
 
-    /// Generate a proof for func index.
+    /// Generate a proof for func at func index.
     pub fn prove_func_index(&self, func_index: usize) -> Option<ProveData<Hasher>> {
         self.func().prove(func_index)
     }
 
-    /// Generate a proof for pc.
+    /// Generate a proof for instruction at pc.
     pub fn prove_pc(&self, pc: usize) -> Option<ProveData<Hasher>> {
         self.inst().prove(pc)
     }

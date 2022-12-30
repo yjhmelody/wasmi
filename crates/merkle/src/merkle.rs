@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use core::fmt::Debug;
+use core::fmt::{Debug, Formatter};
 
 use codec::{Decode, Encode};
 use digest::Digest;
@@ -63,8 +63,14 @@ pub struct Merkle<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> {
 }
 
 /// The struct contains a merkle proof for a leaf.
-#[derive(Debug, Eq, PartialEq, Encode, Decode)]
+#[derive(Eq, PartialEq, Encode, Decode)]
 pub struct ProveData<T: MerkleHasher>(Vec<T::Output>);
+
+impl<T: MerkleHasher> Debug for ProveData<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_list().entries(self.0.iter()).finish()
+    }
+}
 
 impl<T: MerkleHasher> From<Vec<T::Output>> for ProveData<T> {
     fn from(value: Vec<T::Output>) -> Self {
@@ -95,7 +101,8 @@ impl<T: MerkleHasher> ProveData<T> {
     }
 }
 
-fn compute_root<T: MerkleHasher>(
+/// Compute the merkle root according to prove data path and its leaf hash.
+pub fn compute_root<T: MerkleHasher>(
     prove_data: &[T::Output],
     mut index: usize,
     leaf_hash: T::Output,
@@ -161,6 +168,7 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
             empty_layers.push(Hasher::hash_node(empty_layer, empty_layer));
             layers.push(new_layer);
         }
+
         Self {
             layers,
             empty_layers,
@@ -196,8 +204,7 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
         if idx >= self.leaves().len() {
             return None;
         }
-        // TODO: redesign this codec
-        let mut proof = ProveData(Vec::new());
+        let mut proof = Vec::new();
         let len = self.layers.len();
         for (layer_i, layer) in self.layers[..len - 1].iter().enumerate() {
             let counterpart = idx ^ 1;
@@ -206,25 +213,15 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
                 .cloned()
                 .unwrap_or_else(|| self.empty_layers[layer_i].clone());
             idx >>= 1;
-            proof.0.push(hash);
+            proof.push(hash);
         }
-        Some(proof)
+        Some(ProveData(proof))
     }
 
     /// An variant prove that not contains the leaf node.
     pub fn prove_without_leaf(&self, idx: usize) -> Option<ProveData<Hasher>> {
         // TODO: optimize this ops
         self.prove(idx).map(|mut proof| {
-            proof.0.remove(0);
-            proof
-        })
-    }
-
-    /// An variant prove that not contains the leaf node and its parent node.
-    pub fn prove_without_leaf_and_parent(&self, idx: usize) -> Option<ProveData<Hasher>> {
-        // TODO: optimize this ops
-        self.prove(idx).map(|mut proof| {
-            proof.0.remove(0);
             proof.0.remove(0);
             proof
         })

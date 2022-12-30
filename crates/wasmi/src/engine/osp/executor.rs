@@ -39,6 +39,9 @@ pub enum ExecError {
     BranchToIllegalPc,
     IllegalInstruction,
     IllegalExtraProof,
+    IllegalNewMemoryRoot,
+    IllegalMemoryTwoChunks,
+    IllegalMemoryChunk,
     CallStackOverflow,
 }
 
@@ -65,6 +68,11 @@ impl fmt::Display for ExecError {
             ExecError::IllegalInstruction => write!(f, "meet illegal instruction"),
             ExecError::IllegalExtraProof => write!(f, "the extra proof is illegal"),
             ExecError::CallStackOverflow => write!(f, "call stack overflow"),
+            ExecError::IllegalMemoryChunk => write!(f, "memory chunk extra proof is illegal"),
+            ExecError::IllegalMemoryTwoChunks => {
+                write!(f, "memory two chunks extra proof is illegal")
+            }
+            ExecError::IllegalNewMemoryRoot => write!(f, "could not generate new memory root"),
             ExecError::DefaultTableNotFound => {
                 write!(f, "default table not exist(for call_indirect)")
             }
@@ -726,10 +734,10 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         };
 
         let value = match &self.extra {
-            ExtraProof::MemoryChunkNeighbor(proof) => {
+            ExtraProof::MemoryTwoChunks(proof) => {
                 let root = proof
                     .compute_root(address)
-                    .ok_or(ExecError::IllegalExtraProof)?;
+                    .ok_or(ExecError::IllegalMemoryTwoChunks)?;
                 // prove memory before use it.
                 self.ensure_same_memory(root)?;
 
@@ -749,6 +757,20 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
 
                 <T as LittleEndianConvert>::from_le_bytes(bytes).extend_into()
             }
+
+            ExtraProof::MemoryChunk(proof) => {
+                let root = proof.compute_root(address);
+                // prove memory before use it.
+                self.ensure_same_memory(root)?;
+
+                let mut bytes = <<T as LittleEndianConvert>::Bytes as Default>::default();
+                proof
+                    .read(address, bytes.as_mut())
+                    .ok_or(ExecError::IllegalMemoryChunk)?;
+
+                <T as LittleEndianConvert>::from_le_bytes(bytes).extend_into()
+            }
+
             _ => return Err(ExecError::IllegalExtraProof),
         };
 
@@ -804,17 +826,20 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         };
 
         let memory_root = match &self.extra {
-            ExtraProof::MemoryChunkNeighbor(proof) => {
+            ExtraProof::MemoryTwoChunks(proof) => {
                 let root = proof
                     .compute_root(address)
-                    .ok_or(ExecError::IllegalExtraProof)?;
+                    .ok_or(ExecError::IllegalMemoryTwoChunks)?;
                 // prove memory before use it.
                 self.ensure_same_memory(root)?;
 
                 let bytes = <U as LittleEndianConvert>::into_le_bytes(value);
                 let mut proof = proof.clone();
                 proof.write(address, bytes.as_ref());
-                proof.compute_root(address).expect("Checked before; qed")
+
+                proof
+                    .recompute_root(address)
+                    .ok_or(ExecError::IllegalNewMemoryRoot)?
             }
 
             ExtraProof::MemoryChunkSibling(proof) => {
@@ -825,6 +850,20 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
                 let bytes = <U as LittleEndianConvert>::into_le_bytes(value);
                 let mut proof = proof.clone();
                 proof.write(address, bytes.as_ref());
+
+                proof.compute_root(address)
+            }
+
+            ExtraProof::MemoryChunk(proof) => {
+                let root = proof.compute_root(address);
+                // prove memory before use it.
+                self.ensure_same_memory(root)?;
+
+                let bytes = <U as LittleEndianConvert>::into_le_bytes(value);
+                let mut proof = proof.clone();
+                proof
+                    .write(address, bytes.as_ref())
+                    .ok_or(ExecError::IllegalMemoryChunk)?;
 
                 proof.compute_root(address)
             }

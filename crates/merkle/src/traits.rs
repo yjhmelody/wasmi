@@ -40,6 +40,7 @@ pub trait HashOutput:
     + Sized
     + Display
 {
+    /// The length of output hash bytes.
     const LENGTH: usize;
 
     /// Cast bytes to `Self`.

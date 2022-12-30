@@ -376,8 +376,6 @@ mod snapshot {
     };
 
     impl Module {
-        // TODO: define snapshot error.
-
         /// Restore wasm instance by snapshot.
         pub(crate) fn restore_instance<I>(
             &self,

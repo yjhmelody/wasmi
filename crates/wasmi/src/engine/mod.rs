@@ -101,7 +101,6 @@ type Guarded<Idx> = GuardedEntity<EngineIdx, Idx>;
 ///   Most of its API has a `&self` receiver, so can be shared easily.
 #[derive(Debug, Clone)]
 pub struct Engine {
-    // TODO: remove lock for our use case?
     pub(crate) inner: Arc<Mutex<EngineInner>>,
 }
 
@@ -303,8 +302,6 @@ mod snapshot {
             snapshot: &EngineSnapshot,
             instance: Instance,
         ) -> Result<(), Trap> {
-            // TODO: do hash for static data and compare them first
-
             // restore config first
             self.config.stack_limits.maximum_recursion_depth =
                 snapshot.config.maximum_recursion_depth as usize;
@@ -687,9 +684,10 @@ mod proof {
             GlobalProof,
             InstanceMerkle,
             InstructionProof,
-            MemoryChunkNeighbor,
+            MemoryChunk,
             MemoryChunkSibling,
             MemoryProof,
+            MemoryTwoChunks,
             TableProof,
             MEMORY_LEAF_SIZE,
         },
@@ -753,7 +751,7 @@ mod proof {
             engine.insts()[range].to_vec()
         }
 
-        pub(crate) fn make_inst_proof<Hasher: MerkleHasher>(
+        pub fn make_inst_proof<Hasher: MerkleHasher>(
             &self,
             ctx: impl AsContext,
             params: InstProofParams<Hasher>,
@@ -893,17 +891,32 @@ mod proof {
 
                     ExtraProof::GlobalGetSet(GlobalProof { value, prove_data })
                 }
+                // never access two memory chunks.
+                Instruction::I32Load8S(offset)
+                | Instruction::I32Load8U(offset)
+                | Instruction::I64Load8S(offset)
+                | Instruction::I64Load8U(offset)
+                | Instruction::I32Store8(offset)
+                | Instruction::I64Store8(offset) => {
+                    // Wasm module must import memory when meet these instruction.
+                    let memory_merkle = &params.default_memory()?.merkle;
+                    let is_store = Self::is_store_inst(inst);
+                    let mut idx = self.get_memory_index(offset, is_store);
+                    idx /= MEMORY_LEAF_SIZE;
+                    let memory = cache.default_memory(ctx.as_context());
+                    let memory = ctx.as_context().store.resolve_memory(memory);
+                    let chunk = Self::get_memory_leaf(memory, idx);
+                    let prove_data = memory_merkle.prove(idx).ok_or(ProofError::MemoryIllegal)?;
+                    ExtraProof::MemoryChunk(MemoryChunk::new(chunk, prove_data))
+                }
+
                 // TODO: design more detailed Proof for memory instructions
                 Instruction::I32Load(offset)
                 | Instruction::I64Load(offset)
                 | Instruction::F32Load(offset)
                 | Instruction::F64Load(offset)
-                | Instruction::I32Load8S(offset)
-                | Instruction::I32Load8U(offset)
                 | Instruction::I32Load16S(offset)
                 | Instruction::I32Load16U(offset)
-                | Instruction::I64Load8S(offset)
-                | Instruction::I64Load8U(offset)
                 | Instruction::I64Load16S(offset)
                 | Instruction::I64Load16U(offset)
                 | Instruction::I64Load32S(offset)
@@ -912,27 +925,12 @@ mod proof {
                 | Instruction::I64Store(offset)
                 | Instruction::F32Store(offset)
                 | Instruction::F64Store(offset)
-                | Instruction::I32Store8(offset)
                 | Instruction::I32Store16(offset)
-                | Instruction::I64Store8(offset)
                 | Instruction::I64Store16(offset)
                 | Instruction::I64Store32(offset) => {
                     // Wasm module must import memory when meet these instruction.
                     let memory_merkle = &params.default_memory()?.merkle;
-
-                    let is_store = matches!(
-                        inst,
-                        Instruction::I32Store(..)
-                            | Instruction::I64Store(..)
-                            | Instruction::F32Store(..)
-                            | Instruction::F64Store(..)
-                            | Instruction::I32Store8(..)
-                            | Instruction::I32Store16(..)
-                            | Instruction::I64Store8(..)
-                            | Instruction::I64Store16(..)
-                            | Instruction::I64Store32(..)
-                    );
-
+                    let is_store = Self::is_store_inst(inst);
                     let mut idx = self.get_memory_index(offset, is_store);
 
                     idx /= MEMORY_LEAF_SIZE;
@@ -944,19 +942,18 @@ mod proof {
                     let next_leaf = Self::get_memory_leaf(memory, next_leaf_idx);
                     // if the number is odd
                     if idx % 2 == 1 {
-                        let prove_data = memory_merkle
-                            .prove_without_leaf_and_parent(idx)
-                            .ok_or(ProofError::MemoryIllegal)?;
-                        let leaf_sibling = memory_merkle.leaves()[idx - 1].clone();
-                        let next_leaf_sibling =
-                            memory_merkle.leaves()[next_leaf_idx.saturating_add(1)].clone();
+                        let prove_data =
+                            memory_merkle.prove(idx).ok_or(ProofError::MemoryIllegal)?;
 
-                        ExtraProof::MemoryChunkNeighbor(MemoryChunkNeighbor::new(
-                            prove_data,
+                        let next_prove_data = memory_merkle
+                            .prove(idx + 1)
+                            .ok_or(ProofError::MemoryIllegal)?;
+
+                        ExtraProof::MemoryTwoChunks(MemoryTwoChunks::new(
                             leaf,
+                            prove_data,
                             next_leaf,
-                            leaf_sibling,
-                            next_leaf_sibling,
+                            next_prove_data,
                         ))
                     } else {
                         // is even
@@ -982,6 +979,21 @@ mod proof {
                 inst_prove,
                 extra,
             })
+        }
+
+        fn is_store_inst(inst: Instruction) -> bool {
+            matches!(
+                inst,
+                Instruction::I32Store(..)
+                    | Instruction::I64Store(..)
+                    | Instruction::F32Store(..)
+                    | Instruction::F64Store(..)
+                    | Instruction::I32Store8(..)
+                    | Instruction::I32Store16(..)
+                    | Instruction::I64Store8(..)
+                    | Instruction::I64Store16(..)
+                    | Instruction::I64Store32(..)
+            )
         }
 
         fn make_engine_proof<Hasher: MerkleHasher>(
@@ -1065,7 +1077,6 @@ mod proof {
                 .expect("get_memory_index should be legal") as usize
         }
 
-        // TODO: handle access overflow
         /// Get the memory leaf from memory entity by index.
         fn get_memory_leaf(memory: &MemoryEntity, leaf_idx: usize) -> [u8; MEMORY_LEAF_SIZE] {
             let mut buf = [0u8; MEMORY_LEAF_SIZE];

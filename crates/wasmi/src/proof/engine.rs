@@ -4,7 +4,7 @@ use core::{
     marker::PhantomData,
 };
 
-use accel_merkle::{MerkleHasher, ProveData};
+use accel_merkle::{compute_root, MerkleHasher, ProveData};
 use wasmi_core::{TrapCode, UntypedValue};
 
 use codec::{Codec, Decode, Encode};
@@ -15,7 +15,6 @@ use crate::{
     proof::{utils::TwoMemoryChunks, value_hash, MEMORY_LEAF_SIZE},
     snapshot::{
         CallStackSnapshot,
-        EngineConfig,
         EngineSnapshot,
         FuncFrameSnapshot,
         FuncType,
@@ -29,12 +28,13 @@ use crate::{
 /// The contains engine level proof data used for instruction proof.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct EngineProof<Hasher: MerkleHasher> {
-    /// Note: config is not part of proof, only used to affect the execution result.
-    pub config: EngineConfig,
+    /// The proof for value stack.
     pub value_stack: ValueStackProof<Hasher>,
+    /// The proof for call stack.
     pub call_stack: CallStackProof<Hasher>,
 }
 
+/// The final engine proof data to be hashed.
 #[derive(Encode)]
 struct PostEngineProof<'a, T: MerkleHasher> {
     value_stack: &'a T::Output,
@@ -60,12 +60,12 @@ impl<Hasher: MerkleHasher> EngineProof<Hasher> {
         let call_stack =
             CallStackProof::make(&snapshot.frames, 1, snapshot.config.maximum_recursion_depth);
         Some(Self {
-            config: snapshot.config.clone(),
             value_stack,
             call_stack,
         })
     }
 
+    /// Returns the hash of engine proof data.
     pub fn hash(&self) -> Hasher::Output {
         let value_stack = self.value_stack.hash();
         let call_stack = self.call_stack.hash();
@@ -80,13 +80,13 @@ impl<Hasher: MerkleHasher> EngineProof<Hasher> {
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct InstructionProof<Hasher: MerkleHasher> {
     /// The current pc.
-    pub(crate) current_pc: u32,
+    pub current_pc: u32,
     /// The current instruction.
-    pub(crate) inst: Instruction,
+    pub inst: Instruction,
     /// The prove current instruction is legal.
-    pub(crate) inst_prove: ProveData<Hasher>,
+    pub inst_prove: ProveData<Hasher>,
     /// Extra proof data for some instructions.
-    pub(crate) extra: ExtraProof<Hasher>,
+    pub extra: ExtraProof<Hasher>,
 }
 
 /// This struct contains extra proof data needed for some special instructions.
@@ -103,9 +103,12 @@ pub enum ExtraProof<Hasher: MerkleHasher> {
     /// Proof data for memory.page.
     MemoryPage(MemoryPage),
     /// Proof data for some memory instructions.
-    MemoryChunkNeighbor(MemoryChunkNeighbor<Hasher>),
+    MemoryTwoChunks(MemoryTwoChunks<Hasher>),
+    // MemoryChunkNeighbor(MemoryChunkNeighbor<Hasher>),
     /// Proof data for some memory instructions.
     MemoryChunkSibling(MemoryChunkSibling<Hasher>),
+    /// Proof data for some memory instructions that will only access to one memory chunk.
+    MemoryChunk(MemoryChunk<Hasher>),
 }
 
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
@@ -202,6 +205,7 @@ pub struct CallProof<Hasher>
 where
     Hasher: MerkleHasher,
 {
+    /// The function node info.
     pub func: FuncNode,
     /// The func proof.
     pub prove_data: ProveData<Hasher>,
@@ -215,80 +219,214 @@ pub struct MemoryPage {
     pub current_pages: u32,
 }
 
-/// The contains a proof that a memory store instruction touch two neighbor leaves which have `not` same parent.
-///
-/// # Note
-///
-/// The first chunk index is odd, the then second chunk is even in first's right.
+/// The contains a proof that a memory store instruction touch only one leaf.
 #[derive(Encode, Decode, Debug, Eq, PartialEq)]
-pub struct MemoryChunkNeighbor<Hasher>
+pub struct MemoryChunk<Hasher>
 where
     Hasher: MerkleHasher,
 {
+    chunk: [u8; MEMORY_LEAF_SIZE],
     prove_data: ProveData<Hasher>,
-    chunks: TwoMemoryChunks,
-    leaf_sibling: Hasher::Output,
-    next_leaf_sibling: Hasher::Output,
 }
 
-impl<Hasher> Clone for MemoryChunkNeighbor<Hasher>
+impl<Hasher> Clone for MemoryChunk<Hasher>
 where
     Hasher: MerkleHasher,
 {
     fn clone(&self) -> Self {
         Self {
+            chunk: self.chunk,
             prove_data: self.prove_data.clone(),
-            chunks: self.chunks.clone(),
-            leaf_sibling: self.leaf_sibling.clone(),
-            next_leaf_sibling: self.next_leaf_sibling.clone(),
         }
     }
 }
 
-impl<Hasher> MemoryChunkNeighbor<Hasher>
+impl<Hasher> MemoryChunk<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    pub fn new(chunk: [u8; MEMORY_LEAF_SIZE], prove_data: ProveData<Hasher>) -> Self {
+        Self { chunk, prove_data }
+    }
+    /// Compute root according to memory address.
+    pub fn compute_root(&self, address: usize) -> Hasher::Output {
+        let index = address / MEMORY_LEAF_SIZE;
+        self.prove_data
+            .compute_root(index, Hasher::hash_of(&self.chunk))
+    }
+
+    pub fn read(&self, address: usize, buffer: &mut [u8]) -> Option<()> {
+        let offset = address % MEMORY_LEAF_SIZE;
+        let len = buffer.len();
+        buffer.copy_from_slice(self.chunk.get(offset..(offset + len))?);
+
+        Some(())
+    }
+
+    pub fn write(&mut self, address: usize, buffer: &[u8]) -> Option<()> {
+        let offset = address % MEMORY_LEAF_SIZE;
+        let len = buffer.len();
+
+        if len + offset > MEMORY_LEAF_SIZE {
+            return None;
+        }
+        self.chunk[offset..(offset + len)].copy_from_slice(buffer);
+
+        Some(())
+    }
+}
+
+/// The contains a proof that a memory store instruction touch only two leaves which are neighbors.
+#[derive(Encode, Decode, Debug, Eq, PartialEq)]
+pub struct MemoryTwoChunks<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    chunks: TwoMemoryChunks,
+    prove_data: ProveData<Hasher>,
+    next_prove_data: ProveData<Hasher>,
+}
+
+impl<Hasher> Clone for MemoryTwoChunks<Hasher>
+where
+    Hasher: MerkleHasher,
+{
+    fn clone(&self) -> Self {
+        Self {
+            chunks: self.chunks.clone(),
+            prove_data: self.prove_data.clone(),
+            next_prove_data: self.next_prove_data.clone(),
+        }
+    }
+}
+
+impl<Hasher> MemoryTwoChunks<Hasher>
 where
     Hasher: MerkleHasher,
 {
     pub fn new(
-        prove_data: ProveData<Hasher>,
         leaf: [u8; MEMORY_LEAF_SIZE],
+        prove_data: ProveData<Hasher>,
         next_leaf: [u8; MEMORY_LEAF_SIZE],
-        leaf_sibling: Hasher::Output,
-        next_leaf_sibling: Hasher::Output,
+        next_prove_data: ProveData<Hasher>,
     ) -> Self {
         Self {
-            prove_data,
             chunks: TwoMemoryChunks::new(leaf, next_leaf),
-            leaf_sibling,
-            next_leaf_sibling,
+            prove_data,
+            next_prove_data,
         }
     }
     /// Compute root according to memory address.
     ///
     /// # Note
     ///
-    /// Return None if index is not odd or root is invalid.
+    /// It's illegal to call this method after call `write` method but should call `recompute_root`.
     pub fn compute_root(&self, address: usize) -> Option<Hasher::Output> {
         let index = address / MEMORY_LEAF_SIZE;
-        // TODO: if index is the max address.
-        if index & 1 == 0 {
-            return None;
-        }
-        // Note: hash_leaf is the right, its sibling is the left.
-        let parent_hash = Hasher::hash_node(&self.leaf_sibling, &self.chunks.hash_leaf::<Hasher>());
 
-        // Note: hash_next_leaf is the left, its sibling is the right.
-        let next_parent_hash = Hasher::hash_node(
-            &self.chunks.hash_next_leaf::<Hasher>(),
-            &self.next_leaf_sibling,
+        let root = self
+            .prove_data
+            .compute_root(index, self.chunks.hash_leaf::<Hasher>());
+        let root2 = self
+            .next_prove_data
+            .compute_root(index + 1, self.chunks.hash_next_leaf::<Hasher>());
+        debug_assert_eq!(root, root2);
+        if root != root2 {
+            None
+        } else {
+            Some(root)
+        }
+    }
+
+    /// Recompute the root according to updated memory chunks.
+    ///
+    /// # Note
+    ///
+    /// If memory chunk is updated, user must call this method to calculate the new root.
+    pub fn recompute_root(&self, address: usize) -> Option<Hasher::Output> {
+        let index = address / MEMORY_LEAF_SIZE;
+
+        let common_ancestor = self.calculate_ancestor_hash(index);
+
+        let (ancestor_prove_data_index, ancestor_prove_data) = self.prove_data_for_ancestor();
+
+        let mut ancestor_node_index = index;
+        let mut i = 0;
+        while i < ancestor_prove_data_index {
+            ancestor_node_index >>= 1;
+            i += 1;
+        }
+
+        Some(ancestor_prove_data.compute_root(ancestor_node_index, common_ancestor))
+    }
+
+    /// The two proof contains proof path could calculate the new ancestor.
+    fn prove_data_from_leaf_to_ancestor(&self) -> (ProveData<Hasher>, ProveData<Hasher>) {
+        let index = self.find_common_ancestor();
+
+        (
+            ProveData::from(self.prove_data.inner()[..index].to_vec()),
+            ProveData::from(self.next_prove_data.inner()[..index].to_vec()),
+        )
+    }
+
+    fn prove_data_for_ancestor(&self) -> (usize, ProveData<Hasher>) {
+        let index = self.find_common_ancestor();
+
+        (
+            index,
+            ProveData::from(self.prove_data.inner()[index..].to_vec()),
+        )
+    }
+
+    fn calculate_ancestor_hash(&self, index: usize) -> Hasher::Output {
+        let (prove_data, next_prove_data) = self.prove_data_from_leaf_to_ancestor();
+        let len1 = prove_data.inner().len();
+        let len2 = next_prove_data.inner().len();
+        assert!(len1 >= 1);
+        assert!(len2 >= 1);
+
+        // The left child of ancestor
+        let child_hash = compute_root::<Hasher>(
+            &prove_data.inner()[..(len1 - 1)],
+            index,
+            self.chunks.hash_leaf::<Hasher>(),
+        );
+        // The right child of ancestor
+        let next_child_hash = compute_root::<Hasher>(
+            &next_prove_data.inner()[..(len2 - 1)],
+            index + 1,
+            self.chunks.hash_next_leaf::<Hasher>(),
         );
 
-        let parent_parent_hash = Hasher::hash_node(&parent_hash, &next_parent_hash);
+        Hasher::hash_node(&child_hash, &next_child_hash)
+    }
 
-        // TODO: if index < 4 ?
-        let root = self.prove_data.compute_root(index >> 2, parent_parent_hash);
+    /// Return the index of common ancestor in prove data.
+    ///
+    /// # Note
+    ///
+    /// - The depth of leaves must be same.
+    /// - Root is common ancestor if return the length of prove data.
+    /// - The return value must be non-zero.
+    fn find_common_ancestor(&self) -> usize {
+        debug_assert_eq!(
+            self.prove_data.inner().len(),
+            self.next_prove_data.inner().len()
+        );
 
-        Some(root)
+        let mut i = 1;
+        let len = self.prove_data.inner().len();
+        assert!(len >= 1);
+        while i < len {
+            if self.prove_data.inner()[i] == self.next_prove_data.inner()[i] {
+                // found common ancestor
+                break;
+            }
+            i += 1;
+        }
+
+        i
     }
 
     pub fn read(&self, address: usize, buffer: &mut [u8]) {
@@ -306,8 +444,9 @@ pub struct MemoryChunkSibling<Hasher>
 where
     Hasher: MerkleHasher,
 {
-    // a path that remove leaf hash.
+    /// a proof path but without leaf hash.
     prove_data: ProveData<Hasher>,
+    /// Contains two memory leaves.
     chunks: TwoMemoryChunks,
 }
 
@@ -425,6 +564,7 @@ where
     T: Codec,
     Hasher: MerkleHasher,
 {
+    /// Creates a stack proof according to top entries and bottom hash.
     pub fn new(entries: Vec<T>, bottom_hash: Hasher::Output) -> Self {
         Self {
             entries,
@@ -720,7 +860,7 @@ impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
     }
 }
 
-// TODO: need to consider more, maybe contain the current pc in it.
+// TODO: redesign some config
 #[derive(Encode, Decode, Clone, Eq, PartialEq)]
 pub struct CallStackProof<Hasher: MerkleHasher> {
     /// The maximum number of nested calls that the Wasm stack allows.
@@ -829,18 +969,12 @@ mod tests {
         }
     }
 
-    fn generate_mock_memory_merkle() -> (MemoryMerkle<MerkleKeccak256>, Vec<[u8; MEMORY_LEAF_SIZE]>)
-    {
-        let chunks = vec![
-            [1u8; MEMORY_LEAF_SIZE],
-            [2u8; MEMORY_LEAF_SIZE],
-            [3u8; MEMORY_LEAF_SIZE],
-            [4u8; MEMORY_LEAF_SIZE],
-            [5u8; MEMORY_LEAF_SIZE],
-            [6u8; MEMORY_LEAF_SIZE],
-            [7u8; MEMORY_LEAF_SIZE],
-            [8u8; MEMORY_LEAF_SIZE],
-        ];
+    fn generate_mock_memory_merkle<const CHUNK_NUM: usize>(
+    ) -> (MemoryMerkle<MerkleKeccak256>, Vec<[u8; MEMORY_LEAF_SIZE]>) {
+        let chunks = (0..CHUNK_NUM)
+            .into_iter()
+            .map(|x| [x as u8; MEMORY_LEAF_SIZE])
+            .collect::<Vec<_>>();
         let leaf_hashes = chunks
             .iter()
             .map(|chunk| MerkleKeccak256::hash_of(&chunk))
@@ -849,51 +983,145 @@ mod tests {
         let merkle = MemoryMerkle::<MerkleKeccak256>::new_advanced(
             leaf_hashes,
             hash_memory_leaf::<MerkleKeccak256>([0u8; MEMORY_LEAF_SIZE]),
-            3,
+            2,
+        );
+
+        (merkle, chunks)
+    }
+
+    fn generate_mock_memory_merkle_with<const CHUNK_NUM: usize>(
+        index1: usize,
+        chunk1: [u8; MEMORY_LEAF_SIZE],
+        index2: usize,
+        chunk2: [u8; MEMORY_LEAF_SIZE],
+    ) -> (MemoryMerkle<MerkleKeccak256>, Vec<[u8; MEMORY_LEAF_SIZE]>) {
+        let mut chunks = (0..CHUNK_NUM)
+            .into_iter()
+            .map(|x| [x as u8; MEMORY_LEAF_SIZE])
+            .collect::<Vec<_>>();
+
+        chunks[index1] = chunk1;
+        chunks[index2] = chunk2;
+        let leaf_hashes = chunks
+            .iter()
+            .map(|chunk| MerkleKeccak256::hash_of(&chunk))
+            .collect::<Vec<_>>();
+
+        let merkle = MemoryMerkle::<MerkleKeccak256>::new_advanced(
+            leaf_hashes,
+            hash_memory_leaf::<MerkleKeccak256>([0u8; MEMORY_LEAF_SIZE]),
+            2,
         );
 
         (merkle, chunks)
     }
 
     #[test]
-    fn test_memory_chunk_neighbor() {
-        let (merkle, chunks) = generate_mock_memory_merkle();
-        let leaf_hashes = merkle.leaves();
+    // #[clippy::needless_range_loop]
+    fn test_memory_chunk() {
+        const CHUNK_NUM: usize = 16;
+        let (merkle, chunks) = generate_mock_memory_merkle::<CHUNK_NUM>();
         let root = merkle.root();
 
-        // must be odd
-        let index = 5;
-        let leaf_sibling = leaf_hashes[index - 1];
-        let leaf = chunks[index];
-        let next_leaf = chunks[index + 1];
-        let next_leaf_sibling = leaf_hashes[index + 2];
+        for (index, leaf) in chunks.iter().enumerate().take(CHUNK_NUM) {
+            let prove_data = merkle.prove(index).unwrap();
+            let memory_chunk = MemoryChunk::new(*leaf, prove_data);
 
-        let prove_data = merkle.prove_without_leaf_and_parent(index).unwrap();
+            let root2 = memory_chunk.compute_root(index * MEMORY_LEAF_SIZE);
+            assert_eq!(root, root2);
+        }
+    }
 
-        let chunk_neighbor =
-            MemoryChunkNeighbor::new(prove_data, leaf, next_leaf, leaf_sibling, next_leaf_sibling);
+    #[test]
+    fn test_memory_two_chunks() {
+        const CHUNK_NUM: usize = 16;
+        let (merkle, chunks) = generate_mock_memory_merkle::<CHUNK_NUM>();
+        let root = merkle.root();
 
-        let root2 = chunk_neighbor
-            .compute_root(index * MEMORY_LEAF_SIZE)
-            .unwrap();
-        assert_eq!(root, root2);
+        for index in 0..(CHUNK_NUM - 1) {
+            let leaf = chunks[index];
+            let next_leaf = chunks[index + 1];
+
+            let prove_data = merkle.prove(index).unwrap();
+            let next_prove_data = merkle.prove(index + 1).unwrap();
+
+            let memory_chunk = MemoryTwoChunks::new(leaf, prove_data, next_leaf, next_prove_data);
+
+            let root2 = memory_chunk.compute_root(index * MEMORY_LEAF_SIZE).unwrap();
+            assert_eq!(root, root2);
+            // we actually not update root just use `recompute_root` here
+            let new_root = memory_chunk
+                .recompute_root(index * MEMORY_LEAF_SIZE)
+                .unwrap();
+            assert_eq!(root2, new_root);
+        }
+    }
+
+    #[test]
+    fn test_memory_two_chunks_recompute_root() {
+        const CHUNK_NUM: usize = 16;
+        const HALF_SIZE: usize = MEMORY_LEAF_SIZE / 2;
+
+        let (merkle, chunks) = generate_mock_memory_merkle::<CHUNK_NUM>();
+        let root = merkle.root();
+
+        for index in 0..(CHUNK_NUM - 1) {
+            let next_index = index + 1;
+            let leaf = chunks[index];
+            let next_leaf = chunks[next_index];
+
+            let prove_data = merkle.prove(index).unwrap();
+            let next_prove_data = merkle.prove(next_index).unwrap();
+
+            let mut memory_chunk =
+                MemoryTwoChunks::new(leaf, prove_data.clone(), next_leaf, next_prove_data.clone());
+
+            let root2 = memory_chunk.compute_root(index * MEMORY_LEAF_SIZE).unwrap();
+            assert_eq!(root, root2);
+
+            let mut leaf1 = [index as u8; MEMORY_LEAF_SIZE];
+            leaf1[HALF_SIZE..].copy_from_slice(&[255; HALF_SIZE]);
+
+            let mut leaf2 = [next_index as u8; MEMORY_LEAF_SIZE];
+            leaf2[..HALF_SIZE].copy_from_slice(&[255; HALF_SIZE]);
+
+            let (new_merkle, _) =
+                generate_mock_memory_merkle_with::<CHUNK_NUM>(index, leaf1, next_index, leaf2);
+            let new_root = new_merkle.root();
+            memory_chunk.write(
+                index * MEMORY_LEAF_SIZE + HALF_SIZE,
+                &[255; MEMORY_LEAF_SIZE],
+            );
+
+            assert_eq!(
+                memory_chunk,
+                MemoryTwoChunks::new(leaf1, prove_data, leaf2, next_prove_data,)
+            );
+
+            let new_root2 = memory_chunk
+                .recompute_root(index * MEMORY_LEAF_SIZE)
+                .unwrap();
+            assert_eq!(new_root, new_root2);
+        }
     }
 
     #[test]
     fn test_memory_chunk_sibling() {
-        let (merkle, chunks) = generate_mock_memory_merkle();
+        const CHUNK_NUM: usize = 16;
+        let (merkle, chunks) = generate_mock_memory_merkle::<CHUNK_NUM>();
         let root = merkle.root();
 
-        // must be even
-        let index = 4;
-        let leaf = chunks[index];
-        let next_leaf = chunks[index + 1];
+        for index in (0..CHUNK_NUM).step_by(2) {
+            // must be even
+            let leaf = chunks[index];
+            let next_leaf = chunks[index + 1];
 
-        let prove_data = merkle.prove_without_leaf(index).unwrap();
+            let prove_data = merkle.prove_without_leaf(index).unwrap();
 
-        let chunk_sibling = MemoryChunkSibling::new(prove_data, leaf, next_leaf);
+            let chunk_sibling = MemoryChunkSibling::new(prove_data, leaf, next_leaf);
 
-        let root2 = chunk_sibling.compute_root(index * MEMORY_LEAF_SIZE);
-        assert_eq!(root, root2);
+            let root2 = chunk_sibling.compute_root(index * MEMORY_LEAF_SIZE);
+            assert_eq!(root, root2);
+        }
     }
 }
