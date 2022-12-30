@@ -837,9 +837,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
                 let mut proof = proof.clone();
                 proof.write(address, bytes.as_ref());
 
-                proof
-                    .recompute_root(address)
-                    .ok_or(ExecError::IllegalNewMemoryRoot)?
+                proof.recompute_root(address)
             }
 
             ExtraProof::MemoryChunkSibling(proof) => {
