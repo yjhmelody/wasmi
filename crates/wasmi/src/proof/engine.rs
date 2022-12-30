@@ -1012,6 +1012,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_memory_two_chunks() {
         const CHUNK_NUM: usize = 512;
         let (merkle, chunks) = generate_memory_merkle_by::<CHUNK_NUM>(new_chunk, 8);
@@ -1035,6 +1036,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_memory_two_chunks_recompute_root() {
         const CHUNK_NUM: usize = 512;
         const HALF_SIZE: usize = MEMORY_LEAF_SIZE / 2;
@@ -1088,6 +1090,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_memory_two_chunks_recompute_root_by_all_same_memory_chunk() {
         const CHUNK_NUM: usize = 512;
         const HALF_SIZE: usize = MEMORY_LEAF_SIZE / 2;

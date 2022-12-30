@@ -190,7 +190,7 @@ impl InstructionPtr {
     /// The pointer must a legal instruction ref.
     #[inline]
     pub fn with_ptr(ptr: usize) -> Self {
-        Self::new(unsafe { core::mem::transmute::<usize, &Instruction>(ptr) })
+        Self::new(ptr as *const Instruction)
     }
 
     /// Creates a new [`InstructionPtr`] for `instr`.
