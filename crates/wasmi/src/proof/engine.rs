@@ -1,10 +1,7 @@
 use alloc::vec::Vec;
-use core::{
-    fmt::{Debug, Formatter},
-    marker::PhantomData,
-};
+use core::fmt::{Debug, Formatter};
 
-use accel_merkle::{compute_root, MerkleHasher, ProveData};
+use accel_merkle::{compute_root, HashOutput, MerkleHasher, ProveData};
 use wasmi_core::{TrapCode, UntypedValue};
 
 use codec::{Codec, Decode, Encode};
@@ -529,47 +526,26 @@ fn hash_call_stack<Hasher: MerkleHasher>(
     hash_stack::<Hasher, _>(iter, init_hash)
 }
 
-#[derive(Encode, Decode)]
-pub(crate) struct StackProof<T, Hasher: MerkleHasher> {
+#[derive(Encode, Decode, Clone, PartialEq, Eq)]
+pub(crate) struct StackProof<T, HO: HashOutput> {
     /// The hash of entries excepting the top N.
-    bottom_hash: Hasher::Output,
+    bottom_hash: HO,
     /// The top N entries in value stack.
     ///
     /// These entries will be used when execute osp.
     entries: Vec<T>,
-    /// The hasher.
-    _hasher: PhantomData<Hasher>,
 }
 
-impl<T: Clone, Hasher: MerkleHasher> Clone for StackProof<T, Hasher> {
-    fn clone(&self) -> Self {
-        Self {
-            bottom_hash: self.bottom_hash.clone(),
-            entries: self.entries.clone(),
-            _hasher: PhantomData,
-        }
-    }
-}
-
-impl<T: PartialEq, Hasher: MerkleHasher> PartialEq for StackProof<T, Hasher> {
-    fn eq(&self, other: &Self) -> bool {
-        self.bottom_hash.eq(&other.bottom_hash) && self.entries.eq(&other.entries)
-    }
-}
-
-impl<T: PartialEq, Hasher: MerkleHasher> Eq for StackProof<T, Hasher> {}
-
-impl<T, Hasher> StackProof<T, Hasher>
+impl<T, HO> StackProof<T, HO>
 where
     T: Codec,
-    Hasher: MerkleHasher,
+    HO: HashOutput,
 {
     /// Creates a stack proof according to top entries and bottom hash.
-    pub fn new(entries: Vec<T>, bottom_hash: Hasher::Output) -> Self {
+    pub fn new(entries: Vec<T>, bottom_hash: HO) -> Self {
         Self {
-            entries,
             bottom_hash,
-            _hasher: PhantomData,
+            entries,
         }
     }
 
@@ -623,7 +599,9 @@ where
 }
 
 #[derive(Encode, Decode, Clone, Eq, PartialEq)]
-pub struct ValueStackProof<Hasher: MerkleHasher>(pub(crate) StackProof<UntypedValue, Hasher>);
+pub struct ValueStackProof<Hasher: MerkleHasher>(
+    pub(crate) StackProof<UntypedValue, Hasher::Output>,
+);
 
 impl<Hasher: MerkleHasher> Debug for ValueStackProof<Hasher> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
@@ -647,7 +625,10 @@ impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
         let bottom_hash = hash_value_stack::<Hasher>(bottoms, Default::default());
         let entries = tops.to_vec();
 
-        Some(Self(StackProof::<_, Hasher>::new(entries, bottom_hash)))
+        Some(Self(StackProof::<_, Hasher::Output>::new(
+            entries,
+            bottom_hash,
+        )))
     }
 
     pub fn hash(&self) -> Hasher::Output {
@@ -868,7 +849,7 @@ pub struct CallStackProof<Hasher: MerkleHasher> {
     /// The remaining depth of call stack excepting entries in `stack`.
     remaining_depth: u32,
     /// The underline stack.
-    stack: StackProof<FuncFrameSnapshot, Hasher>,
+    stack: StackProof<FuncFrameSnapshot, Hasher::Output>,
 }
 
 impl<Hasher: MerkleHasher> Debug for CallStackProof<Hasher> {
@@ -898,7 +879,7 @@ impl<Hasher: MerkleHasher> CallStackProof<Hasher> {
         Self {
             recursion_depth,
             remaining_depth: len as u32,
-            stack: StackProof::<_, Hasher>::new(entries, bottom_hash),
+            stack: StackProof::<_, Hasher::Output>::new(entries, bottom_hash),
         }
     }
 
