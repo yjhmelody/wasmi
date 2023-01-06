@@ -8,7 +8,7 @@ use codec::{Codec, Encode};
 pub trait MerkleTrait<Hasher: MerkleHasher>: Debug {}
 
 /// The Hasher type used in merkle proof.
-pub trait MerkleHasher: Send + Sync + Clone {
+pub trait MerkleHasher: Send + Sync + Clone + Debug {
     /// The output hash type.
     type Output: HashOutput;
 
