@@ -42,6 +42,49 @@ fn call_step<T>(
     f.step_call(store.as_context_mut(), inputs, outputs, n)
 }
 
+#[test]
+fn last_return_inst_call_stack_proof_should_work() {
+    let wat = r#"
+(module
+  (func (export "add") (param $x i32) (param $y i32) (result i32) (i32.add (local.get $x) (local.get $y)))
+)
+    "#;
+    let engine = Engine::default();
+    let mut store = Store::new(&engine, ());
+    let module = setup_module(&mut store, wat).unwrap();
+    let instance = instantiate(&mut store, &module).unwrap();
+
+    let code_merkle = store
+        .code_proof::<MerkleKeccak256>(instance)
+        .make_code_merkle();
+
+    let inputs = vec![Value::I32(1), Value::I32(2)];
+    let mut outputs = vec![Value::I32(0)];
+
+    let mut steps = 3;
+    let res = call_step(
+        &mut store,
+        instance,
+        "add",
+        &inputs,
+        &mut outputs,
+        Some(&mut steps),
+    )
+    .unwrap();
+
+    let pc = match res {
+        StepResult::Results(()) => unreachable!(),
+        StepResult::RunOutOfStep(pc) => pc,
+    };
+
+    let mut proof = store
+        .osp_proof::<MerkleKeccak256>(&code_merkle, instance)
+        .make_osp_proof_v0(pc)
+        .unwrap();
+
+    proof.run(&code_merkle.code_proof()).unwrap();
+}
+
 // TODO: split the test into some small tests.
 #[test]
 fn test_snapshot_and_proof() {
@@ -128,7 +171,6 @@ fn test_snapshot_and_proof() {
             one_step.as_mut(),
         )
         .unwrap();
-        drop(result);
 
         let pc = match res {
             StepResult::Results(()) => unreachable!(),

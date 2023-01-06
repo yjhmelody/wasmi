@@ -34,7 +34,6 @@ pub enum ExecError {
     MemoryRootsNotExist,
     EmptyValueStack,
     InsufficientValueStack,
-    InsufficientCallStack,
     ValueStackTooShortForDropKeep,
     BranchToIllegalPc,
     IllegalInstruction,
@@ -60,7 +59,6 @@ impl fmt::Display for ExecError {
             ExecError::MemoryRootsNotExist => write!(f, "memory roots not match"),
             ExecError::EmptyValueStack => write!(f, "value stack is empty"),
             ExecError::InsufficientValueStack => write!(f, "value stack is insufficient"),
-            ExecError::InsufficientCallStack => write!(f, "call stack is insufficient"),
             ExecError::ValueStackTooShortForDropKeep => {
                 write!(f, "value stack is insufficient for branch/return")
             }
@@ -612,11 +610,13 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
 
     fn ret(&mut self, drop_keep: DropKeep) -> Result<()> {
         self.drop_keep(drop_keep)?;
-        let frame = self
-            .call_stack
-            .pop()
-            .ok_or(ExecError::InsufficientCallStack)?;
-        self.set_pc(frame.pc);
+        let frame = self.call_stack.pop();
+
+        // Note: when the last instruction is return type, there is no frame in call stack anymore.
+        if let Some(frame) = frame {
+            self.set_pc(frame.pc);
+        }
+
         Ok(())
     }
 
