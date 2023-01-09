@@ -745,12 +745,25 @@ mod proof {
     }
 
     impl Engine {
-        /// Returns instruction set.
+        /// Returns instruction set of a range.
         pub fn insts(&self, range: Range<usize>) -> Vec<Instruction> {
             let engine = self.inner.lock();
             engine.insts()[range].to_vec()
         }
 
+        /// Returns instruction of an index.
+        pub fn inst(&self, index: usize) -> Instruction {
+            let engine = self.inner.lock();
+            engine.insts()[index]
+        }
+
+        /// Generate an instruction proof according to params.
+        ///
+        /// # Note
+        ///
+        /// - The current pc must be valid.
+        /// - All merkle trees must belong to current engine state in logic.
+        /// - Otherwise return proof error.
         pub fn make_inst_proof<Hasher: MerkleHasher>(
             &self,
             ctx: impl AsContext,
@@ -764,7 +777,7 @@ mod proof {
         pub(crate) fn make_engine_proof<Hasher: MerkleHasher>(
             &self,
             inst: Instruction,
-        ) -> Result<EngineProof<Hasher>, ProofError> {
+        ) -> EngineProof<Hasher> {
             let engine = self.inner.lock();
             engine.make_engine_proof(inst)
         }
@@ -811,13 +824,13 @@ mod proof {
             code_merkle(&self.code_map.insts)
         }
 
-        /// Generate a instruction level proof for current pc.
+        /// Generate an instruction proof according to params.
         ///
         /// # Note
         ///
-        /// The current pc must be valid.
-        /// All merkle trees must belong to current engine state in logic.
-        /// Otherwise return proof error.
+        /// - The current pc must be valid.
+        /// - All merkle trees must belong to current engine state in logic.
+        /// - Otherwise return proof error.
         pub fn make_inst_proof<Hasher: MerkleHasher>(
             &self,
             ctx: impl AsContext,
@@ -999,10 +1012,10 @@ mod proof {
         fn make_engine_proof<Hasher: MerkleHasher>(
             &self,
             cur_inst: Instruction,
-        ) -> Result<EngineProof<Hasher>, ProofError> {
+        ) -> EngineProof<Hasher> {
             // TODO(opt): directly make proof and skip snapshot
             let snapshot = &self.make_snapshot();
-            EngineProof::make(snapshot, cur_inst).ok_or(ProofError::InsufficientValueStack)
+            EngineProof::make(snapshot, cur_inst)
         }
 
         fn make_call_proof<Hasher: MerkleHasher>(

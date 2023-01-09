@@ -35,7 +35,7 @@ pub enum VersionedOspProof<Hasher: MerkleHasher> {
     V0(OspProof<Hasher>),
 }
 
-/// The complete osp proof data.
+/// The complete osp proof data to be input to osp executor.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct OspProof<Hasher: MerkleHasher> {
     /// The root of all wasm globals.

@@ -39,8 +39,8 @@ struct PostEngineProof<'a, T: MerkleHasher> {
 }
 
 impl<Hasher: MerkleHasher> EngineProof<Hasher> {
-    /// Generate engine proof for specific instruction by snapshot.
-    pub fn make(snapshot: &EngineSnapshot, cur_inst: Instruction) -> Option<Self> {
+    /// Generate engine proof for current snapshot according to current instruction.
+    pub fn make(snapshot: &EngineSnapshot, cur_inst: Instruction) -> Self {
         let remain_size = match cur_inst {
             Instruction::LocalTee { local_depth } | Instruction::LocalGet { local_depth } => {
                 local_depth.into_inner()
@@ -53,13 +53,13 @@ impl<Hasher: MerkleHasher> EngineProof<Hasher> {
             Instruction::ReturnIfNez(drop_keep) => drop_keep.keep() + drop_keep.drop(),
             _ => 3,
         };
-        let value_stack = ValueStackProof::make(&snapshot.values, remain_size)?;
+        let value_stack = ValueStackProof::make(&snapshot.values, remain_size);
         let call_stack =
             CallStackProof::make(&snapshot.frames, 1, snapshot.config.maximum_recursion_depth);
-        Some(Self {
+        Self {
             value_stack,
             call_stack,
-        })
+        }
     }
 
     /// Returns the hash of engine proof data.
@@ -73,7 +73,7 @@ impl<Hasher: MerkleHasher> EngineProof<Hasher> {
     }
 }
 
-/// Instruction level proof.
+/// Proof data for the execution of the instruction.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct InstructionProof<Hasher: MerkleHasher> {
     /// The current pc.
@@ -613,22 +613,18 @@ impl<Hasher: MerkleHasher> Debug for ValueStackProof<Hasher> {
 }
 
 impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
-    /// Make a value stack proof by snapshot.
+    /// Make a value stack proof by snapshot. Keep the top N stack value original and not be part of hash.
     ///
-    /// Keep the top N stack value original and not be part of hash.
-    pub fn make(snapshot: &ValueStackSnapshot, keep_len: usize) -> Option<Self> {
-        if keep_len > snapshot.entries.len() {
-            return None;
-        }
-        let len = snapshot.entries.len() - keep_len;
+    /// # Note
+    ///
+    /// If keep_len is great than stack size, the top N will be top 0.
+    pub fn make(snapshot: &ValueStackSnapshot, keep_len: usize) -> Self {
+        let len = snapshot.entries.len().saturating_sub(keep_len);
         let (bottoms, tops) = snapshot.entries.split_at(len);
         let bottom_hash = hash_value_stack::<Hasher>(bottoms, Default::default());
         let entries = tops.to_vec();
 
-        Some(Self(StackProof::<_, Hasher::Output>::new(
-            entries,
-            bottom_hash,
-        )))
+        Self(StackProof::<_, Hasher::Output>::new(entries, bottom_hash))
     }
 
     pub fn hash(&self) -> Hasher::Output {
@@ -862,15 +858,13 @@ impl<Hasher: MerkleHasher> Debug for CallStackProof<Hasher> {
 }
 
 impl<Hasher: MerkleHasher> CallStackProof<Hasher> {
-    /// Make a call stack proof by snapshot.
-    ///
-    /// Keep the top N stack value original and not be part of hash.
+    /// Make a call stack proof by snapshot. Keep the top N stack value original and not be part of hash.
     ///
     /// # Note
     ///
-    /// In our case, we only need the top 1 value to be kept.
+    /// - If keep_len is great than stack size, the top N will be top 0.
+    /// - In our case, we only need the top 1 value to be kept.
     pub fn make(snapshot: &CallStackSnapshot, keep_len: usize, recursion_depth: u32) -> Self {
-        debug_assert!(keep_len > 0);
         let len = snapshot.frames.len().saturating_sub(keep_len);
         let (bottoms, tops) = snapshot.frames.split_at(len);
         let bottom_hash = hash_call_stack::<Hasher>(bottoms, Default::default());
@@ -924,8 +918,8 @@ mod tests {
         };
 
         for i in 1..snapshot.entries.len() - 1 {
-            let a = ValueStackProof::<MerkleKeccak256>::make(&snapshot, i).unwrap();
-            let b = ValueStackProof::<MerkleKeccak256>::make(&snapshot, i + 1).unwrap();
+            let a = ValueStackProof::<MerkleKeccak256>::make(&snapshot, i);
+            let b = ValueStackProof::<MerkleKeccak256>::make(&snapshot, i + 1);
 
             assert_eq!(a.hash(), b.hash(), "value stack finally hash must be equal")
         }

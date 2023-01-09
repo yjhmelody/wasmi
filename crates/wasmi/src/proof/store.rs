@@ -67,12 +67,13 @@ impl<'a, T, Hasher: MerkleHasher> OspProofBuilder<'a, T, Hasher> {
         self.make_osp_proof_v0(current_pc)
             .map(VersionedOspProof::V0)
     }
+
     /// Creates an ops proof according to current pc.
     #[allow(clippy::redundant_closure_for_method_calls)]
     pub fn make_osp_proof_v0(&self, current_pc: u32) -> Result<OspProof<Hasher>, ProofError> {
         let instance_merkle = self.make_instance_merkle();
         let inst_proof = self.make_inst_proof(&instance_merkle, current_pc)?;
-        let engine_proof = self.engine().make_engine_proof::<Hasher>(inst_proof.inst)?;
+        let engine_proof = self.engine().make_engine_proof::<Hasher>(inst_proof.inst);
 
         let globals_root = instance_merkle
             .globals
@@ -106,6 +107,13 @@ impl<'a, T, Hasher: MerkleHasher> OspProofBuilder<'a, T, Hasher> {
         InstanceMerkle::generate(instance_snapshot)
     }
 
+    /// Generate an instruction proof according to params.
+    ///
+    /// # Note
+    ///
+    /// - The current pc must be valid.
+    /// - All merkle trees must belong to current engine state in logic.
+    /// - Otherwise return proof error.
     pub fn make_inst_proof(
         &self,
         instance_merkle: &InstanceMerkle<Hasher>,
