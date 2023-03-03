@@ -1,4 +1,4 @@
-use core::fmt::{Debug, Display};
+use core::fmt::Debug;
 
 use codec::{Codec, Encode};
 
@@ -29,7 +29,6 @@ pub trait HashOutput:
     core::hash::Hash
     + Codec
     + Debug
-    + Default
     + Clone
     + PartialEq
     + Eq
@@ -38,15 +37,48 @@ pub trait HashOutput:
     + Send
     + Sync
     + Sized
-    + Display
 {
     /// The length of output hash bytes.
     const LENGTH: usize;
+    /// The default zero of hash output.
+    const ZERO: Self;
 
     /// Cast bytes to `Self`.
     ///
     /// # Note
     ///
     /// The bytes len must equal to `Self::LENGTH`, otherwise it should panic.
-    fn from_slice(b: &[u8]) -> Self;
+    fn from_slice(bytes: &[u8]) -> Self;
+}
+
+impl HashOutput for [u8; 32] {
+    const LENGTH: usize = 32;
+    const ZERO: Self = [0; 32];
+
+    fn from_slice(bytes: &[u8]) -> Self {
+        match bytes.try_into() {
+            Ok(array) => array,
+            Err(_) => panic!(
+                "Expected a slice of length {} but it was {}",
+                Self::LENGTH,
+                bytes.len()
+            ),
+        }
+    }
+}
+
+impl HashOutput for [u8; 64] {
+    const LENGTH: usize = 64;
+    const ZERO: Self = [0; 64];
+
+    fn from_slice(bytes: &[u8]) -> Self {
+        match bytes.try_into() {
+            Ok(array) => array,
+            Err(_) => panic!(
+                "Expected a slice of length {} but it was {}",
+                Self::LENGTH,
+                bytes.len()
+            ),
+        }
+    }
 }

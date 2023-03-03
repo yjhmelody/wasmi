@@ -621,7 +621,7 @@ impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
     pub fn make(snapshot: &ValueStackSnapshot, keep_len: usize) -> Self {
         let len = snapshot.entries.len().saturating_sub(keep_len);
         let (bottoms, tops) = snapshot.entries.split_at(len);
-        let bottom_hash = hash_value_stack::<Hasher>(bottoms, Default::default());
+        let bottom_hash = hash_value_stack::<Hasher>(bottoms, <Hasher::Output as HashOutput>::ZERO);
         let entries = tops.to_vec();
 
         Self(StackProof::<_, Hasher::Output>::new(entries, bottom_hash))
@@ -867,7 +867,7 @@ impl<Hasher: MerkleHasher> CallStackProof<Hasher> {
     pub fn make(snapshot: &CallStackSnapshot, keep_len: usize, recursion_depth: u32) -> Self {
         let len = snapshot.frames.len().saturating_sub(keep_len);
         let (bottoms, tops) = snapshot.frames.split_at(len);
-        let bottom_hash = hash_call_stack::<Hasher>(bottoms, Default::default());
+        let bottom_hash = hash_call_stack::<Hasher>(bottoms, <Hasher::Output as HashOutput>::ZERO);
         let entries = tops.to_vec();
 
         Self {

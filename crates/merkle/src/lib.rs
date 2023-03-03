@@ -6,11 +6,11 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std as alloc;
 
-mod bytes32;
+mod hasher;
 mod merkle;
 mod traits;
 
-pub use bytes32::*;
+pub use hasher::*;
 pub use merkle::*;
 pub use traits::*;
 

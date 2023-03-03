@@ -2,30 +2,8 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
 
 use codec::{Decode, Encode};
-use digest::Digest;
-use sha3::Keccak256;
 
-use crate::{bytes32::Bytes32, MerkleHasher, MerkleTrait};
-
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct MerkleKeccak256;
-
-impl MerkleHasher for MerkleKeccak256 {
-    type Output = Bytes32;
-
-    fn hash(bytes: &[u8]) -> Self::Output {
-        let mut h = Keccak256::new();
-        h.update(bytes);
-        h.finalize().into()
-    }
-
-    fn hash_node(a: &Self::Output, b: &Self::Output) -> Self::Output {
-        let mut h = Keccak256::new();
-        h.update(a);
-        h.update(b);
-        h.finalize().into()
-    }
-}
+use crate::{HashOutput, MerkleHasher, MerkleTrait};
 
 // TODO: move to other place
 #[derive(Debug)]
@@ -129,7 +107,7 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
     ///
     /// Panic if hashes is empty.
     pub fn new(hashes: Vec<Hasher::Output>) -> Self {
-        Self::new_advanced(hashes, Hasher::Output::default(), 0)
+        Self::new_advanced(hashes, <Hasher::Output as HashOutput>::ZERO, 0)
     }
 
     /// Creates a merkle tree according to hashes iter.
@@ -182,7 +160,7 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
             assert_eq!(layer.len(), 1);
             layer[0].clone()
         } else {
-            Default::default()
+            <Hasher::Output as HashOutput>::ZERO
         }
     }
 
