@@ -3,34 +3,39 @@ use crate::{
     snapshot::{InstanceSnapshot, MemorySnapshot, TableElementSnapshot, TableSnapshot},
     GlobalEntity,
 };
-use accel_merkle::{GlobalMerkle, MemoryMerkle, MerkleHasher, TableMerkle};
+use accel_merkle::{
+    memory_chunk_size,
+    memory_merkle_depth,
+    GlobalMerkle,
+    MemoryChunk,
+    MemoryMerkle,
+    MerkleConfig,
+    MerkleHasher,
+    OutputOf,
+    TableMerkle,
+};
 use alloc::vec::Vec;
 use wasmi_core::UntypedValue;
 
-pub const MEMORY_LEAF_SIZE: usize = 32;
-// TODO: redesign this part
-/// The number of layers in the memory merkle tree
-/// 1 + log2(2^32 / LEAF_SIZE) = 1 + log2(2^(32 - log2(LEAF_SIZE))) = 1 + 32 - 5
-const MEMORY_LAYERS: usize = 1 + 32 - 5;
-
 /// All proof data for an instance at a checkpoint.
 #[derive(Debug)]
-pub struct InstanceMerkle<Hasher>
+pub struct InstanceMerkle<Config>
 where
-    Hasher: MerkleHasher,
+    Config: MerkleConfig,
 {
-    pub globals: Option<GlobalMerkle<Hasher>>,
-    pub memories: Vec<MemoryProof<Hasher>>,
-    pub tables: Vec<TableProof<Hasher>>,
+    pub globals: Option<GlobalMerkle<Config::Hasher>>,
+    pub memories: Vec<MemoryProof<Config>>,
+    pub tables: Vec<TableProof<Config::Hasher>>,
 }
 
 #[derive(Debug)]
-pub struct MemoryProof<Hasher>
+pub struct MemoryProof<Config>
 where
-    Hasher: MerkleHasher,
+    Config: MerkleConfig,
 {
+    // TODO:
     pub page: MemoryPage,
-    pub merkle: MemoryMerkle<Hasher>,
+    pub merkle: MemoryMerkle<Config>,
 }
 
 #[derive(Debug)]
@@ -43,9 +48,9 @@ where
     pub merkle: TableMerkle<Hasher>,
 }
 
-impl<Hasher> InstanceMerkle<Hasher>
+impl<Config> InstanceMerkle<Config>
 where
-    Hasher: MerkleHasher,
+    Config: MerkleConfig,
 {
     /// Generate an instance proof by snapshot.
     pub fn generate(instance: InstanceSnapshot) -> Self {
@@ -57,9 +62,14 @@ where
     }
 }
 
+// /// hash the memory bytes.
+// pub fn hash_memory_leaf<T: MemoryMerkleConfig>(bytes: [u8; T::MEMORY_CHUNK_SIZE]) -> <T::Hasher as MerkleHasher>::Output {
+//     <T::Hasher as MerkleHasher>::hash(&bytes)
+// }
+
 /// hash the memory bytes.
-pub fn hash_memory_leaf<Hasher: MerkleHasher>(bytes: [u8; MEMORY_LEAF_SIZE]) -> Hasher::Output {
-    Hasher::hash(&bytes)
+pub fn hash_memory_leaf<Hasher: MerkleHasher>(bytes: &[u8]) -> Hasher::Output {
+    Hasher::hash(bytes)
 }
 
 fn round_up_to_power_of_two(mut input: usize) -> usize {
@@ -98,14 +108,14 @@ impl InstanceSnapshot {
         Some(GlobalMerkle::new(globals))
     }
 
-    pub fn memory_proofs<Hasher>(&self) -> Vec<MemoryProof<Hasher>>
+    pub fn memory_proofs<Config>(&self) -> Vec<MemoryProof<Config>>
     where
-        Hasher: MerkleHasher,
+        Config: MerkleConfig,
     {
         self.memories
             .iter()
             .map(|mem| {
-                let merkle = mem.merkle::<Hasher>();
+                let merkle = mem.merkle::<Config>();
                 MemoryProof {
                     page: MemoryPage {
                         initial_pages: mem.memory_type.initial_pages,
@@ -135,30 +145,35 @@ impl InstanceSnapshot {
 
 impl MemorySnapshot {
     // TODO: redesign this part.
-    pub fn merkle<Hasher>(&self) -> MemoryMerkle<Hasher>
+    pub fn merkle<Config>(&self) -> MemoryMerkle<Config>
     where
-        Hasher: MerkleHasher,
+        Config: MerkleConfig,
     {
         // Round the size up to 32 bytes size leaves, then round up to the next power of two number of leaves
-        let leaves = round_up_to_power_of_two(div_round_up(self.bytes.len(), MEMORY_LEAF_SIZE));
-        let mut leaf_hashes: Vec<Hasher::Output> = self
+        let leaves = round_up_to_power_of_two(div_round_up(
+            self.bytes.len(),
+            memory_chunk_size::<Config>(),
+        ));
+
+        let empty_leaf: Config::MemoryChunk = Config::MemoryChunk::ZERO;
+        let empty_hash = hash_memory_leaf::<Config::Hasher>(empty_leaf.as_ref());
+
+        let mut leaf_hashes: Vec<OutputOf<Config>> = self
             .bytes
-            .chunks(MEMORY_LEAF_SIZE)
+            .chunks(memory_chunk_size::<Config>())
             .map(|leaf| {
-                let mut full_leaf = [0u8; MEMORY_LEAF_SIZE];
-                full_leaf[..leaf.len()].copy_from_slice(leaf);
-                hash_memory_leaf::<Hasher>(full_leaf)
+                let mut full_leaf: Config::MemoryChunk = Config::MemoryChunk::ZERO;
+                let full_leaf_mut = full_leaf.as_mut();
+                full_leaf_mut[..leaf.len()].copy_from_slice(leaf);
+                hash_memory_leaf::<Config::Hasher>(full_leaf.as_ref())
             })
             .collect();
+
         if leaf_hashes.len() < leaves {
-            let empty_hash = hash_memory_leaf::<Hasher>([0u8; MEMORY_LEAF_SIZE]);
-            leaf_hashes.resize(leaves, empty_hash);
+            leaf_hashes.resize(leaves, empty_hash.clone());
         }
-        MemoryMerkle::new_advanced(
-            leaf_hashes,
-            hash_memory_leaf::<Hasher>([0u8; MEMORY_LEAF_SIZE]),
-            MEMORY_LAYERS,
-        )
+
+        MemoryMerkle::new_advanced(leaf_hashes, empty_hash, memory_merkle_depth::<Config>())
     }
 }
 

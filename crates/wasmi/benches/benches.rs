@@ -136,7 +136,7 @@ fn bench_instantiate_contract(c: &mut Criterion, name: &str, path: &str) {
     c.bench_function(&bench_id, |b| {
         let module = load_module_from_file(path);
         let engine = module.engine();
-        let mut store = Store::new(&engine, ());
+        let mut store = Store::new(engine, ());
         let mut linker = <Linker<()>>::default();
         linker
             .define(
@@ -965,7 +965,7 @@ fn bench_execute_memory_fill(c: &mut Criterion) {
         });
         assert!(mem.data(&store)[ptr..(ptr + len)]
             .iter()
-            .all(|byte| (*byte as u8) == value));
+            .all(|byte| *byte == value));
     });
 }
 

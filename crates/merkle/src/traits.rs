@@ -1,14 +1,71 @@
-use core::fmt::Debug;
+use core::{fmt::Debug, marker::PhantomData};
 
 use codec::{Codec, Encode};
 
-/// The trait for different proof of wasm state component.
-///
-/// User could choose custom hash algorithm.
-pub trait MerkleTrait<Hasher: MerkleHasher>: Debug {}
+pub trait MerkleConfig: Clone + Debug + PartialEq + Eq {
+    /// The hasher for memory chunk.
+    type Hasher: MerkleHasher;
+
+    /// The unit of handling memory bytes.
+    type MemoryChunk: MemoryChunk;
+}
+
+/// Return the memory chunk size config.
+pub const fn memory_chunk_size<T: MerkleConfig>() -> usize {
+    T::MemoryChunk::LENGTH
+}
+
+/// Return the number of layers in the memory merkle tree.
+/// 1 + log2(2^32 / MEMORY_CHUNK_SIZE) = 1 + 32 - log2(MEMORY_CHUNK_SIZE)))
+pub const fn memory_merkle_depth<T: MerkleConfig>() -> usize {
+    32 + 1 - T::MemoryChunk::LENGTH.ilog2() as usize
+}
+
+pub type MemoryChunkOf<T> = <T as MerkleConfig>::MemoryChunk;
+pub type HasherOf<T> = <T as MerkleConfig>::Hasher;
+pub type OutputOf<T> = <<T as MerkleConfig>::Hasher as MerkleHasher>::Output;
+
+/// The unit of handling memory bytes.
+pub trait MemoryChunk:
+    core::hash::Hash
+    + Codec
+    + Debug
+    + Clone
+    + PartialEq
+    + Eq
+    + AsRef<[u8]>
+    + AsMut<[u8]>
+    + Send
+    + Sync
+    + Sized
+{
+    /// The length of output hash bytes.
+    const LENGTH: usize;
+    /// The default zero of hash output.
+    const ZERO: Self;
+}
+
+impl MemoryChunk for [u8; 32] {
+    const LENGTH: usize = 32;
+    const ZERO: Self = [0; 32];
+}
+
+impl MemoryChunk for [u8; 64] {
+    const LENGTH: usize = 64;
+    const ZERO: Self = [0; 64];
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DefaultMemoryConfig<Hasher>(PhantomData<Hasher>);
+
+impl<Hasher: MerkleHasher> MerkleConfig for DefaultMemoryConfig<Hasher> {
+    type Hasher = Hasher;
+
+    type MemoryChunk = [u8; 32];
+}
 
 /// The Hasher type used in merkle proof.
-pub trait MerkleHasher: Send + Sync + Clone + Debug {
+pub trait MerkleHasher: Send + Sync + Clone + Debug + PartialEq + Eq {
     /// The output hash type.
     type Output: HashOutput;
 
@@ -24,7 +81,16 @@ pub trait MerkleHasher: Send + Sync + Clone + Debug {
     fn hash_node(a: &Self::Output, b: &Self::Output) -> Self::Output;
 }
 
-/// The output type of a hash algorithm.
+// TODO: remove
+pub trait MemoryMerkleTrait<Hasher: MerkleHasher>: Debug {
+    /// The unit of handling memory bytes.
+    const MEMORY_CHUNK_SIZE: usize;
+
+    /// The number of layers in the memory merkle tree.
+    const MEMORY_LAYERS: usize;
+}
+
+/// The output type of a hashing algorithm.
 pub trait HashOutput:
     core::hash::Hash
     + Codec
@@ -60,7 +126,7 @@ impl HashOutput for [u8; 32] {
             Ok(array) => array,
             Err(_) => panic!(
                 "Expected a slice of length {} but it was {}",
-                Self::LENGTH,
+                <Self as HashOutput>::LENGTH,
                 bytes.len()
             ),
         }
@@ -76,7 +142,7 @@ impl HashOutput for [u8; 64] {
             Ok(array) => array,
             Err(_) => panic!(
                 "Expected a slice of length {} but it was {}",
-                Self::LENGTH,
+                <Self as HashOutput>::LENGTH,
                 bytes.len()
             ),
         }

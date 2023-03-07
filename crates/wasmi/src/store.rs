@@ -22,7 +22,7 @@ use crate::{
     proof::{CodeMerkle, CodeProofBuilder, OspProofBuilder},
     snapshot::SnapshotBuilder,
 };
-use accel_merkle::MerkleHasher;
+use accel_merkle::{MerkleConfig, MerkleHasher};
 use core::{
     marker::PhantomData,
     sync::atomic::{AtomicU32, Ordering},
@@ -132,11 +132,11 @@ impl<T> Store<T> {
     }
 
     /// Returns a osp proof builder for wasm store.
-    pub fn osp_proof<'a, Hasher: MerkleHasher>(
+    pub fn osp_proof<'a, Config: MerkleConfig>(
         &'a self,
-        code_merkle: &'a CodeMerkle<Hasher>,
+        code_merkle: &'a CodeMerkle<Config::Hasher>,
         instance: Instance,
-    ) -> OspProofBuilder<'a, T, Hasher> {
+    ) -> OspProofBuilder<'a, T, Config> {
         let instance_entity = self.resolve_instance(instance);
         OspProofBuilder {
             store: self,

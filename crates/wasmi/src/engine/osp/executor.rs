@@ -1,18 +1,27 @@
+use core::{cmp, fmt, result};
+
+use accel_merkle::{MerkleConfig, OutputOf, ProveData};
+use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
+
 use super::super::{
     bytecode::{BranchParams, FuncIdx, GlobalIdx, Instruction, LocalDepth, Offset, SignatureIdx},
     DropKeep,
 };
 use crate::{
     core::{TrapCode, F32, F64},
-    proof::{value_hash, CallStackProof, ExtraProof, ValueStackProof},
+    proof::{
+        value_hash,
+        CallProof,
+        CallStackProof,
+        CodeProof,
+        ExtraProof,
+        FuncNode,
+        OspProof,
+        ValueStackProof,
+        WasmFuncHeader,
+    },
     snapshot::FuncFrameSnapshot,
 };
-
-use core::{cmp, fmt, result};
-
-use crate::proof::{CallProof, CodeProof, FuncNode, OspProof, WasmFuncHeader};
-use accel_merkle::{MerkleHasher, ProveData};
-use wasmi_core::{ExtendInto, LittleEndianConvert, UntypedValue, WrapInto};
 
 pub const MAX_PAGE_SIZE: u32 = 65536;
 
@@ -78,16 +87,16 @@ impl fmt::Display for ExecError {
     }
 }
 
-impl<Hasher> OspProof<Hasher>
+impl<Config> OspProof<Config>
 where
-    Hasher: MerkleHasher,
+    Config: MerkleConfig,
 {
     /// Creates an osp executor to run one step proof data.
     pub(crate) fn executor<'a>(
         &'a mut self,
-        code_proof: &'a CodeProof<Hasher>,
-    ) -> OspExecutor<'a, Hasher> {
-        OspExecutor::<Hasher> {
+        code_proof: &'a CodeProof<Config::Hasher>,
+    ) -> OspExecutor<'a, Config> {
+        OspExecutor::<Config> {
             call_stack: &mut self.engine_proof.call_stack,
             value_stack: &mut self.engine_proof.value_stack,
 
@@ -111,32 +120,32 @@ where
     /// # Error
     ///
     /// unexpected proof data or state.
-    pub fn run(&mut self, code_proof: &CodeProof<Hasher>) -> Result<()> {
+    pub fn run(&mut self, code_proof: &CodeProof<Config::Hasher>) -> Result<()> {
         self.executor(code_proof).execute()
     }
 }
 
 /// One instruction executor used for OSP.
-pub(crate) struct OspExecutor<'a, Hasher>
+pub(crate) struct OspExecutor<'a, Config>
 where
-    Hasher: MerkleHasher,
+    Config: MerkleConfig,
 {
-    call_stack: &'a mut CallStackProof<Hasher>,
-    value_stack: &'a mut ValueStackProof<Hasher>,
+    call_stack: &'a mut CallStackProof<Config::Hasher>,
+    value_stack: &'a mut ValueStackProof<Config::Hasher>,
 
-    inst_root: &'a Hasher::Output,
-    func_root: &'a Hasher::Output,
-    globals_root: &'a mut Option<Hasher::Output>,
-    table_roots: &'a [Hasher::Output],
-    memory_roots: &'a mut [Hasher::Output],
+    inst_root: &'a OutputOf<Config>,
+    func_root: &'a OutputOf<Config>,
+    globals_root: &'a mut Option<OutputOf<Config>>,
+    table_roots: &'a [OutputOf<Config>],
+    memory_roots: &'a mut [OutputOf<Config>],
 
     current_pc: &'a mut u32,
     inst: Instruction,
-    inst_prove: &'a ProveData<Hasher>,
-    extra: &'a ExtraProof<Hasher>,
+    inst_prove: &'a ProveData<Config::Hasher>,
+    extra: &'a ExtraProof<Config>,
 }
 
-impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
+impl<'a, Config: MerkleConfig> OspExecutor<'a, Config> {
     pub fn execute(&mut self) -> Result<()> {
         use Instruction as Instr;
         // pre-checks
@@ -321,7 +330,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     }
 
     fn prove_inst(&mut self) -> Result<()> {
-        let inst_hash = self.inst.hash::<Hasher::Output>();
+        let inst_hash = self.inst.hash::<OutputOf<Config>>();
         let inst_root = self.inst_prove.compute_root(self.pc() as usize, inst_hash);
         if inst_root != *self.inst_root {
             Err(ExecError::IllegalInstruction)
@@ -449,8 +458,8 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         }
     }
 
-    fn ensure_call_proof(&self, func_index: u32, proof: &CallProof<Hasher>) -> Result<()> {
-        let leaf_hash = proof.func.hash::<Hasher>();
+    fn ensure_call_proof(&self, func_index: u32, proof: &CallProof<Config::Hasher>) -> Result<()> {
+        let leaf_hash = proof.func.hash::<Config::Hasher>();
         let root = proof
             .prove_data
             .compute_root(func_index as usize, leaf_hash);
@@ -466,7 +475,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     fn ensure_call_indirect_proof(
         &self,
         _func_index: u32,
-        _proof: &CallProof<Hasher>,
+        _proof: &CallProof<Config::Hasher>,
     ) -> Result<()> {
         self.table_roots
             .first()
@@ -475,7 +484,9 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
         Ok(())
     }
 
-    fn get_func_header_from_call_proof(proof: &CallProof<Hasher>) -> Result<&WasmFuncHeader> {
+    fn get_func_header_from_call_proof(
+        proof: &CallProof<Config::Hasher>,
+    ) -> Result<&WasmFuncHeader> {
         match &proof.func {
             FuncNode::Host(..) => Err(ExecError::IllegalExtraProof),
             FuncNode::Wasm(header) => Ok(header),
@@ -505,7 +516,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
             ExtraProof::GlobalGetSet(proof) => {
                 let idx = global_index.into_inner() as usize;
                 let global = proof.value;
-                let leaf_hash = value_hash::<Hasher>(global);
+                let leaf_hash = value_hash::<Config::Hasher>(global);
 
                 // prove old globals root before using global value.
                 let globals_root = proof.prove_data.compute_root(idx, leaf_hash);
@@ -518,7 +529,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
                         .value_stack
                         .pop()
                         .ok_or(ExecError::InsufficientValueStack)?;
-                    let leaf_hash = value_hash::<Hasher>(global);
+                    let leaf_hash = value_hash::<Config::Hasher>(global);
                     // update globals root
                     *cur_globals_root = proof.prove_data.compute_root(idx, leaf_hash)
                 } else {
@@ -662,20 +673,20 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     }
 
     #[inline]
-    fn ensure_same_memory(&self, memory_root: Hasher::Output) -> Result<()> {
+    fn ensure_same_memory(&self, memory_root: OutputOf<Config>) -> Result<()> {
         Self::ensure_same_root(Self::default_memory_root(self.memory_roots)?, &memory_root)
             .map_err(|_e| ExecError::MemoryRootNotMatch)
     }
 
     #[inline]
-    fn ensure_same_root(root1: &Hasher::Output, root2: &Hasher::Output) -> Result<()> {
+    fn ensure_same_root(root1: &OutputOf<Config>, root2: &OutputOf<Config>) -> Result<()> {
         if root1 != root2 {
             return Err(ExecError::IllegalExtraProof);
         }
         Ok(())
     }
 
-    fn default_memory_root(memory_roots: &[Hasher::Output]) -> Result<&Hasher::Output> {
+    fn default_memory_root(memory_roots: &[OutputOf<Config>]) -> Result<&OutputOf<Config>> {
         memory_roots.first().ok_or(ExecError::MemoryRootsNotExist)
     }
 
@@ -683,7 +694,7 @@ impl<'a, Hasher: MerkleHasher> OspExecutor<'a, Hasher> {
     ///
     /// The first(default) memory root must exist.
     #[inline]
-    fn update_default_memory(&mut self, memory_root: Hasher::Output) {
+    fn update_default_memory(&mut self, memory_root: OutputOf<Config>) {
         self.memory_roots[0] = memory_root;
     }
 

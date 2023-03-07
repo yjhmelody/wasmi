@@ -689,13 +689,19 @@ mod proof {
             MemoryProof,
             MemoryTwoChunks,
             TableProof,
-            MEMORY_LEAF_SIZE,
         },
         AsContext,
         Instance,
         MemoryEntity,
     };
-    use accel_merkle::{InstructionMerkle, MerkleHasher, ProveData};
+    use accel_merkle::{
+        memory_chunk_size,
+        InstructionMerkle,
+        MemoryChunk as _,
+        MerkleConfig,
+        MerkleHasher,
+        ProveData,
+    };
     use alloc::vec::Vec;
     use core::{cmp, fmt, ops::Range};
 
@@ -764,12 +770,12 @@ mod proof {
         /// - The current pc must be valid.
         /// - All merkle trees must belong to current engine state in logic.
         /// - Otherwise return proof error.
-        pub fn make_inst_proof<Hasher: MerkleHasher>(
+        pub fn make_inst_proof<Config: MerkleConfig>(
             &self,
             ctx: impl AsContext,
-            params: InstProofParams<Hasher>,
+            params: InstProofParams<Config>,
             instance: Instance,
-        ) -> Result<InstructionProof<Hasher>, ProofError> {
+        ) -> Result<InstructionProof<Config>, ProofError> {
             let engine = self.inner.lock();
             engine.make_inst_proof(ctx, params, instance)
         }
@@ -788,14 +794,14 @@ mod proof {
         }
     }
 
-    pub struct InstProofParams<'a, Hasher: MerkleHasher> {
+    pub struct InstProofParams<'a, Config: MerkleConfig> {
         pub current_pc: u32,
-        pub instance_merkle: &'a InstanceMerkle<Hasher>,
-        pub code_merkle: &'a CodeMerkle<Hasher>,
+        pub instance_merkle: &'a InstanceMerkle<Config>,
+        pub code_merkle: &'a CodeMerkle<Config::Hasher>,
     }
 
-    impl<'a, Hasher: MerkleHasher> InstProofParams<'a, Hasher> {
-        fn default_memory(&self) -> Result<&MemoryProof<Hasher>, ProofError> {
+    impl<'a, Config: MerkleConfig> InstProofParams<'a, Config> {
+        fn default_memory(&self) -> Result<&MemoryProof<Config>, ProofError> {
             // Wasm module must import memory when meet these instruction.
             self.instance_merkle
                 .memories
@@ -803,7 +809,7 @@ mod proof {
                 .ok_or(ProofError::MemoryNotFound)
         }
 
-        fn default_table(&self) -> Result<&TableProof<Hasher>, ProofError> {
+        fn default_table(&self) -> Result<&TableProof<Config::Hasher>, ProofError> {
             // Wasm module must import memory when meet these instruction.
             self.instance_merkle
                 .tables
@@ -812,7 +818,7 @@ mod proof {
         }
 
         // we need to generate proof for current instruction.
-        fn get_inst_prove(&self) -> Result<ProveData<Hasher>, ProofError> {
+        fn get_inst_prove(&self) -> Result<ProveData<Config::Hasher>, ProofError> {
             self.code_merkle
                 .prove_pc(self.current_pc as usize)
                 .ok_or(ProofError::IllegalPc)
@@ -831,12 +837,12 @@ mod proof {
         /// - The current pc must be valid.
         /// - All merkle trees must belong to current engine state in logic.
         /// - Otherwise return proof error.
-        pub fn make_inst_proof<Hasher: MerkleHasher>(
+        pub fn make_inst_proof<Config: MerkleConfig>(
             &self,
             ctx: impl AsContext,
-            params: InstProofParams<Hasher>,
+            params: InstProofParams<Config>,
             instance: Instance,
-        ) -> Result<InstructionProof<Hasher>, ProofError> {
+        ) -> Result<InstructionProof<Config>, ProofError> {
             let mut cache = InstanceCache::from(instance);
             let current_pc = params.current_pc;
             let inst_prove = params.get_inst_prove()?;
@@ -915,10 +921,10 @@ mod proof {
                     let memory_merkle = &params.default_memory()?.merkle;
                     let is_store = Self::is_store_inst(inst);
                     let mut idx = self.get_memory_index(offset, is_store);
-                    idx /= MEMORY_LEAF_SIZE;
+                    idx /= Config::MemoryChunk::LENGTH;
                     let memory = cache.default_memory(ctx.as_context());
                     let memory = ctx.as_context().store.resolve_memory(memory);
-                    let chunk = Self::get_memory_leaf(memory, idx);
+                    let chunk = Self::get_memory_leaf::<Config>(memory, idx);
                     let prove_data = memory_merkle.prove(idx).ok_or(ProofError::MemoryIllegal)?;
                     ExtraProof::MemoryChunk(MemoryChunk::new(chunk, prove_data))
                 }
@@ -946,13 +952,13 @@ mod proof {
                     let is_store = Self::is_store_inst(inst);
                     let mut idx = self.get_memory_index(offset, is_store);
 
-                    idx /= MEMORY_LEAF_SIZE;
+                    idx /= memory_chunk_size::<Config>();
                     let memory = cache.default_memory(ctx.as_context());
                     let memory = ctx.as_context().store.resolve_memory(memory);
                     // TODO: improve the logic.
-                    let leaf = Self::get_memory_leaf(memory, idx);
+                    let leaf = Self::get_memory_leaf::<Config>(memory, idx);
                     let next_leaf_idx = idx.saturating_add(1);
-                    let next_leaf = Self::get_memory_leaf(memory, next_leaf_idx);
+                    let next_leaf = Self::get_memory_leaf::<Config>(memory, next_leaf_idx);
                     // if the number is odd
                     if idx % 2 == 1 {
                         let prove_data =
@@ -1018,13 +1024,13 @@ mod proof {
             EngineProof::make(snapshot, cur_inst)
         }
 
-        fn make_call_proof<Hasher: MerkleHasher>(
+        fn make_call_proof<Config: MerkleConfig>(
             &self,
             store: impl AsContext,
-            params: InstProofParams<Hasher>,
+            params: InstProofParams<Config>,
             func: Func,
             func_index: usize,
-        ) -> Result<ExtraProof<Hasher>, ProofError> {
+        ) -> Result<ExtraProof<Config>, ProofError> {
             // Note: directly use engine inner for avoiding dead lock here
             let func_type = self
                 .resolve_func_type(func.signature(store.as_context()), |func_type| {
@@ -1045,13 +1051,13 @@ mod proof {
             }
         }
 
-        fn make_call_indirect_proof<Hasher: MerkleHasher>(
+        fn make_call_indirect_proof<Config: MerkleConfig>(
             &self,
             store: impl AsContext,
-            params: InstProofParams<Hasher>,
+            params: InstProofParams<Config>,
             func: Func,
             func_index: usize,
-        ) -> Result<ExtraProof<Hasher>, ProofError> {
+        ) -> Result<ExtraProof<Config>, ProofError> {
             // Note: directly use engine inner for avoiding dead lock here
             let func_type = self
                 .resolve_func_type(func.signature(store.as_context()), |func_type| {
@@ -1091,14 +1097,18 @@ mod proof {
         }
 
         /// Get the memory leaf from memory entity by index.
-        fn get_memory_leaf(memory: &MemoryEntity, leaf_idx: usize) -> [u8; MEMORY_LEAF_SIZE] {
-            let mut buf = [0u8; MEMORY_LEAF_SIZE];
-            let idx = match leaf_idx.checked_mul(MEMORY_LEAF_SIZE) {
+        fn get_memory_leaf<Config: MerkleConfig>(
+            memory: &MemoryEntity,
+            leaf_idx: usize,
+        ) -> Config::MemoryChunk {
+            let mut buf: Config::MemoryChunk = Config::MemoryChunk::ZERO;
+            let idx = match leaf_idx.checked_mul(memory_chunk_size::<Config>()) {
                 Some(x) if x < memory.data().len() => x,
                 _ => return buf,
             };
-            let size = cmp::min(MEMORY_LEAF_SIZE, memory.data().len() - idx);
-            buf[..size].copy_from_slice(&memory.data()[idx..(idx + size)]);
+            let size = cmp::min(memory_chunk_size::<Config>(), memory.data().len() - idx);
+            buf.as_mut()[..size].copy_from_slice(&memory.data()[idx..(idx + size)]);
+
             buf
         }
     }

@@ -1,4 +1,4 @@
-use accel_merkle::MerkleKeccak256;
+use accel_merkle::{DefaultMemoryConfig, MerkleKeccak256};
 use codec::{Decode, Encode};
 use wasmi::{
     snapshot::*,
@@ -78,7 +78,7 @@ fn last_return_inst_call_stack_proof_should_work() {
     };
 
     let mut proof = store
-        .osp_proof::<MerkleKeccak256>(&code_merkle, instance)
+        .osp_proof::<DefaultMemoryConfig<MerkleKeccak256>>(&code_merkle, instance)
         .make_osp_proof_v0(pc)
         .unwrap();
 
@@ -191,7 +191,7 @@ fn test_snapshot_and_proof() {
             .make_code_merkle();
 
         let mut proof = store
-            .osp_proof::<MerkleKeccak256>(&code_merkle, instance)
+            .osp_proof::<DefaultMemoryConfig<MerkleKeccak256>>(&code_merkle, instance)
             .make_osp_proof_v0(pc)
             .unwrap();
         // creates new engine/store
@@ -208,7 +208,7 @@ fn test_snapshot_and_proof() {
         let mut result = vec![Value::I32(0)];
 
         let proof2 = store
-            .osp_proof::<MerkleKeccak256>(&code_merkle, instance)
+            .osp_proof::<DefaultMemoryConfig<MerkleKeccak256>>(&code_merkle, instance)
             .make_osp_proof_v0(pc)
             .unwrap();
         // ensure two instance have the same proof in the first step.
@@ -226,7 +226,7 @@ fn test_snapshot_and_proof() {
 
         let code_proof = code_merkle.code_proof();
         let proof3 = store
-            .osp_proof::<MerkleKeccak256>(&code_merkle, instance)
+            .osp_proof::<DefaultMemoryConfig<MerkleKeccak256>>(&code_merkle, instance)
             .make_osp_proof_v0(pc + 1)
             .unwrap();
 

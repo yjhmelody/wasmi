@@ -1,44 +1,34 @@
 use alloc::vec::Vec;
-use core::fmt::{Debug, Formatter};
+use core::{
+    fmt::{Debug, Formatter},
+    marker::PhantomData,
+};
 
 use codec::{Decode, Encode};
 
-use crate::{HashOutput, MerkleHasher, MerkleTrait};
+use crate::{HashOutput, MerkleConfig, MerkleHasher};
 
 // TODO: move to other place
 #[derive(Debug)]
-pub struct MemoryType;
-pub type MemoryMerkle<Hasher> = Merkle<MemoryType, Hasher>;
-impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for MemoryType {}
+pub struct MemoryType<Config: MerkleConfig>(PhantomData<Config>);
+
+pub type MemoryMerkle<Config> = Merkle<MemoryType<Config>, <Config as MerkleConfig>::Hasher>;
 
 #[derive(Debug)]
 pub struct TableType;
 pub type TableMerkle<Hasher> = Merkle<TableType, Hasher>;
-impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for TableType {}
 
 #[derive(Debug)]
 pub struct GlobalType;
 pub type GlobalMerkle<Hasher> = Merkle<GlobalType, Hasher>;
-impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for GlobalType {}
 
 #[derive(Debug)]
 pub struct InstructionType;
 pub type InstructionMerkle<Hasher> = Merkle<InstructionType, Hasher>;
-impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for InstructionType {}
 
 #[derive(Debug)]
 pub struct FuncType;
 pub type FuncMerkle<Hasher> = Merkle<FuncType, Hasher>;
-impl<Hasher: MerkleHasher> MerkleTrait<Hasher> for FuncType {}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Merkle<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> {
-    _type: core::marker::PhantomData<T>,
-    /// The node of different layers.
-    layers: Vec<Vec<Hasher::Output>>,
-    /// Keep the empty hash value of different layer.
-    empty_layers: Vec<Hasher::Output>,
-}
 
 /// The struct contains a merkle proof for a leaf.
 #[derive(Eq, PartialEq, Encode, Decode)]
@@ -100,7 +90,24 @@ pub fn compute_root<T: MerkleHasher>(
     hash
 }
 
-impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
+/// The generic merkle tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Merkle<T, Hasher: MerkleHasher> {
+    /// The node of different layers.
+    layers: Vec<Vec<Hasher::Output>>,
+    /// Keep the empty hash value of different layer.
+    empty_layers: Vec<Hasher::Output>,
+    /// The merkle tree kind.
+    _kind: core::marker::PhantomData<T>,
+}
+
+// impl<T: MemoryMerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
+//     pub fn new_memory_merkle(hashes: Vec<Hasher::Output>) -> Self {
+//         Self::new_advanced(hashes, <Hasher::Output as HashOutput>::ZERO, 0)
+//     }
+// }
+
+impl<T, Hasher: MerkleHasher> Merkle<T, Hasher> {
     /// Creates a merkle tree according to hashes.
     ///
     /// # Note
@@ -118,6 +125,12 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
     pub fn with_iter(hashes: impl Iterator<Item = Hasher::Output>) -> Self {
         let hashes: Vec<Hasher::Output> = hashes.into_iter().collect();
         Self::new(hashes)
+    }
+
+    /// Clear all state inside `Merkle` for reusing this type.
+    pub fn clear(&mut self) {
+        self.layers.truncate(0);
+        self.empty_layers.truncate(0);
     }
 
     /// Creates a merkle tree according to hashes.
@@ -150,7 +163,7 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
         Self {
             layers,
             empty_layers,
-            _type: Default::default(),
+            _kind: Default::default(),
         }
     }
 
@@ -166,11 +179,10 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
 
     /// Returns the merkle leaves.
     pub fn leaves(&self) -> &[Hasher::Output] {
-        if self.layers.is_empty() {
-            &[]
-        } else {
-            &self.layers[0]
-        }
+        self.layers
+            .first()
+            .map(|leaves| leaves.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Generate proof path for current leaf.
@@ -182,8 +194,8 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
         if idx >= self.leaves().len() {
             return None;
         }
-        let mut proof = Vec::new();
         let len = self.layers.len();
+        let mut proof = Vec::with_capacity(len - 1);
         for (layer_i, layer) in self.layers[..len - 1].iter().enumerate() {
             let counterpart = idx ^ 1;
             let hash = layer
@@ -196,7 +208,7 @@ impl<T: MerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
         Some(ProveData(proof))
     }
 
-    /// An variant prove that not contains the leaf node.
+    /// An variant `prove` that not contains the leaf node.
     pub fn prove_without_leaf(&self, idx: usize) -> Option<ProveData<Hasher>> {
         // TODO: optimize this ops
         self.prove(idx).map(|mut proof| {

@@ -1,3 +1,7 @@
+use core::marker::PhantomData;
+
+use accel_merkle::{MerkleConfig, MerkleHasher};
+
 use crate::{
     engine::{InstProofParams, ProofError},
     proof::{CodeMerkle, InstanceMerkle, InstructionProof, OspProof, VersionedOspProof},
@@ -8,8 +12,6 @@ use crate::{
     Store,
     StoreContext,
 };
-use accel_merkle::MerkleHasher;
-use core::marker::PhantomData;
 
 /// A builder for creating code proof by store.
 #[derive(Debug)]
@@ -45,14 +47,14 @@ impl<'a, T, Hasher: MerkleHasher> CodeProofBuilder<'a, T, Hasher> {
 
 /// A builder for creating osp proof by store.
 #[derive(Debug)]
-pub struct OspProofBuilder<'a, T, Hasher: MerkleHasher> {
+pub struct OspProofBuilder<'a, T, Config: MerkleConfig> {
     pub(crate) store: &'a Store<T>,
     pub(crate) instance: Instance,
     pub(crate) instance_entity: &'a InstanceEntity,
-    pub(crate) code_merkle: &'a CodeMerkle<Hasher>,
+    pub(crate) code_merkle: &'a CodeMerkle<Config::Hasher>,
 }
 
-impl<'a, T, Hasher: MerkleHasher> AsContext for OspProofBuilder<'a, T, Hasher> {
+impl<'a, T, Config: MerkleConfig> AsContext for OspProofBuilder<'a, T, Config> {
     type UserState = T;
 
     #[inline]
@@ -61,19 +63,21 @@ impl<'a, T, Hasher: MerkleHasher> AsContext for OspProofBuilder<'a, T, Hasher> {
     }
 }
 
-impl<'a, T, Hasher: MerkleHasher> OspProofBuilder<'a, T, Hasher> {
+impl<'a, T, Config: MerkleConfig> OspProofBuilder<'a, T, Config> {
     /// Creates the latest version osp proof data.
-    pub fn make_osp_proof(&self, current_pc: u32) -> Result<VersionedOspProof<Hasher>, ProofError> {
+    pub fn make_osp_proof(&self, current_pc: u32) -> Result<VersionedOspProof<Config>, ProofError> {
         self.make_osp_proof_v0(current_pc)
             .map(VersionedOspProof::V0)
     }
 
     /// Creates an ops proof according to current pc.
     #[allow(clippy::redundant_closure_for_method_calls)]
-    pub fn make_osp_proof_v0(&self, current_pc: u32) -> Result<OspProof<Hasher>, ProofError> {
+    pub fn make_osp_proof_v0(&self, current_pc: u32) -> Result<OspProof<Config>, ProofError> {
         let instance_merkle = self.make_instance_merkle();
         let inst_proof = self.make_inst_proof(&instance_merkle, current_pc)?;
-        let engine_proof = self.engine().make_engine_proof::<Hasher>(inst_proof.inst);
+        let engine_proof = self
+            .engine()
+            .make_engine_proof::<Config::Hasher>(inst_proof.inst);
 
         let globals_root = instance_merkle
             .globals
@@ -90,7 +94,7 @@ impl<'a, T, Hasher: MerkleHasher> OspProofBuilder<'a, T, Hasher> {
             .map(|mem| mem.merkle.root())
             .collect();
 
-        Ok(OspProof::<Hasher> {
+        Ok(OspProof::<Config> {
             globals_root,
             table_roots,
             memory_roots,
@@ -100,7 +104,7 @@ impl<'a, T, Hasher: MerkleHasher> OspProofBuilder<'a, T, Hasher> {
     }
 
     /// Creates instance merkle for current wasm state.
-    fn make_instance_merkle(&self) -> InstanceMerkle<Hasher> {
+    fn make_instance_merkle(&self) -> InstanceMerkle<Config> {
         let instance_snapshot = self
             .instance_entity
             .make_snapshot(self.as_context(), self.engine().clone());
@@ -116,9 +120,9 @@ impl<'a, T, Hasher: MerkleHasher> OspProofBuilder<'a, T, Hasher> {
     /// - Otherwise return proof error.
     pub fn make_inst_proof(
         &self,
-        instance_merkle: &InstanceMerkle<Hasher>,
+        instance_merkle: &InstanceMerkle<Config>,
         current_pc: u32,
-    ) -> Result<InstructionProof<Hasher>, ProofError> {
+    ) -> Result<InstructionProof<Config>, ProofError> {
         let code_merkle = &self.code_merkle;
 
         let inst_proof = self.engine().make_inst_proof(

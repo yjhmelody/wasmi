@@ -10,7 +10,14 @@ use alloc::vec::Vec;
 use codec::{Decode, Encode};
 
 use crate::{AsContext, Engine, Func};
-use accel_merkle::{FuncMerkle, InstructionMerkle, MerkleHasher, ProveData};
+use accel_merkle::{
+    FuncMerkle,
+    InstructionMerkle,
+    MerkleConfig,
+    MerkleHasher,
+    OutputOf,
+    ProveData,
+};
 
 /// Prefix versioned proof for osp.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
@@ -31,32 +38,32 @@ pub struct CodeProof<Hasher: MerkleHasher> {
 
 /// Prefix versioned proof for osp.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub enum VersionedOspProof<Hasher: MerkleHasher> {
-    V0(OspProof<Hasher>),
+pub enum VersionedOspProof<Config: MerkleConfig> {
+    V0(OspProof<Config>),
 }
 
 /// The complete osp proof data to be input to osp executor.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct OspProof<Hasher: MerkleHasher> {
+pub struct OspProof<Config: MerkleConfig> {
     /// The root of all wasm globals.
     ///
     /// Wasm blob maybe not contain global value.
-    pub globals_root: Option<Hasher::Output>,
+    pub globals_root: Option<OutputOf<Config>>,
     /// The roots of wasm table.
-    pub table_roots: Vec<Hasher::Output>,
+    pub table_roots: Vec<OutputOf<Config>>,
     /// The roots of wasm memory.
-    pub memory_roots: Vec<Hasher::Output>,
+    pub memory_roots: Vec<OutputOf<Config>>,
     /// The engine proof.
-    pub engine_proof: EngineProof<Hasher>,
+    pub engine_proof: EngineProof<Config::Hasher>,
     /// The inst special proof.
-    pub inst_proof: InstructionProof<Hasher>,
+    pub inst_proof: InstructionProof<Config>,
 }
 
-impl<Hasher: MerkleHasher> OspProof<Hasher> {
+impl<Config: MerkleConfig> OspProof<Config> {
     /// Compute the finally proof hash.
-    pub fn hash(&self) -> Hasher::Output {
+    pub fn hash(&self) -> OutputOf<Config> {
         let engine_proof = self.engine_proof.hash();
-        Hasher::hash_of(&OspProofRoots::<'_, Hasher> {
+        Config::Hasher::hash_of(&OspProofRoots::<'_, Config::Hasher> {
             globals_root: &self.globals_root,
             table_roots: &self.table_roots,
             memory_roots: &self.memory_roots,

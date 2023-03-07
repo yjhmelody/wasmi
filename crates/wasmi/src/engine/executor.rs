@@ -75,7 +75,6 @@ mod step {
     }
 
     impl<'ctx, 'engine, 'func, HostData> Executor<'ctx, 'engine, 'func, HostData> {
-        // TODO: reduce code by macro
         /// Executes the function frame until it returns or traps.
         #[inline(always)]
         pub(crate) fn execute_step(mut self, n: &mut u64) -> Result<StepCallOutcome, TrapCode> {
@@ -749,8 +748,6 @@ impl<'ctx, 'engine, 'func, HostData> Executor<'ctx, 'engine, 'func, HostData> {
         // A normalized index will always yield a target without panicking.
         let normalized_index = cmp::min(index as usize, max_index);
         // Update `pc`:
-        // TODO: maybe meet segment fault when used for prover.
-        // Because the op code may be illegal.
         unsafe {
             self.ip.offset((normalized_index + 1) as isize);
         }
