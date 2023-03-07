@@ -330,7 +330,7 @@ impl<'a, Config: MerkleConfig> OspExecutor<'a, Config> {
     }
 
     fn prove_inst(&mut self) -> Result<()> {
-        let inst_hash = self.inst.hash::<OutputOf<Config>>();
+        let inst_hash = self.inst.hash::<Config::Hasher>();
         let inst_root = self.inst_prove.compute_root(self.pc() as usize, inst_hash);
         if inst_root != *self.inst_root {
             Err(ExecError::IllegalInstruction)

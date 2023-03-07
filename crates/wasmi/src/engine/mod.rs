@@ -695,9 +695,9 @@ mod proof {
         MemoryEntity,
     };
     use accel_merkle::{
+        empty_chunk,
         memory_chunk_size,
         InstructionMerkle,
-        MemoryChunk as _,
         MerkleConfig,
         MerkleHasher,
         ProveData,
@@ -921,7 +921,7 @@ mod proof {
                     let memory_merkle = &params.default_memory()?.merkle;
                     let is_store = Self::is_store_inst(inst);
                     let mut idx = self.get_memory_index(offset, is_store);
-                    idx /= Config::MemoryChunk::LENGTH;
+                    idx /= memory_chunk_size::<Config>();
                     let memory = cache.default_memory(ctx.as_context());
                     let memory = ctx.as_context().store.resolve_memory(memory);
                     let chunk = Self::get_memory_leaf::<Config>(memory, idx);
@@ -1101,7 +1101,7 @@ mod proof {
             memory: &MemoryEntity,
             leaf_idx: usize,
         ) -> Config::MemoryChunk {
-            let mut buf: Config::MemoryChunk = Config::MemoryChunk::ZERO;
+            let mut buf = empty_chunk::<Config>();
             let idx = match leaf_idx.checked_mul(memory_chunk_size::<Config>()) {
                 Some(x) if x < memory.data().len() => x,
                 _ => return buf,

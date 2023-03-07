@@ -1,67 +1,14 @@
-use core::{fmt::Debug, marker::PhantomData};
+use core::fmt::Debug;
 
 use codec::{Codec, Encode};
 
+/// The total config for merkle tree details.
 pub trait MerkleConfig: Clone + Debug + PartialEq + Eq {
     /// The hasher for memory chunk.
     type Hasher: MerkleHasher;
 
-    /// The unit of handling memory bytes.
+    /// The unit of handling wasm memory bytes.
     type MemoryChunk: MemoryChunk;
-}
-
-/// Return the memory chunk size config.
-pub const fn memory_chunk_size<T: MerkleConfig>() -> usize {
-    T::MemoryChunk::LENGTH
-}
-
-/// Return the number of layers in the memory merkle tree.
-/// 1 + log2(2^32 / MEMORY_CHUNK_SIZE) = 1 + 32 - log2(MEMORY_CHUNK_SIZE)))
-pub const fn memory_merkle_depth<T: MerkleConfig>() -> usize {
-    32 + 1 - T::MemoryChunk::LENGTH.ilog2() as usize
-}
-
-pub type MemoryChunkOf<T> = <T as MerkleConfig>::MemoryChunk;
-pub type HasherOf<T> = <T as MerkleConfig>::Hasher;
-pub type OutputOf<T> = <<T as MerkleConfig>::Hasher as MerkleHasher>::Output;
-
-/// The unit of handling memory bytes.
-pub trait MemoryChunk:
-    core::hash::Hash
-    + Codec
-    + Debug
-    + Clone
-    + PartialEq
-    + Eq
-    + AsRef<[u8]>
-    + AsMut<[u8]>
-    + Send
-    + Sync
-    + Sized
-{
-    /// The length of output hash bytes.
-    const LENGTH: usize;
-    /// The default zero of hash output.
-    const ZERO: Self;
-}
-
-impl MemoryChunk for [u8; 32] {
-    const LENGTH: usize = 32;
-    const ZERO: Self = [0; 32];
-}
-
-impl MemoryChunk for [u8; 64] {
-    const LENGTH: usize = 64;
-    const ZERO: Self = [0; 64];
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DefaultMemoryConfig<Hasher>(PhantomData<Hasher>);
-
-impl<Hasher: MerkleHasher> MerkleConfig for DefaultMemoryConfig<Hasher> {
-    type Hasher = Hasher;
-
-    type MemoryChunk = [u8; 32];
 }
 
 /// The Hasher type used in merkle proof.
@@ -77,21 +24,35 @@ pub trait MerkleHasher: Send + Sync + Clone + Debug + PartialEq + Eq {
         Encode::using_encoded(s, Self::hash)
     }
 
-    /// Creates parent hash by two child hash.
+    /// Creates parent hash output by hashing two child output.
     fn hash_node(a: &Self::Output, b: &Self::Output) -> Self::Output;
 }
 
-// TODO: remove
-pub trait MemoryMerkleTrait<Hasher: MerkleHasher>: Debug {
-    /// The unit of handling memory bytes.
-    const MEMORY_CHUNK_SIZE: usize;
-
-    /// The number of layers in the memory merkle tree.
-    const MEMORY_LAYERS: usize;
+/// Return the memory chunk size config.
+pub const fn memory_chunk_size<T: MerkleConfig>() -> usize {
+    <T::MemoryChunk as FixedBytes>::LENGTH
 }
 
-/// The output type of a hashing algorithm.
-pub trait HashOutput:
+/// The default memory chunk fulfilled with zero.
+pub const fn empty_chunk<T: MerkleConfig>() -> T::MemoryChunk {
+    <T::MemoryChunk as FixedBytes>::ZERO
+}
+
+/// The default hash fulfilled with zero.
+pub const fn empty_hash<T: MerkleHasher>() -> T::Output {
+    <T::Output as FixedBytes>::ZERO
+}
+
+/// Return the number of layers in the memory merkle tree.
+/// 1 + log2(2^32 / memory_chunk_size) = 1 + 32 - log2(memory_chunk_size)))
+pub const fn memory_merkle_depth<T: MerkleConfig>() -> usize {
+    32 + 1 - memory_chunk_size::<T>().ilog2() as usize
+}
+
+pub type OutputOf<T> = <<T as MerkleConfig>::Hasher as MerkleHasher>::Output;
+
+/// The trait defines a zero value and length info for a fixed bytes.
+pub trait FixedBytes:
     core::hash::Hash
     + Codec
     + Debug
@@ -104,9 +65,14 @@ pub trait HashOutput:
     + Sync
     + Sized
 {
-    /// The length of output hash bytes.
+    /// The length of bytes.
     const LENGTH: usize;
-    /// The default zero of hash output.
+
+    /// The default bytes with zero.
+    ///
+    /// # Note
+    ///
+    /// We need this because Default is not implemented for `[u8; N]` where `N` > 32.
     const ZERO: Self;
 
     /// Cast bytes to `Self`.
@@ -117,34 +83,8 @@ pub trait HashOutput:
     fn from_slice(bytes: &[u8]) -> Self;
 }
 
-impl HashOutput for [u8; 32] {
-    const LENGTH: usize = 32;
-    const ZERO: Self = [0; 32];
+/// The unit of handling wasm memory bytes.
+pub trait MemoryChunk: FixedBytes {}
 
-    fn from_slice(bytes: &[u8]) -> Self {
-        match bytes.try_into() {
-            Ok(array) => array,
-            Err(_) => panic!(
-                "Expected a slice of length {} but it was {}",
-                <Self as HashOutput>::LENGTH,
-                bytes.len()
-            ),
-        }
-    }
-}
-
-impl HashOutput for [u8; 64] {
-    const LENGTH: usize = 64;
-    const ZERO: Self = [0; 64];
-
-    fn from_slice(bytes: &[u8]) -> Self {
-        match bytes.try_into() {
-            Ok(array) => array,
-            Err(_) => panic!(
-                "Expected a slice of length {} but it was {}",
-                <Self as HashOutput>::LENGTH,
-                bytes.len()
-            ),
-        }
-    }
-}
+/// The output type of a hashing algorithm.
+pub trait HashOutput: FixedBytes {}

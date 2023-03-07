@@ -2,7 +2,7 @@ use crate::engine::{
     bytecode::{BranchParams, Instruction, LocalDepth},
     DropKeep,
 };
-use accel_merkle::{HashOutput, InstructionMerkle, MerkleHasher};
+use accel_merkle::{empty_hash, InstructionMerkle, MerkleHasher};
 use codec::{Decode, Encode, Error, Input, Output};
 use wasmi_core::UntypedValue;
 
@@ -10,7 +10,7 @@ use wasmi_core::UntypedValue;
 
 /// Generate a merkle for instructions.
 pub fn code_merkle<Hasher: MerkleHasher>(insts: &[Instruction]) -> InstructionMerkle<Hasher> {
-    InstructionMerkle::with_iter(insts.iter().map(Instruction::hash))
+    InstructionMerkle::with_iter(insts.iter().map(Instruction::hash::<Hasher>))
 }
 
 impl Decode for Instruction {
@@ -436,12 +436,13 @@ impl Instruction {
     /// # Panic
     ///
     /// If the Hash length is less than the length of encoded instruction.
-    pub fn hash<T: HashOutput>(&self) -> T {
+    pub fn hash<T: MerkleHasher>(&self) -> T::Output {
         // Variable length encoding according to the concrete instruction.
         let bytes = self.encode();
-        let mut b = vec![0u8; T::LENGTH];
-        b[..bytes.len()].copy_from_slice(&bytes);
-        T::from_slice(&b)
+        let mut output: T::Output = empty_hash::<T>();
+        output.as_mut()[..bytes.len()].copy_from_slice(&bytes);
+
+        output
     }
 
     /// Returns the opcode of current instruction.

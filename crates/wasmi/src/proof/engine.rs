@@ -5,9 +5,9 @@ use codec::{Codec, Decode, Encode};
 
 use accel_merkle::{
     compute_root,
+    empty_hash,
     memory_chunk_size,
     HashOutput,
-    MemoryChunk as MemoryChunkT,
     MerkleConfig,
     MerkleHasher,
     OutputOf,
@@ -484,7 +484,7 @@ where
 
     /// Compute root according to memory address.
     pub fn compute_root(&self, address: usize) -> OutputOf<Config> {
-        let index = address / Config::MemoryChunk::LENGTH;
+        let index = address / memory_chunk_size::<Config>();
 
         let parent_hash =
             Config::Hasher::hash_node(&self.chunks.hash_leaf(), &self.chunks.hash_next_leaf());
@@ -627,7 +627,7 @@ impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
     pub fn make(snapshot: &ValueStackSnapshot, keep_len: usize) -> Self {
         let len = snapshot.entries.len().saturating_sub(keep_len);
         let (bottoms, tops) = snapshot.entries.split_at(len);
-        let bottom_hash = hash_value_stack::<Hasher>(bottoms, <Hasher::Output as HashOutput>::ZERO);
+        let bottom_hash = hash_value_stack::<Hasher>(bottoms, empty_hash::<Hasher>());
         let entries = tops.to_vec();
 
         Self(StackProof::<_, Hasher::Output>::new(entries, bottom_hash))
@@ -873,7 +873,7 @@ impl<Hasher: MerkleHasher> CallStackProof<Hasher> {
     pub fn make(snapshot: &CallStackSnapshot, keep_len: usize, recursion_depth: u32) -> Self {
         let len = snapshot.frames.len().saturating_sub(keep_len);
         let (bottoms, tops) = snapshot.frames.split_at(len);
-        let bottom_hash = hash_call_stack::<Hasher>(bottoms, <Hasher::Output as HashOutput>::ZERO);
+        let bottom_hash = hash_call_stack::<Hasher>(bottoms, empty_hash::<Hasher>());
         let entries = tops.to_vec();
 
         Self {
@@ -908,7 +908,7 @@ impl<Hasher: MerkleHasher> CallStackProof<Hasher> {
 mod tests {
     use super::*;
     use crate::proof::hash_memory_leaf;
-    use accel_merkle::{MemoryMerkle, MerkleKeccak256};
+    use accel_merkle::{empty_chunk, MemoryMerkle, MerkleKeccak256};
 
     #[test]
     fn test_value_stack_proof() {
@@ -951,7 +951,7 @@ mod tests {
     }
 
     fn new_chunk<Config: MerkleConfig>(val: usize) -> Config::MemoryChunk {
-        let mut chunk: Config::MemoryChunk = Config::MemoryChunk::ZERO;
+        let mut chunk: Config::MemoryChunk = empty_chunk::<Config>();
         let bytes = val.to_le_bytes().to_vec();
         chunk.as_mut()[..bytes.len()].copy_from_slice(&bytes);
 
@@ -970,7 +970,7 @@ mod tests {
 
         let merkle = MemoryMerkle::<Config>::new_advanced(
             leaf_hashes,
-            hash_memory_leaf::<Config::Hasher>(Config::MemoryChunk::ZERO.as_ref()),
+            hash_memory_leaf::<Config::Hasher>(empty_chunk::<Config>().as_ref()),
             min_depth,
         );
 

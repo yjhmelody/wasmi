@@ -6,7 +6,7 @@ use core::{
 
 use codec::{Decode, Encode};
 
-use crate::{HashOutput, MerkleConfig, MerkleHasher};
+use crate::{empty_hash, MerkleConfig, MerkleHasher};
 
 // TODO: move to other place
 #[derive(Debug)]
@@ -98,14 +98,8 @@ pub struct Merkle<T, Hasher: MerkleHasher> {
     /// Keep the empty hash value of different layer.
     empty_layers: Vec<Hasher::Output>,
     /// The merkle tree kind.
-    _kind: core::marker::PhantomData<T>,
+    _kind: PhantomData<T>,
 }
-
-// impl<T: MemoryMerkleTrait<Hasher>, Hasher: MerkleHasher> Merkle<T, Hasher> {
-//     pub fn new_memory_merkle(hashes: Vec<Hasher::Output>) -> Self {
-//         Self::new_advanced(hashes, <Hasher::Output as HashOutput>::ZERO, 0)
-//     }
-// }
 
 impl<T, Hasher: MerkleHasher> Merkle<T, Hasher> {
     /// Creates a merkle tree according to hashes.
@@ -114,7 +108,7 @@ impl<T, Hasher: MerkleHasher> Merkle<T, Hasher> {
     ///
     /// Panic if hashes is empty.
     pub fn new(hashes: Vec<Hasher::Output>) -> Self {
-        Self::new_advanced(hashes, <Hasher::Output as HashOutput>::ZERO, 0)
+        Self::new_advanced(hashes, empty_hash::<Hasher>(), 0)
     }
 
     /// Creates a merkle tree according to hashes iter.
@@ -173,7 +167,7 @@ impl<T, Hasher: MerkleHasher> Merkle<T, Hasher> {
             assert_eq!(layer.len(), 1);
             layer[0].clone()
         } else {
-            <Hasher::Output as HashOutput>::ZERO
+            empty_hash::<Hasher>()
         }
     }
 

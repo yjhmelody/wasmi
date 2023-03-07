@@ -4,10 +4,10 @@ use crate::{
     GlobalEntity,
 };
 use accel_merkle::{
+    empty_chunk,
     memory_chunk_size,
     memory_merkle_depth,
     GlobalMerkle,
-    MemoryChunk,
     MemoryMerkle,
     MerkleConfig,
     MerkleHasher,
@@ -155,14 +155,14 @@ impl MemorySnapshot {
             memory_chunk_size::<Config>(),
         ));
 
-        let empty_leaf: Config::MemoryChunk = Config::MemoryChunk::ZERO;
+        let empty_leaf = empty_chunk::<Config>();
         let empty_hash = hash_memory_leaf::<Config::Hasher>(empty_leaf.as_ref());
 
         let mut leaf_hashes: Vec<OutputOf<Config>> = self
             .bytes
             .chunks(memory_chunk_size::<Config>())
             .map(|leaf| {
-                let mut full_leaf: Config::MemoryChunk = Config::MemoryChunk::ZERO;
+                let mut full_leaf = empty_chunk::<Config>();
                 let full_leaf_mut = full_leaf.as_mut();
                 full_leaf_mut[..leaf.len()].copy_from_slice(leaf);
                 hash_memory_leaf::<Config::Hasher>(full_leaf.as_ref())

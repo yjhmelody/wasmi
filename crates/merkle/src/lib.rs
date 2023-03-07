@@ -7,12 +7,11 @@ extern crate alloc;
 extern crate std as alloc;
 
 mod hasher;
+mod impls;
 mod merkle;
 mod traits;
 
-pub use hasher::*;
-pub use merkle::*;
-pub use traits::*;
+pub use self::{hasher::*, impls::*, merkle::*, traits::*};
 
 pub use digest;
 pub use sha3;
