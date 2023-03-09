@@ -43,8 +43,12 @@ pub const fn empty_hash<T: MerkleHasher>() -> T::Output {
     <T::Output as FixedBytes>::ZERO
 }
 
-/// Return the number of layers in the memory merkle tree.
+/// Return the max depth of memory merkle tree.
 /// 1 + log2(2^32 / memory_chunk_size) = 1 + 32 - log2(memory_chunk_size)))
+///
+/// # Note
+///
+/// When a memory max memory is set in wasm code, it will be smaller depth than this in actually.
 pub const fn memory_merkle_depth<T: MerkleConfig>() -> usize {
     32 + 1 - memory_chunk_size::<T>().ilog2() as usize
 }

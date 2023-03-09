@@ -74,10 +74,44 @@ impl FixedBytes for [u8; 256] {
     }
 }
 
+impl FixedBytes for [u8; 512] {
+    const LENGTH: usize = 512;
+    const ZERO: Self = [0; 512];
+
+    fn from_slice(bytes: &[u8]) -> Self {
+        match bytes.try_into() {
+            Ok(array) => array,
+            Err(_) => panic!(
+                "Expected a slice of length {} but it was {}",
+                <Self as FixedBytes>::LENGTH,
+                bytes.len()
+            ),
+        }
+    }
+}
+
+impl FixedBytes for [u8; 1024] {
+    const LENGTH: usize = 1024;
+    const ZERO: Self = [0; 1024];
+
+    fn from_slice(bytes: &[u8]) -> Self {
+        match bytes.try_into() {
+            Ok(array) => array,
+            Err(_) => panic!(
+                "Expected a slice of length {} but it was {}",
+                <Self as FixedBytes>::LENGTH,
+                bytes.len()
+            ),
+        }
+    }
+}
+
 impl MemoryChunk for [u8; 32] {}
 impl MemoryChunk for [u8; 64] {}
 impl MemoryChunk for [u8; 128] {}
 impl MemoryChunk for [u8; 256] {}
+impl MemoryChunk for [u8; 512] {}
+impl MemoryChunk for [u8; 1024] {}
 
 impl HashOutput for [u8; 32] {}
 impl HashOutput for [u8; 64] {}
