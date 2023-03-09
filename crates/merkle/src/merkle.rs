@@ -30,7 +30,7 @@ pub type InstructionMerkle<Hasher> = Merkle<InstructionType, Hasher>;
 pub struct FuncType;
 pub type FuncMerkle<Hasher> = Merkle<FuncType, Hasher>;
 
-/// The struct contains a merkle proof for a leaf.
+/// The struct contains a merkle proof path for a leaf node.
 #[derive(Eq, PartialEq, Encode, Decode)]
 pub struct ProveData<T: MerkleHasher>(Vec<T::Output>);
 
@@ -63,7 +63,7 @@ impl<T: MerkleHasher> ProveData<T> {
         self.0
     }
 
-    /// Compute the merkle root according to proof.
+    /// Compute the merkle root according to leaf and index.
     pub fn compute_root(&self, index: usize, leaf_hash: T::Output) -> T::Output {
         compute_root::<T>(self.inner(), index, leaf_hash)
     }
@@ -121,10 +121,16 @@ impl<T, Hasher: MerkleHasher> Merkle<T, Hasher> {
         Self::new(hashes)
     }
 
-    /// Clear all state inside `Merkle` for reusing this type.
-    pub fn clear(&mut self) {
-        self.layers.truncate(0);
-        self.empty_layers.truncate(0);
+    /// Clear all inner state of `Merkle` for reusing this type.
+    pub fn clear<U>(mut self) -> Merkle<U, Hasher> {
+        self.layers.clear();
+        self.empty_layers.clear();
+
+        Merkle {
+            layers: self.layers,
+            empty_layers: self.empty_layers,
+            _kind: PhantomData,
+        }
     }
 
     /// Creates a merkle tree according to hashes.

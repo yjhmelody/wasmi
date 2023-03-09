@@ -73,7 +73,7 @@ fn assert_func_body<E>(
 ///
 /// If any of the yielded functions consists of instruction different from the
 /// expected instructions for that function.
-fn assert_func_bodies<E, T>(wasm_bytes: impl AsRef<[u8]>, expected: E)
+fn assert_func_bodies<E, T>(wasm_bytes: &impl AsRef<[u8]>, expected: E)
 where
     E: IntoIterator<Item = T>,
     T: IntoIterator<Item = Instruction>,
