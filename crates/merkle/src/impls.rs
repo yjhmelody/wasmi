@@ -2,13 +2,14 @@ use core::{fmt::Debug, marker::PhantomData};
 
 use crate::{FixedBytes, HashOutput, MemoryChunk, MerkleConfig, MerkleHasher};
 
+/// The default recommend config about memory chunk size.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DefaultMemoryConfig<Hasher>(PhantomData<Hasher>);
 
 impl<Hasher: MerkleHasher> MerkleConfig for DefaultMemoryConfig<Hasher> {
     type Hasher = Hasher;
 
-    type MemoryChunk = [u8; 32];
+    type MemoryChunk = [u8; 64];
 }
 
 impl FixedBytes for [u8; 32] {
