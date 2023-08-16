@@ -986,8 +986,8 @@ mod proof {
                 }
                 Instruction::MemoryGrow | Instruction::MemorySize => {
                     // Wasm module must import memory when meet these instruction.
-                    let page = params.default_memory()?.page.clone();
-                    ExtraProof::MemoryPage(page)
+                    let page = params.default_memory()?.page.current_pages;
+                    ExtraProof::CurrentPage(page)
                 }
                 _ => ExtraProof::Empty,
             };

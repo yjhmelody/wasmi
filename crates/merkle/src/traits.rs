@@ -53,6 +53,7 @@ pub const fn memory_merkle_depth<T: MerkleConfig>() -> usize {
     32 + 1 - memory_chunk_size::<T>().ilog2() as usize
 }
 
+/// The output type of Hasher.
 pub type OutputOf<T> = <<T as MerkleConfig>::Hasher as MerkleHasher>::Output;
 
 /// The trait defines a zero value and length info for a fixed bytes.

@@ -23,8 +23,11 @@ use crate::{
     snapshot::FuncFrameSnapshot,
 };
 
+/// As mandated by the WebAssembly specification every linear memory page
+/// has exactly 2^16 (65536) bytes.
 pub const MAX_PAGE_SIZE: u32 = 65536;
 
+/// The result type of [`ExecError`].
 pub type Result<T> = result::Result<T, ExecError>;
 
 /// All execution error means this prove data is invalid.
@@ -38,7 +41,6 @@ pub enum ExecError {
     FuncRootNotMatch,
     GlobalsRootNotMatch,
     DefaultTableNotFound,
-    TableRootsNotMatch,
     MemoryRootNotMatch,
     MemoryRootsNotExist,
     EmptyValueStack,
@@ -47,10 +49,8 @@ pub enum ExecError {
     BranchToIllegalPc,
     IllegalInstruction,
     IllegalExtraProof,
-    IllegalNewMemoryRoot,
     IllegalMemoryTwoChunks,
     IllegalMemoryChunk,
-    CallStackOverflow,
 }
 
 #[cfg(feature = "std")]
@@ -63,7 +63,6 @@ impl fmt::Display for ExecError {
             ExecError::GlobalsRootNotExist => write!(f, "globals root not exist"),
             ExecError::FuncRootNotMatch => write!(f, "func root not match"),
             ExecError::GlobalsRootNotMatch => write!(f, "globals root not match"),
-            ExecError::TableRootsNotMatch => write!(f, "table roots not match"),
             ExecError::MemoryRootNotMatch => write!(f, "memory root not match"),
             ExecError::MemoryRootsNotExist => write!(f, "memory roots not match"),
             ExecError::EmptyValueStack => write!(f, "value stack is empty"),
@@ -74,12 +73,10 @@ impl fmt::Display for ExecError {
             ExecError::BranchToIllegalPc => write!(f, "jump to an illegal pc"),
             ExecError::IllegalInstruction => write!(f, "meet illegal instruction"),
             ExecError::IllegalExtraProof => write!(f, "the extra proof is illegal"),
-            ExecError::CallStackOverflow => write!(f, "call stack overflow"),
             ExecError::IllegalMemoryChunk => write!(f, "memory chunk extra proof is illegal"),
             ExecError::IllegalMemoryTwoChunks => {
                 write!(f, "memory two chunks extra proof is illegal")
             }
-            ExecError::IllegalNewMemoryRoot => write!(f, "could not generate new memory root"),
             ExecError::DefaultTableNotFound => {
                 write!(f, "default table not exist(for call_indirect)")
             }
@@ -418,9 +415,7 @@ impl<'a, Config: MerkleConfig> OspExecutor<'a, Config> {
         let func_index = func_index.into_inner();
         let pc = self.pc();
         // push current frame pc
-        self.call_stack
-            .push(FuncFrameSnapshot::from(pc + 1))
-            .ok_or(ExecError::CallStackOverflow)?;
+        self.call_stack.push(FuncFrameSnapshot::from(pc + 1));
 
         match &self.extra {
             ExtraProof::CallWasm(proof) => {
@@ -440,9 +435,7 @@ impl<'a, Config: MerkleConfig> OspExecutor<'a, Config> {
         let func_index = self.pop_value_stack_as::<u32>()?;
         let pc = self.pc();
         // push current frame pc
-        self.call_stack
-            .push(FuncFrameSnapshot::from(pc + 1))
-            .ok_or(ExecError::CallStackOverflow)?;
+        self.call_stack.push(FuncFrameSnapshot::from(pc + 1));
 
         match &self.extra {
             ExtraProof::CallIndirectWasm(proof) => {
@@ -978,7 +971,7 @@ impl<'a, Config: MerkleConfig> OspExecutor<'a, Config> {
 
     fn visit_current_memory(&mut self) -> Result<()> {
         let val = match &self.extra {
-            ExtraProof::MemoryPage(page) => page.current_pages,
+            ExtraProof::CurrentPage(page) => *page,
             _ => return Err(ExecError::IllegalExtraProof),
         };
         self.value_stack.push(val);
@@ -992,18 +985,10 @@ impl<'a, Config: MerkleConfig> OspExecutor<'a, Config> {
         /// in case of failure for the `memory.grow` instruction.
         const ERR_VALUE: u32 = u32::MAX;
 
-        // TODO: improve soundness.
-        let (current, max) = match &self.extra {
-            ExtraProof::MemoryPage(page) => (
-                page.current_pages,
-                page.maximum_pages.unwrap_or(MAX_PAGE_SIZE),
-            ),
+        let current = match &self.extra {
+            ExtraProof::CurrentPage(page) => *page,
             _ => return Err(ExecError::IllegalExtraProof),
         };
-
-        if max > MAX_PAGE_SIZE {
-            return Err(ExecError::IllegalExtraProof);
-        }
 
         let additional = self.pop_value_stack_as()?;
         // return the origin page size if success
@@ -1011,7 +996,7 @@ impl<'a, Config: MerkleConfig> OspExecutor<'a, Config> {
             ERR_VALUE
         } else {
             match current.checked_add(additional) {
-                Some(new) if new <= max => current,
+                Some(new) if new <= MAX_PAGE_SIZE => current,
                 _ => ERR_VALUE,
             }
         };

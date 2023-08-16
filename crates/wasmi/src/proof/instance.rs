@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use crate::{
     proof::MemoryPage,
     snapshot::{InstanceSnapshot, MemorySnapshot, TableElementSnapshot, TableSnapshot},
@@ -14,7 +16,6 @@ use accel_merkle::{
     OutputOf,
     TableMerkle,
 };
-use alloc::vec::Vec;
 use wasmi_core::UntypedValue;
 
 /// All proof data for an instance at a checkpoint.
@@ -33,8 +34,9 @@ pub struct MemoryProof<Config>
 where
     Config: MerkleConfig,
 {
-    // TODO:
+    /// The page size of the `Memory`.
     pub page: MemoryPage,
+    /// The merkle tree of `Memory`.
     pub merkle: MemoryMerkle<Config>,
 }
 
@@ -43,8 +45,11 @@ pub struct TableProof<Hasher>
 where
     Hasher: MerkleHasher,
 {
+    /// The initial size of the `Table`.
     pub initial: u32,
+    /// The optional maximum size fo the `Table`.
     pub maximum: Option<u32>,
+    /// The merkle tree of `Table`.
     pub merkle: TableMerkle<Hasher>,
 }
 
@@ -61,11 +66,6 @@ where
         }
     }
 }
-
-// /// hash the memory bytes.
-// pub fn hash_memory_leaf<T: MemoryMerkleConfig>(bytes: [u8; T::MEMORY_CHUNK_SIZE]) -> <T::Hasher as MerkleHasher>::Output {
-//     <T::Hasher as MerkleHasher>::hash(&bytes)
-// }
 
 /// hash the memory bytes.
 pub fn hash_memory_leaf<Hasher: MerkleHasher>(bytes: &[u8]) -> Hasher::Output {

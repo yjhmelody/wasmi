@@ -72,6 +72,7 @@ impl<Config: MerkleConfig> OspProof<Config> {
     }
 }
 
+/// The roots of different wasm part.
 #[derive(Encode)]
 struct OspProofRoots<'a, T: MerkleHasher> {
     globals_root: &'a Option<T::Output>,

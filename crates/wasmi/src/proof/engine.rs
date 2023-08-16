@@ -63,8 +63,7 @@ impl<Hasher: MerkleHasher> EngineProof<Hasher> {
             _ => 3,
         };
         let value_stack = ValueStackProof::make(&snapshot.values, remain_size);
-        let call_stack =
-            CallStackProof::make(&snapshot.frames, 1, snapshot.config.maximum_recursion_depth);
+        let call_stack = CallStackProof::make(&snapshot.frames, 1);
         Self {
             value_stack,
             call_stack,
@@ -106,11 +105,10 @@ pub enum ExtraProof<Config: MerkleConfig> {
     CallWasm(CallProof<Config::Hasher>),
     /// Proof data for `call_indirect`.
     CallIndirectWasm(CallProof<Config::Hasher>),
-    /// Proof data for memory.page.
-    MemoryPage(MemoryPage),
+    /// The current page.
+    CurrentPage(u32),
     /// Proof data for some memory instructions.
     MemoryTwoChunks(MemoryTwoChunks<Config>),
-    // MemoryChunkNeighbor(MemoryChunkNeighbor<Hasher>),
     /// Proof data for some memory instructions.
     MemoryChunkSibling(MemoryChunkSibling<Config>),
     /// Proof data for some memory instructions that will only access to one memory chunk.
@@ -846,10 +844,6 @@ impl<Hasher: MerkleHasher> ValueStackProof<Hasher> {
 // TODO: redesign some config
 #[derive(Encode, Decode, Clone, Eq, PartialEq)]
 pub struct CallStackProof<Hasher: MerkleHasher> {
-    /// The maximum number of nested calls that the Wasm stack allows.
-    recursion_depth: u32,
-    /// The remaining depth of call stack excepting entries in `stack`.
-    remaining_depth: u32,
     /// The underline stack.
     stack: StackProof<FuncFrameSnapshot, Hasher::Output>,
 }
@@ -870,15 +864,13 @@ impl<Hasher: MerkleHasher> CallStackProof<Hasher> {
     ///
     /// - If keep_len is great than stack size, the top N will be top 0.
     /// - In our case, we only need the top 1 value to be kept.
-    pub fn make(snapshot: &CallStackSnapshot, keep_len: usize, recursion_depth: u32) -> Self {
+    pub fn make(snapshot: &CallStackSnapshot, keep_len: usize) -> Self {
         let len = snapshot.frames.len().saturating_sub(keep_len);
         let (bottoms, tops) = snapshot.frames.split_at(len);
         let bottom_hash = hash_call_stack::<Hasher>(bottoms, empty_hash::<Hasher>());
         let entries = tops.to_vec();
 
         Self {
-            recursion_depth,
-            remaining_depth: len as u32,
             stack: StackProof::<_, Hasher::Output>::new(entries, bottom_hash),
         }
     }
@@ -888,15 +880,8 @@ impl<Hasher: MerkleHasher> CallStackProof<Hasher> {
     }
 
     /// Push a frame to call stack.
-    ///
-    /// Returns None if stack overflow.
-    pub fn push(&mut self, val: FuncFrameSnapshot) -> Option<()> {
-        let cur_depth = (self.stack.entries.len() as u32).checked_add(self.remaining_depth)?;
-        if self.recursion_depth == cur_depth {
-            return None;
-        }
+    pub fn push(&mut self, val: FuncFrameSnapshot) {
         self.stack.push(val);
-        Some(())
     }
 
     pub fn pop(&mut self) -> Option<FuncFrameSnapshot> {
@@ -933,7 +918,6 @@ mod tests {
 
     #[test]
     fn test_call_stack_proof() {
-        let recursion_depth = 255;
         let snapshot = CallStackSnapshot {
             frames: vec![
                 FuncFrameSnapshot::from(1u32),
@@ -943,8 +927,8 @@ mod tests {
         };
 
         for i in 1..snapshot.frames.len() - 1 {
-            let a = CallStackProof::<MerkleKeccak256>::make(&snapshot, i, recursion_depth);
-            let b = CallStackProof::<MerkleKeccak256>::make(&snapshot, i + 1, recursion_depth);
+            let a = CallStackProof::<MerkleKeccak256>::make(&snapshot, i);
+            let b = CallStackProof::<MerkleKeccak256>::make(&snapshot, i + 1);
 
             assert_eq!(a.hash(), b.hash(), "call stack finally hash must be equal")
         }
