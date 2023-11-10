@@ -242,20 +242,6 @@ mod step {
     use super::*;
     use crate::engine::StepResult;
 
-    // /// The param for step version wasm call.
-    // #[derive(Debug, Clone, Eq, PartialEq)]
-    // pub struct StepCallParam<'a> {
-    //     pub step: Option<&'a mut u64>,
-    // }
-    //
-    // impl<'a> Default for StepCallParam<'a> {
-    //     fn default() -> Self {
-    //         Self {
-    //             step: None,
-    //         }
-    //     }
-    // }
-
     impl Func {
         /// An variant method of [`Func::call`].
         ///
@@ -300,7 +286,7 @@ mod step {
                 .execute_func_step(ctx.as_context_mut(), *self, inputs, outputs, step)?;
             Ok(match res {
                 StepResult::Results(_r) => StepResult::Results(()),
-                StepResult::RunOutOfStep(pc) => StepResult::RunOutOfStep(pc),
+                StepResult::RunOutOfStep => StepResult::RunOutOfStep,
             })
         }
     }

@@ -136,7 +136,20 @@ impl Engine {
     /// Clear the engine stack.
     pub fn clear(&self) {
         let mut engine = self.inner.lock();
+        engine.current_pc.take();
         engine.stack.clear();
+    }
+
+    /// Return the current pc if current call execution is not finished.
+    pub fn current_pc(&self) -> Option<usize> {
+        let engine = self.inner.lock();
+        engine.current_pc
+    }
+
+    /// Return the current instruction if current call execution is not finished.
+    pub fn current_inst(&self) -> Option<InstructionPtr> {
+        let engine = self.inner.lock();
+        engine.current_pc.map(|pc| engine.code_map.get_inst(pc))
     }
 
     /// Returns a shared reference to the [`Config`] of the [`Engine`].
@@ -240,6 +253,7 @@ pub struct EngineInner {
     config: Config,
     /// The value and call stacks.
     stack: Stack,
+    current_pc: Option<usize>,
     /// Stores all Wasm function bodies that the interpreter is aware of.
     code_map: CodeMap,
     /// Deduplicated function types.
@@ -289,6 +303,7 @@ mod snapshot {
                 },
                 values: ValueStackSnapshot { entries },
                 frames: CallStackSnapshot { frames },
+                current_pc: self.current_pc.map(|pc| pc as u32),
             }
         }
 
@@ -323,9 +338,10 @@ mod snapshot {
             for frame_snapshot in snapshot.frames.frames.iter() {
                 let ip = self.code_map.get_inst(frame_snapshot.pc as usize);
                 let frame = FuncFrame::new(ip, instance);
-                frames.push_frame(frame)?
+                frames.push(frame)?
             }
             self.stack.frames = frames;
+            self.current_pc = snapshot.current_pc.map(|pc| pc as usize);
 
             Ok(())
         }
@@ -350,8 +366,8 @@ mod step {
     pub enum StepResult<Results> {
         /// The results of step call.
         Results(Results),
-        /// engine stopped at current pc.
-        RunOutOfStep(u32),
+        /// Engine run out of step.
+        RunOutOfStep,
     }
 
     impl Engine {
@@ -384,21 +400,15 @@ mod step {
                 .execute_func_step(ctx, func, params, results, step)
         }
 
-        /// Executes the code start from a pc.
+        /// Resume to executes the code stopped at the last pc.
         /// But do not care about the return values in stack.
-        ///
-        /// # Note
-        ///
-        /// User must know the wasm state is stopped at current pc before.
-        /// Otherwise it will run a bad program instruction.
         ///
         /// # Errors
         ///
         /// Same with [`Engine::execute_func_step`].
-        pub fn execute_step_at_pc(
+        pub fn resume_execute_step(
             &self,
             ctx: impl AsContextMut,
-            pc: usize,
             instance: Instance,
             step: Option<&mut u64>,
         ) -> Result<StepResult<()>, Trap> {
@@ -409,23 +419,17 @@ mod step {
                 fn call_results(self, _results: &[UntypedValue]) -> Self::Results {}
             }
 
-            self.execute_step_at_pc_with_result(ctx, pc, instance, IgnoreResult, step)
+            self.resume_execute_step_with_result(ctx, instance, IgnoreResult, step)
         }
 
-        /// Executes the code start from a pc.
-        ///
-        /// # Note
-        ///
-        /// User must know the wasm state is stopped at current pc before.
-        /// Otherwise it will run a bad program instruction.
+        /// Resume to executes the code stopped at the last pc.
         ///
         /// # Errors
         ///
         /// Same with [`Engine::execute_func_step`].
-        pub fn execute_step_at_pc_with_result<Results>(
+        pub fn resume_execute_step_with_result<Results>(
             &self,
             ctx: impl AsContextMut,
-            pc: usize,
             instance: Instance,
             results: Results,
             step: Option<&mut u64>,
@@ -436,12 +440,12 @@ mod step {
             self.lock_with(|mut engine| {
                 let mut cache = InstanceCache::from(instance);
 
-                let info = engine.execute_step_at_pc(ctx, pc, &mut cache, step)?;
+                let info = engine.resume_execute_step(ctx, &mut cache, step)?;
                 match info {
                     StepResult::Results(()) => Ok(StepResult::Results({
                         results.call_results(engine.stack.values.drain())
                     })),
-                    StepResult::RunOutOfStep(pc) => Ok(StepResult::RunOutOfStep(pc)),
+                    StepResult::RunOutOfStep => Ok(StepResult::RunOutOfStep),
                 }
             })
         }
@@ -530,7 +534,8 @@ mod step {
                     Ok(StepCallOutcome::RunOutOfStep(ptr)) => {
                         let ip = InstructionPtr::with_ptr(ptr);
                         let pc = self.code_map.get_offset(ip);
-                        return Ok(StepResult::RunOutOfStep(pc as u32));
+                        self.current_pc = Some(pc);
+                        return Ok(StepResult::RunOutOfStep);
                     }
                     Err(trap) => return Err(trap.into()),
                 }
@@ -559,23 +564,22 @@ mod step {
 
             self.execute_wasm_func_step(ctx, frame, cache, n)
         }
-        /// Execute code started from an instruction position.
+
+        /// Resume to executes the code stopped at the last pc.
         ///
         /// # Note
         ///
-        /// The pc must be legal.
-        ///
-        /// It execute code without preparing function frame env.
-        ///
-        /// Caller should prepare the env.
+        /// It execute code without preparing function frame env, so caller should prepare the env.
         #[inline]
-        pub fn execute_step_at_pc(
+        pub fn resume_execute_step(
             &mut self,
             ctx: impl AsContextMut,
-            pc: usize,
             cache: &mut InstanceCache,
             n: Option<&mut u64>,
         ) -> Result<StepResult<()>, Trap> {
+            let pc = self
+                .current_pc
+                .expect("`Resume execute API` must be called after running");
             let ip = self.code_map.get_inst(pc);
             self.execute_instruction_step(ctx, ip, cache, n)
         }
@@ -648,7 +652,7 @@ mod step {
                     )?;
                     match info {
                         StepResult::Results(()) => {}
-                        StepResult::RunOutOfStep(pc) => return Ok(StepResult::RunOutOfStep(pc)),
+                        StepResult::RunOutOfStep => return Ok(StepResult::RunOutOfStep),
                     }
                     signature
                 }
@@ -666,7 +670,7 @@ mod step {
     }
 }
 
-use crate::func::FuncEntityInternal;
+use crate::{engine::code_map::InstructionPtr, func::FuncEntityInternal};
 pub use proof::{InstProofParams, ProofError};
 
 mod proof {
@@ -773,11 +777,11 @@ mod proof {
         pub fn make_inst_proof<Config: MerkleConfig>(
             &self,
             ctx: impl AsContext,
-            params: InstProofParams<Config>,
             instance: Instance,
+            params: InstProofParams<Config>,
         ) -> Result<InstructionProof<Config>, ProofError> {
             let engine = self.inner.lock();
-            engine.make_inst_proof(ctx, params, instance)
+            engine.make_inst_proof(ctx, instance, params)
         }
 
         pub(crate) fn make_engine_proof<Hasher: MerkleHasher>(
@@ -795,7 +799,6 @@ mod proof {
     }
 
     pub struct InstProofParams<'a, Config: MerkleConfig> {
-        pub current_pc: u32,
         pub instance_merkle: &'a InstanceMerkle<Config>,
         pub code_merkle: &'a CodeMerkle<Config::Hasher>,
     }
@@ -818,10 +821,8 @@ mod proof {
         }
 
         // we need to generate proof for current instruction.
-        fn get_inst_prove(&self) -> Result<ProveData<Config::Hasher>, ProofError> {
-            self.code_merkle
-                .prove_pc(self.current_pc as usize)
-                .ok_or(ProofError::IllegalPc)
+        fn get_inst_prove(&self, pc: usize) -> Result<ProveData<Config::Hasher>, ProofError> {
+            self.code_merkle.prove_pc(pc).ok_or(ProofError::IllegalPc)
         }
     }
 
@@ -840,15 +841,15 @@ mod proof {
         pub fn make_inst_proof<Config: MerkleConfig>(
             &self,
             ctx: impl AsContext,
-            params: InstProofParams<Config>,
             instance: Instance,
+            params: InstProofParams<Config>,
         ) -> Result<InstructionProof<Config>, ProofError> {
             let mut cache = InstanceCache::from(instance);
-            let current_pc = params.current_pc;
-            let inst_prove = params.get_inst_prove()?;
+            let current_pc = self.current_pc.ok_or(ProofError::IllegalPc)?;
+            let inst_prove = params.get_inst_prove(current_pc)?;
             // TODO: if we could get instruction outside.
             // We could refactor the process by move out code_merkle.
-            let inst = self.code_map.insts[current_pc as usize];
+            let inst = self.code_map.insts[current_pc];
             let extra = match inst {
                 Instruction::Call(func_idx) => {
                     let func_idx = func_idx.into_inner();
@@ -993,7 +994,7 @@ mod proof {
             };
 
             Ok(InstructionProof {
-                current_pc,
+                current_pc: current_pc as u32,
                 inst,
                 inst_prove,
                 extra,
@@ -1123,6 +1124,7 @@ impl EngineInner {
             stack: Stack::new(config.stack_limits()),
             code_map: CodeMap::default(),
             func_types: FuncTypeRegistry::new(engine_idx),
+            current_pc: None,
         }
     }
 

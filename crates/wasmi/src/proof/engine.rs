@@ -198,7 +198,7 @@ pub struct HostFuncHeader {
 pub struct WasmFuncHeader {
     /// The pc that call jump to.
     pub pc: u32,
-    /// The function's signature
+    /// The function's signature.
     pub func_type: FuncType,
     /// The amount of local variable of the function.
     pub len_locals: u32,
@@ -894,6 +894,12 @@ mod tests {
     use super::*;
     use crate::proof::hash_memory_leaf;
     use accel_merkle::{empty_chunk, MemoryMerkle, MerkleKeccak256};
+
+    #[test]
+    fn test_empty_hash() {
+        let empty = empty_hash::<MerkleKeccak256>();
+        assert_eq!(empty, hash_call_stack::<MerkleKeccak256>(&[], empty));
+    }
 
     #[test]
     fn test_value_stack_proof() {

@@ -45,9 +45,9 @@ pub enum VersionedOspProof<Config: MerkleConfig> {
 /// The complete osp proof data to be input to osp executor.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct OspProof<Config: MerkleConfig> {
+    /// Current program status.
+    pub status: Status,
     /// The root of all wasm globals.
-    ///
-    /// Wasm blob maybe not contain global value.
     pub globals_root: Option<OutputOf<Config>>,
     /// The roots of wasm table.
     pub table_roots: Vec<OutputOf<Config>>,
@@ -57,6 +57,14 @@ pub struct OspProof<Config: MerkleConfig> {
     pub engine_proof: EngineProof<Config::Hasher>,
     /// The inst special proof.
     pub inst_proof: InstructionProof<Config>,
+}
+
+/// The status of program.
+#[derive(Encode, Decode, Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Status {
+    Running,
+    Finished,
+    Trapped,
 }
 
 impl<Config: MerkleConfig> OspProof<Config> {

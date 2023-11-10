@@ -14,6 +14,7 @@ pub struct EngineSnapshot {
     pub values: ValueStackSnapshot,
     /// The frame stack.
     pub frames: CallStackSnapshot,
+    pub current_pc: Option<u32>,
 }
 
 /// The configured limits of the engine.

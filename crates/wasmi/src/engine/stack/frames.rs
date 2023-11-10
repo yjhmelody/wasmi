@@ -57,14 +57,6 @@ impl Default for CallStack {
 }
 
 impl CallStack {
-    pub(crate) fn push_frame(&mut self, frame: FuncFrame) -> Result<(), TrapCode> {
-        if self.len() == self.recursion_limit {
-            return Err(err_stack_overflow());
-        }
-        self.frames.push(frame);
-        Ok(())
-    }
-
     pub fn frames(&self) -> &[FuncFrame] {
         &self.frames
     }

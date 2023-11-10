@@ -4,7 +4,7 @@ use accel_merkle::{MerkleConfig, MerkleHasher};
 
 use crate::{
     engine::{InstProofParams, ProofError},
-    proof::{CodeMerkle, InstanceMerkle, InstructionProof, OspProof, VersionedOspProof},
+    proof::{CodeMerkle, InstanceMerkle, InstructionProof, OspProof, Status, VersionedOspProof},
     AsContext,
     Engine,
     Instance,
@@ -65,16 +65,15 @@ impl<'a, T, Config: MerkleConfig> AsContext for OspProofBuilder<'a, T, Config> {
 
 impl<'a, T, Config: MerkleConfig> OspProofBuilder<'a, T, Config> {
     /// Creates the latest version osp proof data.
-    pub fn make_osp_proof(&self, current_pc: u32) -> Result<VersionedOspProof<Config>, ProofError> {
-        self.make_osp_proof_v0(current_pc)
-            .map(VersionedOspProof::V0)
+    pub fn make_osp_proof(&self) -> Result<VersionedOspProof<Config>, ProofError> {
+        self.make_osp_proof_v0().map(VersionedOspProof::V0)
     }
 
-    /// Creates an ops proof according to current pc.
+    /// Creates an osp proof according to current pc.
     #[allow(clippy::redundant_closure_for_method_calls)]
-    pub fn make_osp_proof_v0(&self, current_pc: u32) -> Result<OspProof<Config>, ProofError> {
+    pub fn make_osp_proof_v0(&self) -> Result<OspProof<Config>, ProofError> {
         let instance_merkle = self.make_instance_merkle();
-        let inst_proof = self.make_inst_proof(&instance_merkle, current_pc)?;
+        let inst_proof = self.make_inst_proof(&instance_merkle)?;
         let engine_proof = self
             .engine()
             .make_engine_proof::<Config::Hasher>(inst_proof.inst);
@@ -95,6 +94,8 @@ impl<'a, T, Config: MerkleConfig> OspProofBuilder<'a, T, Config> {
             .collect();
 
         Ok(OspProof::<Config> {
+            // TODO:
+            status: Status::Running,
             globals_root,
             table_roots,
             memory_roots,
@@ -121,18 +122,16 @@ impl<'a, T, Config: MerkleConfig> OspProofBuilder<'a, T, Config> {
     pub fn make_inst_proof(
         &self,
         instance_merkle: &InstanceMerkle<Config>,
-        current_pc: u32,
     ) -> Result<InstructionProof<Config>, ProofError> {
         let code_merkle = &self.code_merkle;
 
         let inst_proof = self.engine().make_inst_proof(
             self.as_context(),
+            self.instance,
             InstProofParams {
-                current_pc,
                 instance_merkle,
                 code_merkle,
             },
-            self.instance,
         )?;
 
         Ok(inst_proof)

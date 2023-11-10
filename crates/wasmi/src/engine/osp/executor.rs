@@ -17,6 +17,7 @@ use crate::{
         ExtraProof,
         FuncNode,
         OspProof,
+        Status,
         ValueStackProof,
         WasmFuncHeader,
     },
@@ -33,10 +34,6 @@ pub type Result<T> = result::Result<T, ExecError>;
 /// All execution error means this prove data is invalid.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecError {
-    /// Current instruction meet trap.
-    ///
-    /// Although it's legal to prove a trap logic but not meaningful for our use case.
-    Trapped,
     GlobalsRootNotExist,
     FuncRootNotMatch,
     GlobalsRootNotMatch,
@@ -59,7 +56,6 @@ impl std::error::Error for ExecError {}
 impl fmt::Display for ExecError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ExecError::Trapped => write!(f, "meet trap"),
             ExecError::GlobalsRootNotExist => write!(f, "globals root not exist"),
             ExecError::FuncRootNotMatch => write!(f, "func root not match"),
             ExecError::GlobalsRootNotMatch => write!(f, "globals root not match"),
@@ -102,6 +98,7 @@ where
             globals_root: &mut self.globals_root,
             table_roots: &self.table_roots,
             memory_roots: &mut self.memory_roots,
+            status: &mut self.status,
 
             current_pc: &mut self.inst_proof.current_pc,
             inst: self.inst_proof.inst,
@@ -127,6 +124,7 @@ pub(crate) struct OspExecutor<'a, Config>
 where
     Config: MerkleConfig,
 {
+    status: &'a mut Status,
     call_stack: &'a mut CallStackProof<Config::Hasher>,
     value_stack: &'a mut ValueStackProof<Config::Hasher>,
 
@@ -348,7 +346,8 @@ impl<'a, Config: MerkleConfig> OspExecutor<'a, Config> {
 
     #[inline]
     fn set_trapped(&mut self) -> Result<()> {
-        Err(ExecError::Trapped)
+        *self.status = Status::Trapped;
+        Ok(())
     }
 
     #[inline]
@@ -511,7 +510,6 @@ impl<'a, Config: MerkleConfig> OspExecutor<'a, Config> {
                 let global = proof.value;
                 let leaf_hash = value_hash::<Config::Hasher>(global);
 
-                // prove old globals root before using global value.
                 let globals_root = proof.prove_data.compute_root(idx, leaf_hash);
                 if globals_root != *cur_globals_root {
                     return Err(ExecError::GlobalsRootNotMatch);
@@ -616,7 +614,7 @@ impl<'a, Config: MerkleConfig> OspExecutor<'a, Config> {
         self.drop_keep(drop_keep)?;
         let frame = self.call_stack.pop();
 
-        // Note: when the last instruction is return type, there is no frame in call stack anymore.
+        // Note: when the last instruction is return opcode, there is no frame in call stack anymore.
         if let Some(frame) = frame {
             self.set_pc(frame.pc);
         }

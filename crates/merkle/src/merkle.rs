@@ -205,6 +205,7 @@ impl<T, Hasher: MerkleHasher> Merkle<T, Hasher> {
             idx >>= 1;
             proof.push(hash);
         }
+        debug_assert!(proof.len() == len - 1);
         Some(ProveData(proof))
     }
 
