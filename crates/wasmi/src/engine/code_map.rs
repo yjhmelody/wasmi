@@ -153,7 +153,7 @@ impl CodeMap {
 }
 
 /// The instruction pointer to the instruction of a function on the call stack.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct InstructionPtr {
     /// The pointer to the instruction.
     ptr: *const Instruction,

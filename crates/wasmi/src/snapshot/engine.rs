@@ -14,6 +14,7 @@ pub struct EngineSnapshot {
     pub values: ValueStackSnapshot,
     /// The frame stack.
     pub frames: CallStackSnapshot,
+    /// The current program counter.
     pub current_pc: Option<u32>,
 }
 

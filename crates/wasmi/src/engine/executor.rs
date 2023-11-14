@@ -65,7 +65,7 @@ mod step {
     pub enum StepCallOutcome {
         CallOutcome(CallOutcome),
         /// Run out of all steps and returns current pc.
-        RunOutOfStep(usize),
+        RunOutOfStep,
     }
 
     impl From<CallOutcome> for StepCallOutcome {
@@ -77,13 +77,11 @@ mod step {
     impl<'ctx, 'engine, 'func, HostData> Executor<'ctx, 'engine, 'func, HostData> {
         /// Executes the function frame until it returns or traps.
         #[inline(always)]
-        pub(crate) fn execute_step(mut self, n: &mut u64) -> Result<StepCallOutcome, TrapCode> {
+        pub(crate) fn execute_step(&mut self, n: &mut u64) -> Result<StepCallOutcome, TrapCode> {
             use Instruction as Instr;
             loop {
                 if *n == 0 {
-                    // Note: it's import to update current stack data.
-                    self.sync_stack_ptr();
-                    return Ok(StepCallOutcome::RunOutOfStep(self.ip.ptr()));
+                    return Ok(StepCallOutcome::RunOutOfStep);
                 }
                 *n -= 1;
                 match *self.instr() {
@@ -680,8 +678,10 @@ impl<'ctx, 'engine, 'func, HostData> Executor<'ctx, 'engine, 'func, HostData> {
         }
     }
 
-    fn sync_stack_ptr(&mut self) {
+    pub(crate) fn sync_stack_ptr(&mut self) {
         self.value_stack.sync();
+        // also need to update current frame pc.
+        self.frame.update_ip(self.ip);
     }
 
     fn call_func(&mut self, func: Func) -> Result<CallOutcome, TrapCode> {

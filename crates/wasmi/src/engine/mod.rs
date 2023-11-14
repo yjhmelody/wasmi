@@ -141,6 +141,7 @@ impl Engine {
     }
 
     /// Return the current pc if current call execution is not finished.
+    /// Return `None` if not started.
     pub fn current_pc(&self) -> Option<usize> {
         let engine = self.inner.lock();
         engine.current_pc
@@ -479,8 +480,14 @@ mod step {
             cache: &mut InstanceCache,
             n: &mut u64,
         ) -> Result<StepCallOutcome, TrapCode> {
-            Executor::new(&mut self.stack.values, ctx.as_context_mut(), cache, frame)
-                .execute_step(n)
+            let mut executor =
+                Executor::new(&mut self.stack.values, ctx.as_context_mut(), cache, frame);
+            let res = executor.execute_step(n);
+
+            // Note: it's import to update current value stack data.
+            executor.sync_stack_ptr();
+
+            res
         }
 
         /// Executes the given function `frame` and returns the step info result.
@@ -495,13 +502,8 @@ mod step {
             cache: &mut InstanceCache,
             n: Option<&mut u64>,
         ) -> Result<StepResult<()>, Trap> {
-            let n = match n {
-                None => {
-                    self.execute_wasm_func(ctx, frame, cache)?;
-                    return Ok(StepResult::Results(()));
-                }
-                Some(n) => n,
-            };
+            let mut max = u64::MAX;
+            let n = n.unwrap_or(&mut max);
 
             'outer: loop {
                 match self.execute_frame_step(ctx.as_context_mut(), frame, cache, n) {
@@ -511,7 +513,10 @@ mod step {
                                 *frame = caller;
                                 continue 'outer;
                             }
-                            None => return Ok(StepResult::Results(())),
+                            None => {
+                                self.update_pc(frame.ip());
+                                return Ok(StepResult::Results(()));
+                            }
                         }
                     }
                     Ok(StepCallOutcome::CallOutcome(CallOutcome::NestedCall(called_func))) => {
@@ -531,13 +536,14 @@ mod step {
                             }
                         }
                     }
-                    Ok(StepCallOutcome::RunOutOfStep(ptr)) => {
-                        let ip = InstructionPtr::with_ptr(ptr);
-                        let pc = self.code_map.get_offset(ip);
-                        self.current_pc = Some(pc);
+                    Ok(StepCallOutcome::RunOutOfStep) => {
+                        self.update_pc(frame.ip());
                         return Ok(StepResult::RunOutOfStep);
                     }
-                    Err(trap) => return Err(trap.into()),
+                    Err(trap) => {
+                        self.update_pc(frame.ip());
+                        return Err(trap.into());
+                    }
                 }
             }
         }
@@ -562,7 +568,13 @@ mod step {
             let mut frame = FuncFrame::new(inst_ptr, instance);
             let frame = &mut frame;
 
-            self.execute_wasm_func_step(ctx, frame, cache, n)
+            let res = self.execute_wasm_func_step(ctx, frame, cache, n)?;
+
+            Ok(res)
+        }
+        fn update_pc(&mut self, ip: InstructionPtr) {
+            let pc = self.code_map.get_offset(ip);
+            self.current_pc = Some(pc);
         }
 
         /// Resume to executes the code stopped at the last pc.
@@ -671,7 +683,7 @@ mod step {
 }
 
 use crate::{engine::code_map::InstructionPtr, func::FuncEntityInternal};
-pub use proof::{InstProofParams, ProofError};
+pub use proof::ProofError;
 
 mod proof {
     use super::*;
@@ -690,9 +702,7 @@ mod proof {
             InstructionProof,
             MemoryChunk,
             MemoryChunkSibling,
-            MemoryProof,
             MemoryTwoChunks,
-            TableProof,
         },
         AsContext,
         Instance,
@@ -704,7 +714,6 @@ mod proof {
         InstructionMerkle,
         MerkleConfig,
         MerkleHasher,
-        ProveData,
     };
     use alloc::vec::Vec;
     use core::{cmp, fmt, ops::Range};
@@ -778,15 +787,16 @@ mod proof {
             &self,
             ctx: impl AsContext,
             instance: Instance,
-            params: InstProofParams<Config>,
+            code_merkle: &CodeMerkle<Config::Hasher>,
+            instance_merkle: &InstanceMerkle<Config>,
         ) -> Result<InstructionProof<Config>, ProofError> {
             let engine = self.inner.lock();
-            engine.make_inst_proof(ctx, instance, params)
+            engine.make_inst_proof(ctx, instance, code_merkle, instance_merkle)
         }
 
         pub(crate) fn make_engine_proof<Hasher: MerkleHasher>(
             &self,
-            inst: Instruction,
+            inst: Option<Instruction>,
         ) -> EngineProof<Hasher> {
             let engine = self.inner.lock();
             engine.make_engine_proof(inst)
@@ -795,34 +805,6 @@ mod proof {
         /// Make an merkle for the total wasm code.
         pub(crate) fn make_code_merkle<Hasher: MerkleHasher>(&self) -> InstructionMerkle<Hasher> {
             self.inner.lock().make_code_merkle()
-        }
-    }
-
-    pub struct InstProofParams<'a, Config: MerkleConfig> {
-        pub instance_merkle: &'a InstanceMerkle<Config>,
-        pub code_merkle: &'a CodeMerkle<Config::Hasher>,
-    }
-
-    impl<'a, Config: MerkleConfig> InstProofParams<'a, Config> {
-        fn default_memory(&self) -> Result<&MemoryProof<Config>, ProofError> {
-            // Wasm module must import memory when meet these instruction.
-            self.instance_merkle
-                .memories
-                .first()
-                .ok_or(ProofError::MemoryNotFound)
-        }
-
-        fn default_table(&self) -> Result<&TableProof<Config::Hasher>, ProofError> {
-            // Wasm module must import memory when meet these instruction.
-            self.instance_merkle
-                .tables
-                .first()
-                .ok_or(ProofError::TableNotFound)
-        }
-
-        // we need to generate proof for current instruction.
-        fn get_inst_prove(&self, pc: usize) -> Result<ProveData<Config::Hasher>, ProofError> {
-            self.code_merkle.prove_pc(pc).ok_or(ProofError::IllegalPc)
         }
     }
 
@@ -842,14 +824,15 @@ mod proof {
             &self,
             ctx: impl AsContext,
             instance: Instance,
-            params: InstProofParams<Config>,
+            code_merkle: &CodeMerkle<Config::Hasher>,
+            instance_merkle: &InstanceMerkle<Config>,
         ) -> Result<InstructionProof<Config>, ProofError> {
-            let mut cache = InstanceCache::from(instance);
             let current_pc = self.current_pc.ok_or(ProofError::IllegalPc)?;
-            let inst_prove = params.get_inst_prove(current_pc)?;
+            let inst_prove = code_merkle.get_inst_prove(current_pc)?;
             // TODO: if we could get instruction outside.
             // We could refactor the process by move out code_merkle.
             let inst = self.code_map.insts[current_pc];
+            let mut cache = InstanceCache::from(instance);
             let extra = match inst {
                 Instruction::Call(func_idx) => {
                     let func_idx = func_idx.into_inner();
@@ -864,7 +847,7 @@ mod proof {
                             )
                         });
 
-                    self.make_call_proof(ctx.as_context(), params, func, func_idx as usize)?
+                    self.make_call_proof(ctx.as_context(), code_merkle, func, func_idx as usize)?
                 }
 
                 Instruction::CallIndirect(signature_index) => {
@@ -895,14 +878,18 @@ mod proof {
                         return Err(TrapCode::BadSignature).map_err(Into::into);
                     }
 
-                    self.make_call_indirect_proof(ctx.as_context(), params, func, func_index)?
+                    self.make_call_indirect_proof(
+                        ctx.as_context(),
+                        instance_merkle,
+                        func,
+                        func_index,
+                    )?
                 }
                 Instruction::GlobalSet(idx) | Instruction::GlobalGet(idx) => {
                     let idx = idx.into_inner();
                     let value = cache.get_global_value(ctx.as_context(), idx);
 
-                    let prove_data = params
-                        .instance_merkle
+                    let prove_data = instance_merkle
                         .globals
                         .as_ref()
                         .ok_or(ProofError::GlobalsNotExist)?
@@ -919,7 +906,7 @@ mod proof {
                 | Instruction::I32Store8(offset)
                 | Instruction::I64Store8(offset) => {
                     // Wasm module must import memory when meet these instruction.
-                    let memory_merkle = &params.default_memory()?.merkle;
+                    let memory_merkle = &instance_merkle.default_memory()?.merkle;
                     let is_store = Self::is_store_inst(inst);
                     let mut idx = self.get_memory_index(offset, is_store);
                     idx /= memory_chunk_size::<Config>();
@@ -949,7 +936,7 @@ mod proof {
                 | Instruction::I64Store16(offset)
                 | Instruction::I64Store32(offset) => {
                     // Wasm module must import memory when meet these instruction.
-                    let memory_merkle = &params.default_memory()?.merkle;
+                    let memory_merkle = &instance_merkle.default_memory()?.merkle;
                     let is_store = Self::is_store_inst(inst);
                     let mut idx = self.get_memory_index(offset, is_store);
 
@@ -987,14 +974,13 @@ mod proof {
                 }
                 Instruction::MemoryGrow | Instruction::MemorySize => {
                     // Wasm module must import memory when meet these instruction.
-                    let page = params.default_memory()?.page.current_pages;
+                    let page = instance_merkle.default_memory()?.page.current_pages;
                     ExtraProof::CurrentPage(page)
                 }
                 _ => ExtraProof::Empty,
             };
 
             Ok(InstructionProof {
-                current_pc: current_pc as u32,
                 inst,
                 inst_prove,
                 extra,
@@ -1018,7 +1004,7 @@ mod proof {
 
         fn make_engine_proof<Hasher: MerkleHasher>(
             &self,
-            cur_inst: Instruction,
+            cur_inst: Option<Instruction>,
         ) -> EngineProof<Hasher> {
             // TODO(opt): directly make proof and skip snapshot
             let snapshot = &self.make_snapshot();
@@ -1028,7 +1014,7 @@ mod proof {
         fn make_call_proof<Config: MerkleConfig>(
             &self,
             store: impl AsContext,
-            params: InstProofParams<Config>,
+            code_merkle: &CodeMerkle<Config::Hasher>,
             func: Func,
             func_index: usize,
         ) -> Result<ExtraProof<Config>, ProofError> {
@@ -1037,8 +1023,7 @@ mod proof {
                 .resolve_func_type(func.signature(store.as_context()), |func_type| {
                     func_type.clone()
                 });
-            let prove_data = params
-                .code_merkle
+            let prove_data = code_merkle
                 .prove_func_index(func_index)
                 .expect("func index in Call instruction must be legal; qed");
 
@@ -1055,7 +1040,7 @@ mod proof {
         fn make_call_indirect_proof<Config: MerkleConfig>(
             &self,
             store: impl AsContext,
-            params: InstProofParams<Config>,
+            instance_merkle: &InstanceMerkle<Config>,
             func: Func,
             func_index: usize,
         ) -> Result<ExtraProof<Config>, ProofError> {
@@ -1064,7 +1049,7 @@ mod proof {
                 .resolve_func_type(func.signature(store.as_context()), |func_type| {
                     func_type.clone()
                 });
-            let table_merkle = &params
+            let table_merkle = &instance_merkle
                 .default_table()
                 .expect("Default table must exist; qed")
                 .merkle;
@@ -1198,6 +1183,7 @@ impl EngineInner {
     where
         Params: CallParams,
     {
+        self.current_pc.take();
         self.stack.clear();
         self.stack.values.extend(params.call_params());
     }

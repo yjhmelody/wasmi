@@ -4,6 +4,7 @@ use crate::{
     proof::MemoryPage,
     snapshot::{InstanceSnapshot, MemorySnapshot, TableElementSnapshot, TableSnapshot},
     GlobalEntity,
+    ProofError,
 };
 use accel_merkle::{
     empty_chunk,
@@ -27,6 +28,18 @@ where
     pub globals: Option<GlobalMerkle<Config::Hasher>>,
     pub memories: Vec<MemoryProof<Config>>,
     pub tables: Vec<TableProof<Config::Hasher>>,
+}
+
+impl<Config: MerkleConfig> InstanceMerkle<Config> {
+    pub(crate) fn default_memory(&self) -> Result<&MemoryProof<Config>, ProofError> {
+        // Wasm module must import memory when meet these instruction.
+        self.memories.first().ok_or(ProofError::MemoryNotFound)
+    }
+
+    pub(crate) fn default_table(&self) -> Result<&TableProof<Config::Hasher>, ProofError> {
+        // Wasm module must import memory when meet these instruction.
+        self.tables.first().ok_or(ProofError::TableNotFound)
+    }
 }
 
 #[derive(Debug)]

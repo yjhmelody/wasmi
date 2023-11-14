@@ -3,7 +3,7 @@ use core::fmt::Debug;
 use codec::{Codec, Encode};
 
 /// The total config for merkle tree details.
-pub trait MerkleConfig: Clone + Debug + PartialEq + Eq {
+pub trait MerkleConfig: Send + Sync + Clone + Debug + PartialEq + Eq {
     /// The hasher for memory chunk.
     type Hasher: MerkleHasher;
 

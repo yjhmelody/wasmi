@@ -19,10 +19,10 @@ use super::{
     TableIdx,
 };
 use crate::{
-    proof::{CodeMerkle, CodeProofBuilder, OspProofBuilder},
+    proof::{InstProofBuilder, MerkleBuilder, StateProofBuilder},
     snapshot::SnapshotBuilder,
 };
-use accel_merkle::{MerkleConfig, MerkleHasher};
+use accel_merkle::MerkleConfig;
 use core::{
     marker::PhantomData,
     sync::atomic::{AtomicU32, Ordering},
@@ -118,31 +118,42 @@ impl<T> Store<T> {
         SnapshotBuilder { store: self }
     }
 
-    /// Returns a code proof builder for wasm store.
-    pub fn code_proof<Hasher: MerkleHasher>(
+    /// Returns a wasm merkle builder for wasm store.
+    pub fn merkle_builder<Config: MerkleConfig>(
         &self,
         instance: Instance,
-    ) -> CodeProofBuilder<T, Hasher> {
+    ) -> MerkleBuilder<T, Config> {
         let instance_entity = self.resolve_instance(instance);
-        CodeProofBuilder {
+        MerkleBuilder {
             store: self,
+            instance,
             instance_entity,
             _hasher: PhantomData,
         }
     }
 
-    /// Returns a osp proof builder for wasm store.
-    pub fn osp_proof<'a, Config: MerkleConfig>(
-        &'a self,
-        code_merkle: &'a CodeMerkle<Config::Hasher>,
+    /// Returns a wasm state proof builder for wasm store.
+    pub fn state_proof<Config: MerkleConfig>(
+        &self,
         instance: Instance,
-    ) -> OspProofBuilder<'a, T, Config> {
+    ) -> StateProofBuilder<T, Config> {
         let instance_entity = self.resolve_instance(instance);
-        OspProofBuilder {
+        StateProofBuilder {
+            store: self,
+            instance_entity,
+            _config: PhantomData,
+        }
+    }
+
+    /// Returns a wasm inst proof builder for wasm store.
+    pub fn inst_proof<Config: MerkleConfig>(
+        &self,
+        instance: Instance,
+    ) -> InstProofBuilder<T, Config> {
+        InstProofBuilder {
             store: self,
             instance,
-            instance_entity,
-            code_merkle,
+            _config: PhantomData,
         }
     }
 

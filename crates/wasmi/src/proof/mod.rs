@@ -9,7 +9,7 @@ pub use self::{engine::*, inst::*, instance::*, store::*};
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 
-use crate::{AsContext, Engine, Func};
+use crate::{AsContext, Engine, Func, ProofError};
 use accel_merkle::{
     FuncMerkle,
     InstructionMerkle,
@@ -18,12 +18,6 @@ use accel_merkle::{
     OutputOf,
     ProveData,
 };
-
-/// Prefix versioned proof for osp.
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub enum VersionedCodeProof<Hasher: MerkleHasher> {
-    V0(CodeProof<Hasher>),
-}
 
 /// The wasm code related proof.
 ///
@@ -36,17 +30,15 @@ pub struct CodeProof<Hasher: MerkleHasher> {
     pub func_root: Hasher::Output,
 }
 
-/// Prefix versioned proof for osp.
+/// The complete wasm state proof designed for osp.
+///
+/// This is version 0.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub enum VersionedOspProof<Config: MerkleConfig> {
-    V0(OspProof<Config>),
-}
-
-/// The complete osp proof data to be input to osp executor.
-#[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
-pub struct OspProof<Config: MerkleConfig> {
+pub struct WasmStateProof<Config: MerkleConfig> {
     /// Current program status.
     pub status: Status,
+    /// The current pc.
+    pub current_pc: u32,
     /// The root of all wasm globals.
     pub globals_root: Option<OutputOf<Config>>,
     /// The roots of wasm table.
@@ -55,8 +47,6 @@ pub struct OspProof<Config: MerkleConfig> {
     pub memory_roots: Vec<OutputOf<Config>>,
     /// The engine proof.
     pub engine_proof: EngineProof<Config::Hasher>,
-    /// The inst special proof.
-    pub inst_proof: InstructionProof<Config>,
 }
 
 /// The status of program.
@@ -67,26 +57,31 @@ pub enum Status {
     Trapped,
 }
 
-impl<Config: MerkleConfig> OspProof<Config> {
-    /// Compute the finally proof hash.
-    pub fn hash(&self) -> OutputOf<Config> {
-        let engine_proof = self.engine_proof.hash();
-        Config::Hasher::hash_of(&OspProofRoots::<'_, Config::Hasher> {
-            globals_root: &self.globals_root,
-            table_roots: &self.table_roots,
-            memory_roots: &self.memory_roots,
-            engine_proof: &engine_proof,
-        })
-    }
-}
-
-/// The roots of different wasm part.
+/// The proof of wasm state.
 #[derive(Encode)]
-struct OspProofRoots<'a, T: MerkleHasher> {
+pub struct WasmState<'a, T: MerkleHasher> {
+    status: Status,
+    current_pc: u32,
     globals_root: &'a Option<T::Output>,
     table_roots: &'a Vec<T::Output>,
     memory_roots: &'a Vec<T::Output>,
-    engine_proof: &'a T::Output,
+    call_stack: T::Output,
+    value_stack: T::Output,
+}
+
+impl<Config: MerkleConfig> WasmStateProof<Config> {
+    /// Compute the finally proof hash.
+    pub fn hash(&self) -> OutputOf<Config> {
+        Config::Hasher::hash_of(&WasmState::<'_, Config::Hasher> {
+            status: self.status,
+            current_pc: self.current_pc,
+            globals_root: &self.globals_root,
+            table_roots: &self.table_roots,
+            memory_roots: &self.memory_roots,
+            call_stack: self.engine_proof.call_stack.hash(),
+            value_stack: self.engine_proof.value_stack.hash(),
+        })
+    }
 }
 
 /// This contains some merkle trees which will never be changed if code is not updated.
@@ -95,8 +90,15 @@ pub struct CodeMerkle<Hasher>
 where
     Hasher: MerkleHasher,
 {
-    inst: InstructionMerkle<Hasher>,
-    func: FuncMerkle<Hasher>,
+    pub(crate) inst: InstructionMerkle<Hasher>,
+    pub(crate) func: FuncMerkle<Hasher>,
+}
+
+impl<Hasher: MerkleHasher> CodeMerkle<Hasher> {
+    // we need to generate proof for current instruction.
+    pub(crate) fn get_inst_prove(&self, pc: usize) -> Result<ProveData<Hasher>, ProofError> {
+        self.prove_pc(pc).ok_or(ProofError::IllegalPc)
+    }
 }
 
 impl<Hasher> CodeMerkle<Hasher>
@@ -112,11 +114,13 @@ where
     }
 
     /// Returns the instruction merkle.
+    #[inline]
     pub(crate) fn inst(&self) -> &InstructionMerkle<Hasher> {
         &self.inst
     }
 
     /// Returns the function merkle.
+    #[inline]
     pub(crate) fn func(&self) -> &FuncMerkle<Hasher> {
         &self.func
     }

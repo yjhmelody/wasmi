@@ -1,6 +1,8 @@
 use accel_merkle::{DefaultMemoryConfig, MerkleKeccak256};
 use codec::{Decode, Encode};
 use wasmi::{
+    osp::ExecError,
+    proof::Status,
     snapshot::*,
     AsContextMut,
     Engine,
@@ -13,6 +15,8 @@ use wasmi::{
     Store,
 };
 use wasmi_core::Value;
+
+type Config = DefaultMemoryConfig<MerkleKeccak256>;
 
 fn setup_module<T>(store: &mut Store<T>, wat: impl AsRef<str>) -> Result<Module, Error> {
     let wasm = wat::parse_str(wat).expect("Illegal wat");
@@ -55,12 +59,13 @@ fn last_return_inst_call_stack_proof_should_work() {
     let instance = instantiate(&mut store, &module).unwrap();
 
     let code_merkle = store
-        .code_proof::<MerkleKeccak256>(instance)
+        .merkle_builder::<DefaultMemoryConfig<MerkleKeccak256>>(instance)
         .make_code_merkle();
 
     let inputs = vec![Value::I32(1), Value::I32(2)];
     let mut outputs = vec![Value::I32(0)];
 
+    // total 4 steps
     let mut steps = 3;
     let res = call_step(
         &mut store,
@@ -74,12 +79,174 @@ fn last_return_inst_call_stack_proof_should_work() {
 
     assert_run_out_of_step(&res);
 
-    let mut proof = store
-        .osp_proof::<DefaultMemoryConfig<MerkleKeccak256>>(&code_merkle, instance)
-        .make_osp_proof_v0()
+    unsafe {
+        dbg!(&engine.current_inst().map(|i| *i.get()));
+    }
+    dbg!(&engine.current_pc());
+
+    let merkle_builder = store.merkle_builder::<Config>(instance);
+    let merkle = merkle_builder.build();
+
+    let mut state_proof = merkle.make_state_proof(&store, Status::Running);
+    let inst_proof = merkle.make_inst_proof(&store).unwrap();
+    state_proof
+        .run(&merkle.code_merkle.code_proof(), &inst_proof)
         .unwrap();
 
-    proof.run(&code_merkle.code_proof()).unwrap();
+    // reset state
+    engine.clear();
+
+    // total 4 steps
+    let mut steps = 4;
+    call_step(
+        &mut store,
+        instance,
+        "add",
+        &inputs,
+        &mut outputs,
+        &mut steps,
+    )
+    .unwrap();
+
+    unsafe {
+        dbg!(&engine.current_inst().map(|i| *i.get()));
+    }
+    dbg!(&engine.current_pc());
+
+    let merkle_builder = store.merkle_builder::<Config>(instance);
+    let merkle = merkle_builder.build();
+
+    let mut state_proof = merkle.make_state_proof(&store, Status::Finished);
+    let inst_proof = merkle.make_inst_proof(&store).unwrap();
+    // finished or trapped could not run anymore
+    state_proof
+        .run(&code_merkle.code_proof(), &inst_proof)
+        .unwrap_err();
+}
+
+#[test]
+fn test_finished_proof() {
+    let wat = r#"
+(module
+  (func (export "finished") (param $x i32) (param $y i32) (result i32) (local.get $x))
+)
+    "#;
+    let engine = Engine::default();
+    let mut store = Store::new(&engine, ());
+    let module = setup_module(&mut store, wat).unwrap();
+    let instance = instantiate(&mut store, &module).unwrap();
+
+    let funcs = module
+        .exports()
+        .map(|exp| exp.name())
+        .collect::<Vec<&str>>();
+
+    const MAX_STEP: u64 = 1000_0000;
+    for f in funcs {
+        // 0. get expected result
+        let mut expected_result = vec![Value::I32(0)];
+
+        let inputs = vec![Value::I32(2), Value::I32(0)];
+        let mut max_step = MAX_STEP;
+        call_step(
+            &mut store,
+            instance,
+            f,
+            &inputs,
+            &mut expected_result,
+            &mut max_step,
+        )
+        .unwrap();
+
+        let mut step = MAX_STEP - max_step;
+        println!("function {:?} run {:?} steps", f, step);
+
+        let mut result = vec![Value::I32(0)];
+        call_step(&mut store, instance, f, &inputs, &mut result, &mut step).unwrap();
+
+        // gen proof
+        let code_merkle = store
+            .merkle_builder::<DefaultMemoryConfig<MerkleKeccak256>>(instance)
+            .make_code_merkle();
+
+        let merkle_builder = store.merkle_builder::<Config>(instance);
+        let merkle = merkle_builder.build();
+
+        let mut state_proof = merkle.make_state_proof(&store, Status::Finished);
+        let inst_proof = merkle.make_inst_proof(&store).unwrap();
+        // finished or trapped could not run anymore
+        state_proof
+            .run(&code_merkle.code_proof(), &inst_proof)
+            .unwrap_err();
+
+        // finished or trapped could not run anymore
+        let err = state_proof
+            .run(&code_merkle.code_proof(), &inst_proof)
+            .unwrap_err();
+        assert!(matches!(err, ExecError::AlreadyFinished));
+    }
+}
+
+#[test]
+fn test_trapped_proof() {
+    let wat = r#"
+(module
+  (func (export "div_s") (param $x i32) (param $y i32) (result i32) (i32.div_s (local.get $x) (local.get $y)))
+  (func (export "div_u") (param $x i32) (param $y i32) (result i32) (i32.div_u (local.get $x) (local.get $y)))
+  (func (export "trapped") (param $x i32) (param $y i32) (result i32) (unreachable))
+)
+    "#;
+    let engine = Engine::default();
+    let mut store = Store::new(&engine, ());
+    let module = setup_module(&mut store, wat).unwrap();
+    let instance = instantiate(&mut store, &module).unwrap();
+
+    let funcs = module
+        .exports()
+        .map(|exp| exp.name())
+        .collect::<Vec<&str>>();
+
+    const MAX_STEP: u64 = 1000_0000;
+    for f in funcs {
+        // 0. get expected result
+        let mut expected_result = vec![Value::I32(0)];
+
+        let inputs = vec![Value::I32(2), Value::I32(0)];
+        let mut max_step = MAX_STEP;
+        let err = call_step(
+            &mut store,
+            instance,
+            f,
+            &inputs,
+            &mut expected_result,
+            &mut max_step,
+        )
+        .unwrap_err();
+
+        let mut step = MAX_STEP - max_step;
+        println!("function {:?} run {:?} steps", f, step);
+        assert!(matches!(err, Error::Trap(..)));
+
+        let mut result = vec![Value::I32(0)];
+        let err = call_step(&mut store, instance, f, &inputs, &mut result, &mut step).unwrap_err();
+        assert!(matches!(err, Error::Trap(..)));
+
+        // gen proof
+        let code_merkle = store
+            .merkle_builder::<DefaultMemoryConfig<MerkleKeccak256>>(instance)
+            .make_code_merkle();
+
+        let merkle_builder = store.merkle_builder::<Config>(instance);
+        let merkle = merkle_builder.build();
+
+        let mut state_proof = merkle.make_state_proof(&store, Status::Trapped);
+        let inst_proof = merkle.make_inst_proof(&store).unwrap();
+        // finished or trapped could not run anymore
+        let err = state_proof
+            .run(&code_merkle.code_proof(), &inst_proof)
+            .unwrap_err();
+        assert!(matches!(err, ExecError::AlreadyTrapped));
+    }
 }
 
 // TODO: split the test into some small tests.
@@ -149,9 +316,12 @@ fn test_snapshot_and_proof() {
 
         assert!(matches!(res, StepResult::Results(..)));
 
+        engine.clear();
+        assert_eq!(engine.current_pc(), None);
         let mut result = vec![Value::I32(0)];
         // 1. only input params
         let res = call_step(&mut store, instance, f, &inputs, &mut result, &mut 0).unwrap();
+        assert!(matches!(engine.current_pc(), Some(..)));
         assert_run_out_of_step(&res);
 
         // 2. make snapshot for instance.
@@ -164,13 +334,16 @@ fn test_snapshot_and_proof() {
         let snapshot_engine = EngineSnapshot::decode(&mut &snapshot_engine[..]).unwrap();
 
         let code_merkle = store
-            .code_proof::<MerkleKeccak256>(instance)
+            .merkle_builder::<DefaultMemoryConfig<MerkleKeccak256>>(instance)
             .make_code_merkle();
+        let code_proof = code_merkle.code_proof();
 
-        let mut proof = store
-            .osp_proof::<DefaultMemoryConfig<MerkleKeccak256>>(&code_merkle, instance)
-            .make_osp_proof_v0()
-            .unwrap();
+        let merkle_builder = store.merkle_builder::<Config>(instance);
+        let merkle = merkle_builder.build();
+
+        let mut state_proof_1 = merkle.make_state_proof(&store, Status::Running);
+        let inst_proof_1 = merkle.make_inst_proof(&store).unwrap();
+
         // creates new engine/store
         let engine = Engine::default();
         let mut store = Store::new(&engine, ());
@@ -184,12 +357,12 @@ fn test_snapshot_and_proof() {
 
         let mut result = vec![Value::I32(0)];
 
-        let proof2 = store
-            .osp_proof::<DefaultMemoryConfig<MerkleKeccak256>>(&code_merkle, instance)
-            .make_osp_proof_v0()
-            .unwrap();
+        let merkle_builder = store.merkle_builder::<Config>(instance);
+        let merkle = merkle_builder.build();
+        let state_proof_2 = merkle.make_state_proof(&store, Status::Running);
+
         // ensure two instance have the same proof in the first step.
-        assert_eq!(proof, proof2);
+        assert_eq!(state_proof_1, state_proof_2);
 
         let current_pc = engine.current_pc().unwrap();
         // run one step.
@@ -200,21 +373,15 @@ fn test_snapshot_and_proof() {
 
         assert_eq!(current_pc + 1, engine.current_pc().unwrap());
 
-        let code_proof = code_merkle.code_proof();
-        let proof3 = store
-            .osp_proof::<DefaultMemoryConfig<MerkleKeccak256>>(&code_merkle, instance)
-            .make_osp_proof_v0()
-            .unwrap();
+        let merkle_builder = store.merkle_builder::<Config>(instance);
+        let merkle = merkle_builder.build();
+        let state_proof_3 = merkle.make_state_proof(&store, Status::Running);
 
-        println!("proof1: {proof:?}");
-        proof.run(&code_proof).unwrap();
-
-        let proof_hash_1 = proof.hash();
-        let proof_hash_3 = proof3.hash();
-        println!("proof1: {proof:?}");
-        println!("proof3: {proof3:?}");
-        // ensure osp proof equal to proof generated by `execute_step_at_pc`.
-        assert_eq!(proof_hash_1, proof_hash_3);
+        state_proof_1.run(&code_proof, &inst_proof_1).unwrap();
+        let state_proof_hash_1 = state_proof_1.hash();
+        let proof_hash_3 = state_proof_3.hash();
+        // ensure hash(osp(proof1)) == hash(proof3)
+        assert_eq!(state_proof_hash_1, proof_hash_3);
 
         engine
             .resume_execute_step_with_result(
@@ -226,6 +393,8 @@ fn test_snapshot_and_proof() {
             .unwrap();
 
         assert_eq!(result, expected_result, "`{}` failed", f);
+
+        assert!(matches!(engine.current_pc(), Some(..)));
 
         let mut result2 = vec![Value::I32(i32::MAX)];
         engine
@@ -241,6 +410,7 @@ fn test_snapshot_and_proof() {
         assert_ne!(result2, expected_result, "`{}` failed", f);
     }
 }
+
 fn assert_run_out_of_step(res: &StepResult<()>) {
     match res {
         StepResult::Results(()) => unreachable!(),

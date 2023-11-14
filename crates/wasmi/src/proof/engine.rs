@@ -49,18 +49,21 @@ struct PostEngineProof<'a, T: MerkleHasher> {
 
 impl<Hasher: MerkleHasher> EngineProof<Hasher> {
     /// Generate engine proof for current snapshot according to current instruction.
-    pub fn make(snapshot: &EngineSnapshot, cur_inst: Instruction) -> Self {
+    pub fn make(snapshot: &EngineSnapshot, cur_inst: Option<Instruction>) -> Self {
         let remain_size = match cur_inst {
-            Instruction::LocalTee { local_depth } | Instruction::LocalGet { local_depth } => {
-                local_depth.into_inner()
-            }
-            // local.set need pop top value first
-            Instruction::LocalSet { local_depth } => local_depth.into_inner() + 1,
+            Some(cur_inst) => match cur_inst {
+                Instruction::LocalTee { local_depth } | Instruction::LocalGet { local_depth } => {
+                    local_depth.into_inner()
+                }
+                // local.set need pop top value first
+                Instruction::LocalSet { local_depth } => local_depth.into_inner() + 1,
 
-            Instruction::Return(drop_keep) => drop_keep.keep() + drop_keep.drop(),
-            // TODO(opt): return 0 if equal to zero.
-            Instruction::ReturnIfNez(drop_keep) => drop_keep.keep() + drop_keep.drop(),
-            _ => 3,
+                Instruction::Return(drop_keep) => drop_keep.keep() + drop_keep.drop(),
+                // TODO(opt): return 0 if equal to zero.
+                Instruction::ReturnIfNez(drop_keep) => drop_keep.keep() + drop_keep.drop(),
+                _ => 3,
+            },
+            None => 1,
         };
         let value_stack = ValueStackProof::make(&snapshot.values, remain_size);
         let call_stack = CallStackProof::make(&snapshot.frames, 1);
@@ -69,23 +72,11 @@ impl<Hasher: MerkleHasher> EngineProof<Hasher> {
             call_stack,
         }
     }
-
-    /// Returns the hash of engine proof data.
-    pub fn hash(&self) -> Hasher::Output {
-        let value_stack = self.value_stack.hash();
-        let call_stack = self.call_stack.hash();
-        Hasher::hash_of(&PostEngineProof::<'_, Hasher> {
-            value_stack: &value_stack,
-            call_stack: &call_stack,
-        })
-    }
 }
 
 /// Proof data for the execution of the instruction.
 #[derive(Encode, Decode, Debug, Clone, Eq, PartialEq)]
 pub struct InstructionProof<Config: MerkleConfig> {
-    /// The current pc.
-    pub current_pc: u32,
     /// The current instruction.
     pub inst: Instruction,
     /// The prove current instruction is legal.

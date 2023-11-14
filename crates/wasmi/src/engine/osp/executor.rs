@@ -16,10 +16,11 @@ use crate::{
         CodeProof,
         ExtraProof,
         FuncNode,
-        OspProof,
+        InstructionProof,
         Status,
         ValueStackProof,
         WasmFuncHeader,
+        WasmStateProof,
     },
     snapshot::FuncFrameSnapshot,
 };
@@ -48,6 +49,8 @@ pub enum ExecError {
     IllegalExtraProof,
     IllegalMemoryTwoChunks,
     IllegalMemoryChunk,
+    AlreadyFinished,
+    AlreadyTrapped,
 }
 
 #[cfg(feature = "std")]
@@ -76,11 +79,17 @@ impl fmt::Display for ExecError {
             ExecError::DefaultTableNotFound => {
                 write!(f, "default table not exist(for call_indirect)")
             }
+            ExecError::AlreadyFinished => {
+                write!(f, "The program is already finished")
+            }
+            ExecError::AlreadyTrapped => {
+                write!(f, "The program is already trapped")
+            }
         }
     }
 }
 
-impl<Config> OspProof<Config>
+impl<Config> WasmStateProof<Config>
 where
     Config: MerkleConfig,
 {
@@ -88,22 +97,23 @@ where
     pub(crate) fn executor<'a>(
         &'a mut self,
         code_proof: &'a CodeProof<Config::Hasher>,
+        inst_proof: &'a InstructionProof<Config>,
     ) -> OspExecutor<'a, Config> {
         OspExecutor::<Config> {
+            status: &mut self.status,
+            current_pc: &mut self.current_pc,
             call_stack: &mut self.engine_proof.call_stack,
             value_stack: &mut self.engine_proof.value_stack,
-
-            inst_root: &code_proof.inst_root,
-            func_root: &code_proof.func_root,
             globals_root: &mut self.globals_root,
             table_roots: &self.table_roots,
             memory_roots: &mut self.memory_roots,
-            status: &mut self.status,
 
-            current_pc: &mut self.inst_proof.current_pc,
-            inst: self.inst_proof.inst,
-            inst_prove: &self.inst_proof.inst_prove,
-            extra: &self.inst_proof.extra,
+            inst_root: &code_proof.inst_root,
+            func_root: &code_proof.func_root,
+
+            inst: inst_proof.inst,
+            inst_prove: &inst_proof.inst_prove,
+            extra: &inst_proof.extra,
         }
     }
 
@@ -114,8 +124,12 @@ where
     /// # Error
     ///
     /// unexpected proof data or state.
-    pub fn run(&mut self, code_proof: &CodeProof<Config::Hasher>) -> Result<()> {
-        self.executor(code_proof).execute()
+    pub fn run(
+        &mut self,
+        code_proof: &CodeProof<Config::Hasher>,
+        inst_proof: &InstructionProof<Config>,
+    ) -> Result<()> {
+        self.executor(code_proof, inst_proof).execute()
     }
 }
 
@@ -125,24 +139,30 @@ where
     Config: MerkleConfig,
 {
     status: &'a mut Status,
+    current_pc: &'a mut u32,
     call_stack: &'a mut CallStackProof<Config::Hasher>,
     value_stack: &'a mut ValueStackProof<Config::Hasher>,
-
-    inst_root: &'a OutputOf<Config>,
-    func_root: &'a OutputOf<Config>,
     globals_root: &'a mut Option<OutputOf<Config>>,
     table_roots: &'a [OutputOf<Config>],
     memory_roots: &'a mut [OutputOf<Config>],
 
-    current_pc: &'a mut u32,
+    inst_root: &'a OutputOf<Config>,
+    func_root: &'a OutputOf<Config>,
+
     inst: Instruction,
     inst_prove: &'a ProveData<Config::Hasher>,
     extra: &'a ExtraProof<Config>,
 }
 
 impl<'a, Config: MerkleConfig> OspExecutor<'a, Config> {
-    pub fn execute(&mut self) -> Result<()> {
+    fn execute(&mut self) -> Result<()> {
         use Instruction as Instr;
+
+        match self.status {
+            Status::Trapped => return Err(ExecError::AlreadyTrapped),
+            Status::Finished => return Err(ExecError::AlreadyFinished),
+            _ => {}
+        };
         // pre-checks
         self.prove_inst()?;
 
